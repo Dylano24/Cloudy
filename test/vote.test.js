@@ -259,14 +259,13 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
-  assert.match(card.components[0].content, /^### Vote started\n• Press a number below to vote\.\n• Press another number to change your vote\.\n• Press \*\*Preview\*\* to see the picture of a choice\.$/);
+  assert.match(card.components[0].content, /^### Vote started\n• Press a number below to vote\.\n• Press another number to change your vote\.\n• Press \*\*Preview\*\* to see the pictures\.$/);
   assert.equal(card.components[2].content, '**Question**\nChoose your map');
   assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
-  // A Preview button beside each choice that has a picture.
+  // All choices tight in one block, like Results, with one Preview beside them.
   const previews = card.components.flatMap(part => (part.type === 9 && part.accessory?.type === 2
     ? [[part.components[0].content, part.accessory.custom_id, part.accessory.label]] : []));
-  assert.deepEqual(previews, [['1️⃣ **DZ West**', 'vote_media:0', 'Preview'], ['3️⃣ **DZ South**', 'vote_media:2', 'Preview']]);
-  assert.ok(card.components.some(part => part.type === 10 && part.content === '2️⃣ **DZ East**'), 'no picture: no button');
+  assert.deepEqual(previews, [['**Choices**\n1️⃣ **DZ West**\n2️⃣ **DZ East**\n3️⃣ **DZ South**', 'vote_media:all', 'Preview']]);
   assert.doesNotMatch(JSON.stringify(card), /vote-bars/, 'no bars');
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
@@ -441,7 +440,7 @@ test('Preview shows the picture privately under the vote with the option name, f
   assert.equal(preview.answer.flags, 64, 'private');
   assert.equal(preview.deferred, undefined, 'answered in one step: no thinking reply that is filled in later');
   const embed = preview.answer.embeds[0];
-  assert.equal(embed.description, '**DZ East**');
+  assert.equal(embed.description, '2️⃣ **DZ East**', 'its number and name');
   assert.deepEqual(fetched, ['https://cdn.discordapp.com/attachments/1/2/option2.png?ex=1']);
   assert.equal(embed.image.url, 'attachment://option2.png', 'sent as a file: Discord knows its size at once');
   assert.equal(preview.answer.files[0].name, 'option2.png');
@@ -635,4 +634,32 @@ test('the card bar is a picture in steps of 5%: the same picture (and link) unti
   assert.equal(name(0.5), 'bar_10.png');
   assert.equal(name(1), 'bar_20.png');
   assert.match(voteBarPicture(0.5), /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-bars\/bar_10\.png$/, 'a fixed link');
+});
+
+test('the one Preview beside the choices shows every picture, each with its number and name', async () => {
+  forgetVotePreviews();
+  const w = world();
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    uploadPictures: async (client, guild, channel, files) => ({
+      links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/7/7/${file.name}?ex=1` : null)),
+      media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+    }),
+  };
+  await create(w, { question: 'Map?', option1: 'West', option2: 'East', option3: 'South' }, {
+    files: {
+      media1: { url: 'https://cdn.discordapp.com/a/w.png', name: 'w.png', contentType: 'image/png', size: 10 },
+      media3: { url: 'https://cdn.discordapp.com/a/s.png', name: 's.png', contentType: 'image/png', size: 10 },
+    },
+    deps,
+  });
+  const preview = { id: 'pall', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
+    reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
+  await votePreview.execute(preview, w.client, ['all'], { fetchImpl: async () => ({ ok: false }), shrink: keepAsIs });
+  assert.equal(preview.answer.flags, 64, 'private');
+  assert.deepEqual(preview.answer.embeds.map(embed => [embed.description, embed.image.url, Boolean(embed.footer)]), [
+    ['1️⃣ **West**', 'attachment://option1.png', false],
+    ['3️⃣ **South**', 'attachment://option3.png', true],
+  ], 'only options with a picture; the footer once, at the end');
+  assert.deepEqual(preview.answer.files.map(file => file.name), ['option1.png', 'option3.png']);
 });
