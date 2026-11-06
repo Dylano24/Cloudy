@@ -202,7 +202,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Most votes\*\*\nB\n\*\*Results\*\*\n1️⃣ A · 0 votes\n2️⃣ B · 1 vote\n\*\*Total votes\*\*\n1\n\*\*Ended\*\*\n<t:\d+:f>$/);
+  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Total\*\*\n1 vote\n\*\*Results\*\*\n2️⃣ 100\.00% \(1 vote\) - B\n1️⃣ 0\.00% \(0 votes\) - A\n\*\*Ended\*\*\n<t:\d+:f>\n\*\*Mode\*\*\nSingle votes only$/);
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes, /mapvote) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -593,9 +593,8 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   const result = w.sent[0].reply;
   assert.deepEqual(result.files.map(file => file.name), ['most-votes-2.png'], 'the winner\'s picture goes with the result');
   const card = json(result.components[0]);
-  assert.match(card.components[0].content, /\*\*Most votes\*\*\nDZ East$/);
-  assert.equal(card.components[1].items[0].media.url, 'attachment://most-votes-2.png', 'its picture right under it');
-  assert.match(card.components[2].content, /^\*\*Results\*\*\n1️⃣ DZ West · 1 vote\n2️⃣ DZ East · 2 votes/);
+  assert.match(card.components[0].content, /\*\*Results\*\*\n2️⃣ 66\.67% \(2 votes\) - DZ East\n1️⃣ 33\.33% \(1 vote\) - DZ West$/);
+  assert.equal(card.components[1].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture under the results');
   assert.equal(w.sent[0].edits.at(-1).components.length, 1, 'the vote itself has no buttons anymore');
 });
 
