@@ -19,6 +19,17 @@ export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performanc
 // (assets/vote-footer.png), on a fixed link like the logo, so every edit keeps
 // the same picture and nothing loads again.
 export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png';
+// The card's progress bar is a thin picture (owner's choice: white, rounded),
+// like the footer: Discord's app loads custom emoji again every time it
+// redraws the vote (each vote and each button press), which made emoji bars
+// and digits flicker; a picture with the same link stays put. 21 pictures,
+// 0 to 100% in steps of 5 (assets/vote-bars on a fixed jsDelivr link).
+const VOTE_BAR_BASE = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@8dfb296dbb587e1155ceb164f4ac386366bbad21/assets/vote-bars';
+const BAR_PICTURE_STEPS = 20;
+export function voteBarPicture(share) {
+  const step = Math.max(0, Math.min(BAR_PICTURE_STEPS, Math.round(share * BAR_PICTURE_STEPS)));
+  return `${VOTE_BAR_BASE}/bar_${String(step).padStart(2, '0')}.png`;
+}
 export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 export const MAX_VOTE_OPTIONS = 10;
 // Every number is a custom digit emoji (owner's choice).
@@ -103,6 +114,9 @@ function voteParts(vote, now) {
       // The card has a Preview button, so its option names are plain text (owner's choice).
       name: `${numberIcon(index)} **${option}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`,
       bar: `${bar(share, BAR_LENGTH)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`,
+      // The card uses no custom emoji at all (see VOTE_BAR_BASE): plain text.
+      plain: `**${index + 1} · ${option}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}\n**${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`,
+      share,
       // Whether the option has a picture (known at once; its link is stored a moment later).
       picture: vote.pictureOptions ? Boolean(vote.pictureOptions[index]) : Boolean(votePicture(vote, index)),
     };
@@ -125,8 +139,9 @@ function voteParts(vote, now) {
     .setLabel(option.slice(0, 80))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(Boolean(ended)));
+  // Once the vote has ended its buttons are gone (owner's choice).
   const rows = [];
-  for (let start = 0; start < buttons.length; start += 5) {
+  for (let start = 0; !ended && start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
   // "Vote started" while it runs, "Vote ended" after (owner's choice).
@@ -149,19 +164,21 @@ function buildPreviewVoteMessage(vote, parts) {
     .addSeparatorComponents(gap(SeparatorSpacingSize.Large));
   parts.options.forEach((option, index) => {
     if (index) card.addSeparatorComponents(gap());
-    card.addTextDisplayComponents(text(option.name));
-    // The Preview button stands next to the bar itself (owner's choice), so
-    // the bar is the only text beside it. Normal text, not bold (owner's choice).
-    if (!option.picture) {
-      card.addTextDisplayComponents(text(option.bar));
-      return;
+    // Name and count as plain text, the Preview button beside them (owner's
+    // choice), the bar picture under them. No custom emoji: they flickered.
+    const lines = text(option.plain);
+    if (option.picture && !parts.ended) {
+      card.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(lines)
+        .setButtonAccessory(new ButtonBuilder()
+          .setCustomId(`vote_media:${index}`)
+          .setLabel('Preview')
+          .setStyle(ButtonStyle.Secondary)));
+    } else {
+      card.addTextDisplayComponents(lines);
     }
-    card.addSectionComponents(new SectionBuilder()
-      .addTextDisplayComponents(text(option.bar))
-      .setButtonAccessory(new ButtonBuilder()
-        .setCustomId(`vote_media:${index}`)
-        .setLabel('Preview')
-        .setStyle(ButtonStyle.Secondary)));
+    card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
+      .setURL(voteBarPicture(option.share))));
   });
   card.addSeparatorComponents(gap());
   const result = parts.ended ? (vote.resultPictures || []).filter(Boolean) : [];

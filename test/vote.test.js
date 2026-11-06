@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 const keepAsIs = async (buffer, name) => ({ attachment: buffer, name });
-import { buildVoteMessage, castVote, endDueVotes, loadVote } from '../src/services/voteService.js';
+import { buildVoteMessage, castVote, endDueVotes, loadVote, voteBarPicture } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
 const GUILD = '191919191919191919';
@@ -108,14 +108,18 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const w = world();
   const { form } = await create(w, { question: 'Next map?', option1: 'Procedural', option2: 'Barren', duration: '1h' });
   const posted = w.sent[0];
-  const embed = posted.embeds[0];
-  assert.equal(embed.title, 'Vote started', '"Vote started" while it runs');
   assert.equal(form.deferred, undefined, 'answered at once: no "thinking"');
-  assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{6} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
-  assert.match(embed.description, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\* <t:\d+:f>$/, 'only the date: no live countdown that redraws the vote');
-  assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
-  assert.ok(embed.thumbnail.url);
-  assert.deepEqual(json(posted.components[0]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
+  assert.equal(posted.flags, 32768, 'every vote is the card, also without pictures');
+  const card = json(posted.components[0]);
+  assert.equal(card.components[0].content, '### Vote started\n**Next map?**', '"Vote started" while it runs');
+  const text = textOf(posted);
+  assert.match(text, /\*\*1 · Procedural\*\*\n\*\*0%\*\* · 0 votes\n\*\*2 · Barren\*\*\n\*\*0%\*\* · 0 votes/);
+  assert.doesNotMatch(text, /<a?:\w+:\d+>|[▰▱]|1️⃣/, 'no custom emoji in the card: they flickered');
+  assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\* <t:\d+:f>$/, 'only the date: no live countdown that redraws the vote');
+  const bars = card.components.filter(part => part.type === 12 && /vote-bars/.test(part.items[0].media.url));
+  assert.deepEqual(bars.map(part => part.items[0].media.url.split('/').pop()), ['bar_00.png', 'bar_00.png'], 'one bar picture per option');
+  assert.equal(card.components.some(part => part.type === 9), false, 'no Preview without pictures');
+  assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
     [['vote_cast:0', '1️⃣', 'Procedural'], ['vote_cast:1', '2️⃣', 'Barren']]);
   assert.equal(json(form.answer.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).options.length, 2);
@@ -130,9 +134,9 @@ test('one vote per member: another option changes it, the same option keeps it; 
   assert.equal((await castVote(w.client, GUILD, messageId, 'a', 0)).status, 'changed');
   const again = await castVote(w.client, GUILD, messageId, 'b', 1);
   assert.equal(again.status, 'unchanged', 'a second click (e.g. to see the picture again) keeps the vote');
-  const text = buildVoteMessage((await castVote(w.client, GUILD, messageId, 'c', 0)).vote).embeds[0].description;
-  assert.match(text, /1️⃣ \*\*Thursday\*\*\n▱{6} \*\*2%\*\* · 2 votes/);
-  assert.match(text, /2️⃣ \*\*Friday\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  const text = textOf(buildVoteMessage((await castVote(w.client, GUILD, messageId, 'c', 0)).vote));
+  assert.match(text, /\*\*1 · Thursday\*\*\n\*\*2%\*\* · 2 votes/);
+  assert.match(text, /\*\*2 · Friday\*\*\n\*\*1%\*\* · 1 vote/);
   assert.match(text, /\*\*Total votes:\*\* 3/);
   assert.doesNotMatch(text, /<@/);
 });
@@ -149,7 +153,7 @@ test('a vote click changes the vote in one step (no separate acknowledge and edi
     deleteReply: async () => {},
   };
   await voteButton.execute(click, w.client, ['1']);
-  assert.match(click.updated.embeds[0].description, /2️⃣ \*\*B\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  assert.match(textOf(click.updated), /\*\*2 · B\*\*\n\*\*1%\*\* · 1 vote/);
   assert.equal(click.acked, undefined, 'no acknowledge before the change');
   assert.equal(click.edited, undefined, 'no second edit');
   assert.equal(click.notice.flags, 64);
@@ -178,11 +182,11 @@ test('when saving a vote takes longer than 2 seconds the click is acknowledged f
   release();
   await running;
   assert.deepEqual(order, ['ack', 'edit', 'notice']);
-  assert.match(click.edited.embeds[0].description, /1️⃣ \*\*A\*\*\n▱{6} \*\*1%\*\* · 1 vote/);
+  assert.match(textOf(click.edited), /\*\*1 · A\*\*\n\*\*1%\*\* · 1 vote/);
   t.mock.timers.reset();
 });
 
-test('an ended vote shows the winner and disabled buttons', async () => {
+test('an ended vote shows Most votes and has no buttons anymore', async () => {
   const w = world();
   await create(w, { question: 'Q', option1: 'A', option2: 'B', duration: '1m' });
   const messageId = w.sent[0].id;
@@ -191,9 +195,13 @@ test('an ended vote shows the winner and disabled buttons', async () => {
   await w.client.db.set(`guild:${GUILD}:votes`, { [messageId]: { ...stored, endsAt: Date.now() - 1000 } });
   await endDueVotes(w.client);
   const edited = w.sent[0].edits.at(-1);
-  assert.equal(edited.embeds[0].title, 'Vote ended');
-  assert.match(edited.embeds[0].description, /\*\*Total votes:\*\* 1\n\n\*\*Most votes:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
-  assert.ok(json(edited.components[0]).components.every(button => button.disabled));
+  const text = textOf(edited);
+  assert.match(text, /^### Vote ended\n/);
+  assert.match(text, /\*\*Total votes:\*\* 1\n\n\*\*Most votes:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
+  assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
+  // The normal layout (older votes, /mapvote) loses its buttons too.
+  const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
+  assert.deepEqual(classic.components, []);
   assert.equal((await castVote(w.client, GUILD, messageId, 'z', 0)).status, 'ended');
 });
 
@@ -236,9 +244,9 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.deepEqual(uploads, [['option1.png', null, 'option3.jpg']], 'each picture stays with its own option');
   const posted = w.sent[0];
   const text = textOf(posted);
-  assert.match(text, /1️⃣ \*\*DZ West\*\*/);
-  assert.match(text, /2️⃣ \*\*DZ East\*\*/);
-  assert.match(text, /3️⃣ \*\*DZ South\*\*/);
+  assert.match(text, /\*\*1 · DZ West\*\*/);
+  assert.match(text, /\*\*2 · DZ East\*\*/);
+  assert.match(text, /\*\*3 · DZ South\*\*/);
   assert.doesNotMatch(text, /\]\(|cdn\.discordapp\.com/, 'no links in the card: the Preview button shows the picture');
   assert.doesNotMatch(text, /railway|cloudy-embed-media/);
   assert.match(text, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\*/, 'empty line before the end');
@@ -250,16 +258,17 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.match(card.components[0].content, /^### Vote started\n\*\*Choose your map\*\*$/);
   assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
   assert.deepEqual(card.components[1], { type: 14, divider: false, spacing: 2 }, 'more room under the question');
-  // Each Preview stands next to its bar (the bar is the only text beside it),
-  // with the option's name right above.
+  // Each Preview stands beside the option's name and count, the bar picture right under them.
   const previews = card.components.flatMap((part, index) => (part.type === 9 && part.accessory?.type === 2
-    ? [[card.components[index - 1].content.replace(/\(.*\)/, ''), part.components.map(item => item.content), part.accessory.custom_id, part.accessory.label]] : []));
+    ? [[part.components.map(item => item.content), part.accessory.custom_id, part.accessory.label,
+      card.components[index + 1].items[0].media.url.split('/').pop()]] : []));
   assert.deepEqual(previews, [
-    ['1️⃣ **DZ West**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
-    ['3️⃣ **DZ South**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
-  ], 'Preview only next to options with a picture; the bar line is normal text, not bold');
-  assert.ok(card.components.some(part => part.type === 10 && part.content === '▱▱▱▱▱▱ **0%** · 0 votes'),
-    'an option without a picture has the same bar line');
+    [['**1 · DZ West**\n**0%** · 0 votes'], 'vote_media:0', 'Preview', 'bar_00.png'],
+    [['**3 · DZ South**\n**0%** · 0 votes'], 'vote_media:2', 'Preview', 'bar_00.png'],
+  ], 'Preview only next to options with a picture');
+  assert.ok(card.components.some(part => part.type === 10 && part.content === '**2 · DZ East**\n**0%** · 0 votes'),
+    'an option without a picture: the same text, no button');
+  assert.doesNotMatch(JSON.stringify(card), /<a?:\w+:\d+>|[▰▱]|️⃣/, 'no custom emoji in the card: they flickered');
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
   assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png');
@@ -334,7 +343,7 @@ test('the option button only votes: the picture opens from the blue link, the no
   assert.equal(embed.description, 'You voted for **DZ West**.');
   assert.equal(embed.image, undefined, 'no picture behind the button');
   assert.equal(first.updated.flags, 32768, 'the card stays a card');
-  assert.match(textOf(first.updated), /1️⃣ \*\*DZ West\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
+  assert.match(textOf(first.updated), /\*\*1 · DZ West\*\*\n\*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
   t.mock.timers.tick(10_000);
   await new Promise(resolve => { setImmediate(resolve); });
   assert.equal(first.deleted, 1, 'gone after 10 seconds');
@@ -366,7 +375,7 @@ test('after /vote a form asks for an optional picture per option; empty posts th
   const empty = w.form(again);
   await submitVoteForm(empty, again.id, { uploadPictures: async () => { throw new Error('no upload without pictures'); } });
   assert.equal(json(empty.answer.embeds[0]).title, 'Success');
-  assert.match(w.sent[0].embeds[0].description, /1️⃣ \*\*Procedural\*\*/);
+  assert.match(textOf(w.sent[0]), /\*\*1 · Procedural\*\*/);
   assert.equal((await loadVote(w.client, GUILD, w.sent[0].id)).optionMedia, undefined);
   const twice = w.form(again);
   await submitVoteForm(twice, again.id);
@@ -618,4 +627,14 @@ test('a big picture becomes a small JPG of at most 1024 px wide for Preview', { 
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('the card bar is a picture in steps of 5%: the same picture (and link) until the next step', () => {
+  const name = share => voteBarPicture(share).split('/').pop();
+  assert.equal(name(0), 'bar_00.png');
+  assert.equal(name(0.02), 'bar_00.png');
+  assert.equal(name(0.03), 'bar_01.png');
+  assert.equal(name(0.5), 'bar_10.png');
+  assert.equal(name(1), 'bar_20.png');
+  assert.match(voteBarPicture(0.5), /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-bars\/bar_10\.png$/, 'a fixed link');
 });
