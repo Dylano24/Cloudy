@@ -66,6 +66,9 @@ for (const [key, id, aliases] of WEAPONS) {
 ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'].forEach((keycap, index) => {
   // Animated white number badges with a glossy light sweep (owner's choice).
   BASE_EMOJIS[`vote_${index + 1}`] = { name: `vote_${index + 1}_shine`, file: `../../assets/vote-emojis/key_${index + 1}.gif`, fallback: keycap };
+  // The same badge standing still, for the vote buttons: Discord's app sometimes
+  // left an animated emoji in a button empty until the vote was redrawn.
+  BASE_EMOJIS[`vote_${index + 1}_still`] = { name: `vote_${index + 1}_still`, file: `../../assets/vote-emojis/key_${index + 1}_still.png`, fallback: keycap };
 });
 for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
   // Filled pieces are white (owner's choice, were green); open pieces grey.
