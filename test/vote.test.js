@@ -114,7 +114,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
   assert.deepEqual(data.options.map(option => [option.name, Boolean(option.required)]),
-    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['description', false], ['duration', false], ['role', false]],
+    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['duration', false], ['role', false]],
     'question, choices, description, duration and a role to tag; no media next to the options');
   assert.equal(isPlayerCommand('vote'), true);
   assert.equal(isPlayerCommand('poll'), false);
@@ -124,11 +124,13 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(form.deferred, undefined, 'answered at once: no "thinking"');
   assert.equal(posted.flags, 32768, 'every vote is the card, also without pictures');
   const card = json(posted.components[0]);
-  assert.equal(card.components[0].content, '### Vote started\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote.', 'a short how-to under the title');
-  assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type),
-    [14, '**Question**\nNext map?', 14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**'], 'choices tight under their heading, like Results');
+  assert.equal(card.components[0].content, '### Vote started', 'only the title on top');
+  assert.deepEqual(card.components.slice(1, 7).map(part => part.type === 10 ? part.content : part.type),
+    [14, '**Question**\nNext map?', 14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**', 14,
+      '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote.'],
+    'choices tight under their heading, like Results; then the how-to (owner\'s choice: where the description was)');
   const text = textOf(posted);
-  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n\*\*Ends\*\*\n<t:\d+:f>$/);
+  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote\.\n\*\*Ends\*\*\n<t:\d+:f>$/);
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
   assert.equal(card.components.some(part => part.type === 9), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
@@ -265,7 +267,9 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
-  assert.match(card.components[0].content, /^### Vote started\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press \*\*Preview\*\* to see the pictures\.$/);
+  assert.equal(card.components[0].content, '### Vote started');
+  assert.ok(card.components.some(part => part.content === '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press another number to change your vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press **Preview** to see the pictures.'),
+    'the how-to with the Preview line, under the choices');
   assert.equal(card.components[2].content, '**Question**\nChoose your map');
   assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
   // All choices tight in one block, like Results, with one Preview beside them.
@@ -695,17 +699,18 @@ test('Preview opens a dropdown of the choices with a picture; a choice shows onl
   t.mock.timers.reset();
 });
 
-test('the vote can tag a role and has a description under the choices', async () => {
+test('the vote can tag a role; the how-to sits under the choices and there is no description', async () => {
   const w = world();
   const role = { id: '303030303030303030', mentionable: true };
-  await create(w, { question: 'Map?', option1: 'West', option2: 'East', description: 'Wipe is Thursday', role });
+  await create(w, { question: 'Map?', option1: 'West', option2: 'East', role });
   const posted = w.sent[0];
   assert.equal(json(posted.components[0]).content, '<@&303030303030303030>', 'the tag above the vote');
   assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'only that role is pinged');
   const card = json(posted.components[1]);
   assert.deepEqual(card.components.filter(part => part.type === 10).map(part => part.content.split('\n')[0]),
-    ['### Vote started', '**Question**', '**Choices**', '**Description**', '**Ends**'], 'Question, Choices, then Description');
-  assert.ok(card.components.some(part => part.content === '**Description**\nWipe is Thursday'));
+    ['### Vote started', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Ends**'],
+    'Question, Choices, then the how-to (owner\'s choice: where the description was)');
+  assert.doesNotMatch(JSON.stringify(card), /Description/);
   const stored = await loadVote(w.client, GUILD, posted.id);
   assert.equal(json(buildVoteMessage({ ...stored, ended: true }).components[0]).content, '<@&303030303030303030>', 'the tag stays on the vote');
   const plain = w.sent.length;
