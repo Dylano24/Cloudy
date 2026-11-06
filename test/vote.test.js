@@ -204,7 +204,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* <:W87205667glowingdotwhite:1543291335036108830> 1 vote <:W87205667glowingdotwhite:1543291335036108830> 100%\n1️⃣ \*\*A\*\* <:W87205667glowingdotwhite:1543291335036108830> 0 votes <:W87205667glowingdotwhite:1543291335036108830> 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* <:W87205667glowingdotwhite:1543291335036108830> 1 vote <:W87205667glowingdotwhite:1543291335036108830> 100%\n\*\*Total\*\*\n1 vote\n\*\*Ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
+  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total\*\*\n1 vote\n\*\*Ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes, /mapvote) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -596,8 +596,8 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   assert.deepEqual(result.files.map(file => file.name), ['most-votes-2.png'], 'the winner\'s picture goes with the result');
   const card = json(result.components[0]);
   const parts = card.components.filter(part => part.type !== 14);
-  assert.match(parts[2].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* <:W87205667glowingdotwhite:1543291335036108830> 2 votes <:W87205667glowingdotwhite:1543291335036108830> 67%\n1️⃣ \*\*DZ West\*\* <:W87205667glowingdotwhite:1543291335036108830> 1 vote <:W87205667glowingdotwhite:1543291335036108830> 33%$/);
-  assert.equal(parts[3].content, '**Most votes**\n2️⃣ **DZ East** <:W87205667glowingdotwhite:1543291335036108830> 2 votes <:W87205667glowingdotwhite:1543291335036108830> 67%');
+  assert.match(parts[2].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
+  assert.equal(parts[3].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
   assert.equal(parts[4].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture right under it');
   assert.ok(card.components.filter(part => part.type === 14).length >= 4, 'a little room between sections');
   assert.equal(w.sent[0].edits.at(-1).components.length, 1, 'the vote itself has no buttons anymore');
