@@ -4,12 +4,15 @@ import { Collection } from 'discord.js';
 import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
+import votePick from '../src/interactions/selectMenus/vote/votePick.js';
+import endvote from '../src/commands/Tools/endvote.js';
+import { withCloudyFooter } from '../src/utils/cloudyFooter.js';
 import { forgetVotePreviews, shrinkVotePicture } from '../src/services/votePreviewService.js';
 import { spawnSync } from 'node:child_process';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 const keepAsIs = async (buffer, name) => ({ attachment: buffer, name });
-import { buildVoteMessage, castVote, endDueVotes, loadVote, voteBarPicture } from '../src/services/voteService.js';
+import { CLOUDY_FOOTER, buildVoteMessage, castVote, endDueVotes, loadVote, voteBarPicture } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
 const GUILD = '191919191919191919';
@@ -70,7 +73,7 @@ function world() {
     ids += 1;
     const interaction = {
       id: `run-${ids}`, client, guildId: GUILD, channelId: CHANNEL, channel, user: { id: 'host' }, inGuild: () => true,
-      options: { getString: name => values[name] ?? null },
+      options: { getString: name => values[name] ?? null, getRole: name => values[name] ?? null },
       reply: async payload => { interaction.answer = payload; },
       showModal: async modal => { interaction.modal = modal; },
       deleteReply: async () => {},
@@ -109,7 +112,8 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
   assert.deepEqual(data.options.map(option => [option.name, Boolean(option.required)]),
-    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['duration', false]], 'no media next to the options');
+    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['description', false], ['duration', false], ['role', false]],
+    'question, choices, description, duration and a role to tag; no media next to the options');
   assert.equal(isPlayerCommand('vote'), true);
   assert.equal(isPlayerCommand('poll'), false);
   const w = world();
@@ -206,7 +210,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
   assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total\*\*\n1 vote\n\*\*Ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
-  // The normal layout (older votes, /mapvote) loses its buttons too.
+  // The normal layout (older votes) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
   assert.deepEqual(classic.components, []);
   assert.equal((await castVote(w.client, GUILD, messageId, 'z', 0)).status, 'ended');
@@ -636,7 +640,7 @@ test('the card bar is a picture in steps of 5%: the same picture (and link) unti
   assert.match(voteBarPicture(0.5), /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-bars\/bar_10\.png$/, 'a fixed link');
 });
 
-test('the one Preview beside the choices shows every picture, each with its number and name', async () => {
+test('Preview opens a dropdown of the choices with a picture; a choice shows only its picture, without logo', async t => {
   forgetVotePreviews();
   const w = world();
   const deps = {
@@ -653,13 +657,105 @@ test('the one Preview beside the choices shows every picture, each with its numb
     },
     deps,
   });
-  const preview = { id: 'pall', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
-    reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const tick = async ms => { t.mock.timers.tick(ms); await new Promise(resolve => { setImmediate(resolve); }); };
+  const preview = { id: 'pall', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id }, deleted: 0,
+    reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {},
+    deleteReply: async () => { preview.deleted += 1; } };
   await votePreview.execute(preview, w.client, ['all'], { fetchImpl: async () => ({ ok: false }), shrink: keepAsIs });
   assert.equal(preview.answer.flags, 64, 'private');
-  assert.deepEqual(preview.answer.embeds.map(embed => [embed.description, embed.image.url, Boolean(embed.footer)]), [
-    ['1️⃣ **West**', 'attachment://option1.png', false],
-    ['3️⃣ **South**', 'attachment://option3.png', true],
-  ], 'only options with a picture; the footer once, at the end');
-  assert.deepEqual(preview.answer.files.map(file => file.name), ['option1.png', 'option3.png']);
+  assert.equal(preview.answer.embeds, undefined, 'first only the dropdown');
+  const menu = json(preview.answer.components[0]).components[0];
+  assert.equal(menu.custom_id, `vote_pick:${w.sent[0].id}:pall`);
+  assert.deepEqual(menu.options.map(option => [option.label, option.value, option.emoji.name, Boolean(option.default)]), [
+    ['West', '0', '1️⃣', false],
+    ['South', '2', '3️⃣', false],
+  ], 'only the choices with a picture, each with its number');
+  await tick(20_000);
+  const pick = { guildId: GUILD, values: ['2'], message: { id: 'private' }, deleted: 0,
+    update: async payload => { pick.answer = payload; }, deferUpdate: async () => {}, editReply: async () => {},
+    deleteReply: async () => { pick.deleted += 1; } };
+  await votePick.execute(pick, w.client, [w.sent[0].id, 'pall'], { fetchImpl: async () => ({ ok: false }), shrink: keepAsIs });
+  assert.equal(pick.answer.embeds.length, 1, 'only the chosen picture');
+  const [embed] = pick.answer.embeds;
+  assert.equal(embed.description, '3️⃣ **South**');
+  assert.equal(embed.image.url, 'attachment://option3.png');
+  assert.equal(embed.footer.text, CLOUDY_FOOTER);
+  assert.equal(withCloudyFooter({ embeds: pick.answer.embeds }).embeds[0].thumbnail, undefined, 'no logo: it has its own footer');
+  assert.deepEqual(pick.answer.files.map(file => file.name), ['option3.png']);
+  assert.deepEqual(pick.answer.attachments, [], 'the picture shown before is replaced');
+  const chosen = json(pick.answer.components[0]).components[0].options.filter(option => option.default);
+  assert.deepEqual(chosen.map(option => option.value), ['2'], 'the dropdown stays to switch, with the choice selected');
+  await tick(29_000);
+  assert.deepEqual([preview.deleted, pick.deleted], [0, 0], 'a choice restarts the 30 seconds');
+  await tick(1_000);
+  assert.deepEqual([preview.deleted, pick.deleted], [0, 1], 'gone 30 seconds after the last choice, once');
+  t.mock.timers.reset();
+});
+
+test('the vote can tag a role and has a description under the choices', async () => {
+  const w = world();
+  const role = { id: '303030303030303030', mentionable: true };
+  await create(w, { question: 'Map?', option1: 'West', option2: 'East', description: 'Wipe is Thursday', role });
+  const posted = w.sent[0];
+  assert.equal(json(posted.components[0]).content, '<@&303030303030303030>', 'the tag above the vote');
+  assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'only that role is pinged');
+  const card = json(posted.components[1]);
+  assert.deepEqual(card.components.filter(part => part.type === 10).map(part => part.content.split('\n')[0]),
+    ['### Vote started', '**Question**', '**Choices**', '**Description**', '**Ends**'], 'Question, Choices, then Description');
+  assert.ok(card.components.some(part => part.content === '**Description**\nWipe is Thursday'));
+  const stored = await loadVote(w.client, GUILD, posted.id);
+  assert.equal(json(buildVoteMessage({ ...stored, ended: true }).components[0]).content, '<@&303030303030303030>', 'the tag stays on the vote');
+  const plain = w.sent.length;
+  await create(w, { question: 'No tag', option1: 'A', option2: 'B' });
+  assert.equal(json(w.sent[plain].components[0]).type, 17, 'without a role the card comes first');
+  assert.deepEqual(w.sent[plain].allowedMentions, { parse: [] });
+});
+
+test('tagging @everyone or a role that cannot be mentioned needs Mention Everyone', async () => {
+  const w = world();
+  const everyone = w.command({ question: 'Q', option1: 'A', option2: 'B', role: { id: GUILD, mentionable: true } });
+  await vote.execute(everyone);
+  assert.match(JSON.stringify(json(everyone.answer.embeds[0])), /cannot tag this role/);
+  assert.equal(everyone.modal, undefined);
+  const allowed = w.command({ question: 'Q', option1: 'A', option2: 'B', role: { id: GUILD } },
+    { memberPermissions: { has: () => true } });
+  await vote.execute(allowed);
+  assert.ok(allowed.modal, 'staff may tag everyone');
+  await submitVoteForm(w.form(allowed), allowed.id, { shrink: keepAsIs });
+  assert.equal(json(w.sent[0].components[0]).content, '@everyone');
+  assert.deepEqual(w.sent[0].allowedMentions, { parse: ['everyone'] });
+});
+
+test('/endvote lists the open votes and ends the chosen one at once, as at its end time', async () => {
+  const w = world();
+  await create(w, { question: 'Map?', option1: 'West', option2: 'East' });
+  const id = w.sent[0].id;
+  const guild = w.client.guilds.cache.get(GUILD);
+  const listed = async typed => {
+    let choices;
+    await endvote.autocomplete({ client: w.client, guildId: GUILD, guild, options: { getFocused: () => typed },
+      respond: async list => { choices = list; } });
+    return choices;
+  };
+  assert.deepEqual(await listed('ma'), [{ name: 'Map?', value: id }]);
+  assert.deepEqual(await listed('other'), []);
+  const run = (value = id) => {
+    const interaction = { client: w.client, guildId: GUILD, guild, inGuild: () => true,
+      options: { getString: () => value },
+      reply: async payload => { interaction.answer = payload; }, deleteReply: async () => {} };
+    return interaction;
+  };
+  const end = run();
+  await endvote.execute(end);
+  assert.equal(end.answer.flags, 64);
+  assert.equal(json(end.answer.embeds[0]).title, 'Success');
+  assert.equal((await loadVote(w.client, GUILD, id)).ended, true);
+  assert.deepEqual(countsOf(w.sent[0].edits.at(-1)), [], 'no buttons any more');
+  assert.match(textOf(w.sent[1]), /^### Vote ended/, 'the result under the vote');
+  assert.deepEqual(await listed(''), [], 'an ended vote is not listed');
+  const again = run();
+  await endvote.execute(again);
+  assert.match(JSON.stringify(json(again.answer.embeds[0])), /not open/);
+  assert.equal(w.sent.length, 2, 'nothing is posted twice');
 });
