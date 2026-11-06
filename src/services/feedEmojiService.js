@@ -23,6 +23,14 @@ const BASE_EMOJIS = {
   xbox: { name: 'xbox_logo_small', shrink: true, id: '1567847794968887366', fallback: '<:whitexboxlogominimal:1567847794968887366>' },
   console: { name: 'console', id: '1567848153284214834', fallback: '<:console:1567848153284214834>' },
   distance: { name: 'distance', id: '1567849614969667615', fallback: '<:distance:1567849614969667615>' },
+  // Player killed (owner's choice): the owner's own animated icons, one in front
+  // of every line instead of a label; the skull also stands between the names.
+  kill_killer: { name: 'cloudy_killer', id: '1568299238646091907', fallback: '<a:cloudy_killer:1568299238646091907>' },
+  kill_victim: { name: 'cloudy_victim', id: '1568299277766238273', fallback: '<a:cloudy_victim:1568299277766238273>' },
+  kill_weapon: { name: 'cloudy_rifle', id: '1568299289984106526', fallback: '<a:cloudy_rifle:1568299289984106526>' },
+  kill_distance: { name: 'cloudy_distance', id: '1568299305389793290', fallback: '<a:cloudy_distance:1568299305389793290>' },
+  kill_skull: { name: 'cloudy_headshot', id: '1568299328450207764', fallback: '<a:cloudy_headshot:1568299328450207764>' },
+  kill_streak: { name: 'cloudy_killstreak', id: '1568299343784710164', fallback: '<a:cloudy_killstreak:1568299343784710164>' },
   on: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
   off: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
 };
