@@ -3,7 +3,7 @@ import { successEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { buildVoteMessage, saveVote, setVotePictures } from '../../services/voteService.js';
+import { buildVoteMessage, refreshVoteSoon, saveVote, setVotePictures } from '../../services/voteService.js';
 import { uploadVotePictures } from '../../services/voteMediaService.js';
 import { keepVotePreview, shrinkVotePicture } from '../../services/votePreviewService.js';
 import { logger } from '../../utils/logger.js';
@@ -134,6 +134,8 @@ async function postVoteFromForm(interaction, id, dependencies) {
   }
   // Preview shows these small copies at once.
   small.forEach((file, position) => { if (file) keepVotePreview(message.id, position, file); });
+  // One redraw 2 seconds later, so an emoji Discord's app missed is loaded again.
+  (dependencies.refreshVote || refreshVoteSoon)(interaction.client, interaction.guildId, message);
   if (vote.layout === 'preview' && hasPictures) {
     void upload()
       .then(pictures => setVotePictures(interaction.client, interaction.guildId, message.id, pictures))
