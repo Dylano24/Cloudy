@@ -8,6 +8,7 @@ import {
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { rememberMessageDeleter } from './deletionAttributionService.js';
 import { feedEmoji } from './feedEmojiService.js';
 import { freshVotePictureLinks } from './voteMediaService.js';
 import { votePreviewFile } from './votePreviewService.js';
@@ -381,15 +382,42 @@ async function closeVoteMessage(client, guild, vote) {
   if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
 }
 
-/** The votes of a server that are still open, newest first (/endvote). */
-export async function activeVotes(client, guildId, now = Date.now()) {
+/** Whether a vote is still open (not ended and its time not passed). */
+export function isVoteOpen(vote, now = Date.now()) {
+  return Boolean(vote) && !vote.ended && !(vote.endsAt && vote.endsAt <= now);
+}
+
+/** Every vote of a server, newest first (/votemanage). */
+export async function guildVotes(client, guildId) {
   const votes = await readVotes(client, guildId);
   return Object.values(votes)
-    .filter(vote => vote?.messageId && !vote.ended && !(vote.endsAt && vote.endsAt <= now))
+    .filter(vote => /^\d{17,20}$/.test(String(vote?.messageId || '')))
     .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
-/** Ends an open vote at once (/endvote), exactly as when its time runs out. */
+/** Deletes a vote for good (/votemanage): its message, its result and what is stored. */
+export async function deleteVote(client, guild, messageId, { deletedBy = null } = {}) {
+  const vote = await Mutex.runExclusive(votesKey(guild.id), async () => {
+    const votes = await readVotes(client, guild.id);
+    const current = votes[messageId];
+    if (!current) return null;
+    delete votes[messageId];
+    await writeVotes(client, guild.id, votes);
+    return current;
+  });
+  if (!vote) return null;
+  const channel = guild.channels?.cache?.get?.(vote.channelId);
+  for (const id of [vote.messageId, vote.resultMessageId].filter(Boolean)) {
+    const message = await channel?.messages?.fetch?.(id).catch(() => null);
+    if (!message?.delete) continue;
+    // The staff member who confirmed Delete is named in the logs.
+    if (deletedBy) rememberMessageDeleter(message, deletedBy);
+    await message.delete().catch(error => logger.warn(`Could not delete vote message ${id}: ${error?.message || error}`));
+  }
+  return vote;
+}
+
+/** Ends an open vote at once (/votemanage), exactly as when its time runs out. */
 export async function endVoteNow(client, guild, messageId, now = Date.now()) {
   const vote = await Mutex.runExclusive(votesKey(guild.id), async () => {
     const votes = await readVotes(client, guild.id);
