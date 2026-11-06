@@ -164,7 +164,7 @@ function buildPreviewVoteMessage(vote, parts) {
   // A short how-to under the title (owner's choice), like a classic map poll.
   const hasPreview = !parts.ended && parts.options.some(option => option.picture);
   const howTo = [
-    '• Press a number below to vote for your favourite.',
+    '• Press a number below to vote.',
     '• Press another number to change your vote.',
     ...(hasPreview ? ['• Press **Preview** to see the picture of a choice.'] : []),
   ];

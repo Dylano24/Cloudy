@@ -118,7 +118,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(form.deferred, undefined, 'answered at once: no "thinking"');
   assert.equal(posted.flags, 32768, 'every vote is the card, also without pictures');
   const card = json(posted.components[0]);
-  assert.equal(card.components[0].content, '### Vote started\n• Press a number below to vote for your favourite.\n• Press another number to change your vote.', 'a short how-to under the title');
+  assert.equal(card.components[0].content, '### Vote started\n• Press a number below to vote.\n• Press another number to change your vote.', 'a short how-to under the title');
   assert.equal(card.components[2].content, '**Question**\nNext map?\n**Choices**', 'the layout of a classic map poll');
   const text = textOf(posted);
   assert.match(text, /1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n\*\*Ends\*\*\n<t:\d+:f>$/);
@@ -258,7 +258,7 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
-  assert.match(card.components[0].content, /^### Vote started\n• Press a number below to vote for your favourite\.\n• Press another number to change your vote\.\n• Press \*\*Preview\*\* to see the picture of a choice\.$/);
+  assert.match(card.components[0].content, /^### Vote started\n• Press a number below to vote\.\n• Press another number to change your vote\.\n• Press \*\*Preview\*\* to see the picture of a choice\.$/);
   assert.equal(card.components[2].content, '**Question**\nChoose your map\n**Choices**');
   assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
   // A Preview button beside each choice that has a picture.
