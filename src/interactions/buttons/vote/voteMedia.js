@@ -1,7 +1,7 @@
 import { MessageFlags } from 'discord.js';
 import { warningEmbed } from '../../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../../utils/embedColorPolicy.js';
-import { CLOUDY_FOOTER, loadVote, votePicture } from '../../../services/voteService.js';
+import { CLOUDY_FOOTER, loadVote, voteNumberIcon, votePicture } from '../../../services/voteService.js';
 import { freshVotePictureLinks } from '../../../services/voteMediaService.js';
 import { shrinkVotePicture, votePreviewFile } from '../../../services/votePreviewService.js';
 import { registerPendingDelete, unregisterPendingDelete } from '../../../utils/pendingTransientDeletes.js';
@@ -15,30 +15,41 @@ const wait = ms => new Promise(resolve => {
   timer.unref?.();
 });
 
-async function previewAnswer(client, interaction, position, fetchImpl, shrink) {
+async function previewAnswer(client, interaction, which, fetchImpl, shrink) {
   const vote = await loadVote(client, interaction.guildId, interaction.message.id);
-  const url = vote ? votePicture(vote, position) : null;
-  // The small copy (votePreviewService.js), made when the vote was posted.
-  const file = vote ? await votePreviewFile({
-    messageId: vote.messageId, position, url, fetchImpl, shrink,
-    // Discord's picture link may have expired: ask for a fresh one.
-    refresh: vote.optionMedia ? async () => (await freshVotePictureLinks(client, vote.optionMedia))?.[position] : null,
-  }) : null;
-  if (!file && !url) {
+  // "all" (owner's choice: one Preview beside the choices) shows every
+  // option's picture; an index (older votes) shows that one.
+  const positions = !vote ? [] : which === 'all'
+    ? vote.options.map((_, index) => index).filter(index => (vote.pictureOptions ? vote.pictureOptions[index] : votePicture(vote, index)))
+    : [Number(which)];
+  const pictures = [];
+  for (const position of positions) {
+    const url = votePicture(vote, position);
+    // The small copy (votePreviewService.js), made when the vote was posted.
+    const file = await votePreviewFile({
+      messageId: vote.messageId, position, url, fetchImpl, shrink,
+      // Discord's picture link may have expired: ask for a fresh one.
+      refresh: vote.optionMedia ? async () => (await freshVotePictureLinks(client, vote.optionMedia))?.[position] : null,
+    });
+    if (file || url) pictures.push({ position, file, url });
+  }
+  if (!pictures.length) {
     return {
       payload: { embeds: [setPreservedEmbedColor(warningEmbed('Warning', 'This picture is no longer available.'), CLOUDY_RED_COLOR)] },
       lifetime: NOTICE_MS,
     };
   }
-  // The option's name and its picture (owner's choice: no title, no logo).
-  const option = vote.options?.[position];
+  // Each picture with its number and the option's name (owner's choice: no
+  // title, no logo); the Cloudy footer once, under the last one.
   return {
     payload: {
-      embeds: [{
-        ...(option ? { description: `**${option}**` } : {}),
-        image: { url: file ? `attachment://${file.name}` : url }, color: 0xFFFFFF, footer: { text: CLOUDY_FOOTER },
-      }],
-      ...(file ? { files: [file] } : {}),
+      embeds: pictures.map(({ position, file, url }, index) => ({
+        description: `${voteNumberIcon(position)} **${vote.options[position]}**`,
+        image: { url: file ? `attachment://${file.name}` : url },
+        color: 0xFFFFFF,
+        ...(index === pictures.length - 1 ? { footer: { text: CLOUDY_FOOTER } } : {}),
+      })),
+      files: pictures.flatMap(({ file }) => (file ? [file] : [])),
     },
     lifetime: PICTURE_LIFETIME_MS,
   };
@@ -53,7 +64,7 @@ async function previewAnswer(client, interaction, position, fetchImpl, shrink) {
 export default {
   name: 'vote_media',
   async execute(interaction, client, [index] = [], dependencies = {}) {
-    const preparing = previewAnswer(client, interaction, Number(index), dependencies.fetchImpl || fetch, dependencies.shrink || shrinkVotePicture);
+    const preparing = previewAnswer(client, interaction, index, dependencies.fetchImpl || fetch, dependencies.shrink || shrinkVotePicture);
     let answer = await Promise.race([preparing, wait(ANSWER_WITHIN_MS)]);
     if (answer) {
       await interaction.reply({ ...answer.payload, flags: MessageFlags.Ephemeral });
