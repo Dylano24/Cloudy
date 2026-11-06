@@ -193,29 +193,29 @@ function buildPreviewVoteMessage(vote, parts) {
   return { flags: MessageFlags.IsComponentsV2, components: [card, ...rows], allowedMentions: { parse: [] } };
 }
 
-/** The result of a card vote, sent under it when it ends (owner's choice). */
+/** The result of a card vote, sent under it when it ends (owner's choice: like a classic map poll result). */
 export function buildVoteResultMessage(vote, pictureNames = []) {
   const text = content => new TextDisplayBuilder().setContent(content);
   const counts = voteCounts(vote);
   const total = counts.reduce((sum, count) => sum + count, 0);
-  const winners = mostVoted(vote).map(index => vote.options[index]);
+  const votes = count => `${count} ${count === 1 ? 'vote' : 'votes'}`;
+  // Most votes first, with the real share of all votes.
+  const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
     .addTextDisplayComponents(text([
       `### ${vote.title || 'Vote'} ended`,
       '**Question**', vote.question,
-      '**Most votes**', winners.length ? winners.join(', ') : 'No votes',
+      '**Total**', votes(total),
+      '**Results**',
+      ...order.map(index => `${VOTE_NUMBERS[index]} ${(total ? counts[index] / total * 100 : 0).toFixed(2)}% (${votes(counts[index])}) - ${vote.options[index]}`),
     ].join('\n')));
+  // The winner's picture (owner's choice).
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
   }
-  card.addTextDisplayComponents(text([
-    '**Results**',
-    ...vote.options.map((option, index) => `${VOTE_NUMBERS[index]} ${option} · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`),
-    `**Total votes**\n${total}`,
-    `**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`,
-  ].join('\n')));
+  card.addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>\n**Mode**\nSingle votes only`));
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
   return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
