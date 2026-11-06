@@ -7,6 +7,9 @@ import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
 import votemanage from '../src/commands/Tools/votemanage.js';
 import voteManageSelects from '../src/interactions/selectMenus/vote/voteManage.js';
 import voteManageButtons from '../src/interactions/buttons/vote/voteManage.js';
+import voteMessageDelete from '../src/events/voteMessageDelete.js';
+import voteMessageBulkDelete from '../src/events/voteMessageBulkDelete.js';
+import voteChannelDelete from '../src/events/voteChannelDelete.js';
 import { withCloudyFooter } from '../src/utils/cloudyFooter.js';
 import { forgetVotePreviews, shrinkVotePicture } from '../src/services/votePreviewService.js';
 import { spawnSync } from 'node:child_process';
@@ -776,4 +779,48 @@ test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete re
   const member = click({ memberPermissions: { has: () => false } });
   await votemanage.execute(member);
   assert.match(JSON.stringify(json(member.answer.embeds[0])), /Manage Server/);
+});
+
+test('/votemanage lists only votes still in a channel: a vote deleted in Discord is forgotten', async () => {
+  const w = world();
+  w.client.user = { id: 'bot' };
+  for (const question of ['Kept', 'Deleted by hand', 'Deleted while offline', 'Purged']) {
+    await create(w, { question, option1: 'A', option2: 'B' });
+  }
+  const [kept, byHand, offline, purged] = w.sent.map(message => message.id);
+  const guild = w.client.guilds.cache.get(GUILD);
+  // Deleted in Discord while Cloudy is online: forgotten at once.
+  await voteMessageDelete.execute({ id: byHand, guildId: GUILD, client: w.client, author: { id: 'bot' } });
+  assert.equal(await loadVote(w.client, GUILD, byHand), null);
+  // A member's own deleted message is not a vote: nothing changes.
+  await voteMessageDelete.execute({ id: kept, guildId: GUILD, client: w.client, author: { id: 'member' } });
+  assert.ok(await loadVote(w.client, GUILD, kept));
+  // A purge.
+  await voteMessageBulkDelete.execute(new Collection([[purged, { id: purged, guildId: GUILD, client: w.client }]]));
+  assert.equal(await loadVote(w.client, GUILD, purged), null);
+  // Deleted while Cloudy was offline: /votemanage checks the message and forgets it.
+  const channel = guild.channels.cache.get(CHANNEL);
+  const fetchMessage = channel.messages.fetch;
+  channel.messages.fetch = async id => {
+    if (id === offline) throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+    return fetchMessage(id);
+  };
+  const open = () => {
+    const run = { id: `vm${Math.random()}`, client: w.client, guildId: GUILD, guild, inGuild: () => true,
+      user: { id: 'staff' }, memberPermissions: { has: () => true },
+      reply: async payload => { run.answer = payload; }, deleteReply: async () => {} };
+    return run;
+  };
+  const first = open();
+  await votemanage.execute(first);
+  assert.match(first.answer.embeds[0].description, /1 active · 0 ended/, 'only the vote that is still in its channel');
+  assert.equal(await loadVote(w.client, GUILD, offline), null, 'forgotten for good');
+  // A message Cloudy cannot check (no access) stays listed: never forgotten by guess.
+  channel.messages.fetch = async () => { throw Object.assign(new Error('Missing Access'), { code: 50001 }); };
+  const second = open();
+  await votemanage.execute(second);
+  assert.match(second.answer.embeds[0].description, /1 active · 0 ended/);
+  // A deleted channel takes its votes with it.
+  await voteChannelDelete.execute({ id: CHANNEL, guildId: GUILD }, w.client);
+  assert.equal(await loadVote(w.client, GUILD, kept), null);
 });
