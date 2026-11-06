@@ -5,7 +5,9 @@ import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
 import votePick from '../src/interactions/selectMenus/vote/votePick.js';
-import endvote from '../src/commands/Tools/endvote.js';
+import votemanage from '../src/commands/Tools/votemanage.js';
+import voteManageSelects from '../src/interactions/selectMenus/vote/voteManage.js';
+import voteManageButtons from '../src/interactions/buttons/vote/voteManage.js';
 import { withCloudyFooter } from '../src/utils/cloudyFooter.js';
 import { forgetVotePreviews, shrinkVotePicture } from '../src/services/votePreviewService.js';
 import { spawnSync } from 'node:child_process';
@@ -727,35 +729,69 @@ test('tagging @everyone or a role that cannot be mentioned needs Mention Everyon
   assert.deepEqual(w.sent[0].allowedMentions, { parse: ['everyone'] });
 });
 
-test('/endvote lists the open votes and ends the chosen one at once, as at its end time', async () => {
+test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete removes it for good', async () => {
   const w = world();
   await create(w, { question: 'Map?', option1: 'West', option2: 'East' });
-  const id = w.sent[0].id;
+  await create(w, { question: 'Old one', option1: 'A', option2: 'B' });
+  const [open, old] = [w.sent[0].id, w.sent[1].id];
   const guild = w.client.guilds.cache.get(GUILD);
-  const listed = async typed => {
-    let choices;
-    await endvote.autocomplete({ client: w.client, guildId: GUILD, guild, options: { getFocused: () => typed },
-      respond: async list => { choices = list; } });
-    return choices;
-  };
-  assert.deepEqual(await listed('ma'), [{ name: 'Map?', value: id }]);
-  assert.deepEqual(await listed('other'), []);
-  const run = (value = id) => {
-    const interaction = { client: w.client, guildId: GUILD, guild, inGuild: () => true,
-      options: { getString: () => value },
-      reply: async payload => { interaction.answer = payload; }, deleteReply: async () => {} };
+  const handler = (list, name) => list.find(entry => entry.name === name).execute;
+  const staff = { has: () => true };
+  const click = (extra = {}) => {
+    const interaction = { id: `i${Math.random()}`, client: w.client, guildId: GUILD, guild, inGuild: () => true,
+      user: { id: 'staff' }, memberPermissions: staff,
+      reply: async payload => { interaction.answer = payload; }, deferUpdate: async () => { interaction.acked = true; },
+      editReply: async payload => { interaction.answer = payload; }, deleteReply: async () => {}, ...extra };
     return interaction;
   };
-  const end = run();
-  await endvote.execute(end);
-  assert.equal(end.answer.flags, 64);
+  const data = votemanage.data.toJSON();
+  assert.equal(data.default_member_permissions, '32', 'staff only (Manage Server)');
+  // End the old one first, so there is one of each status.
+  const first = click();
+  await votemanage.execute(first);
+  assert.equal(first.answer.flags, 64, 'private');
+  assert.match(first.answer.embeds[0].description, /1 active · 0 ended|2 active · 0 ended/);
+  const status = json(first.answer.components[0]).components[0];
+  assert.equal(status.custom_id, 'vmanage_status:staff');
+  assert.deepEqual(status.options.map(option => option.label), ['Active votes', 'Ended votes']);
+  const active = click({ values: ['active'] });
+  await handler(voteManageSelects, 'vmanage_status')(active, w.client, ['staff']);
+  const list = json(active.answer.components[1]).components[0];
+  assert.deepEqual(list.options.map(option => option.value).sort(), [open, old].sort(), 'both votes are open');
+  const pick = click({ values: [old] });
+  await handler(voteManageSelects, 'vmanage_vote')(pick, w.client, ['staff']);
+  assert.match(pick.answer.embeds[0].description, /\*\*Old one\*\*/);
+  assert.deepEqual(json(pick.answer.components[0]).components.map(button => button.label), ['End', 'Delete', 'Back']);
+  const end = click();
+  await handler(voteManageButtons, 'vmanage_btn')(end, w.client, ['end', 'staff', old]);
+  assert.equal(end.acked, true, 'acknowledged before any database work');
   assert.equal(json(end.answer.embeds[0]).title, 'Success');
-  assert.equal((await loadVote(w.client, GUILD, id)).ended, true);
-  assert.deepEqual(countsOf(w.sent[0].edits.at(-1)), [], 'no buttons any more');
-  assert.match(textOf(w.sent[1]), /^### Vote ended/, 'the result under the vote');
-  assert.deepEqual(await listed(''), [], 'an ended vote is not listed');
-  const again = run();
-  await endvote.execute(again);
-  assert.match(JSON.stringify(json(again.answer.embeds[0])), /not open/);
-  assert.equal(w.sent.length, 2, 'nothing is posted twice');
+  assert.equal((await loadVote(w.client, GUILD, old)).ended, true);
+  assert.match(textOf(w.sent.at(-1)), /^### Vote ended\n\*\*Question\*\*\nOld one/, 'its result under it, as at its end time');
+  // Ended votes: only Delete and Back.
+  const ended = click({ values: ['ended'] });
+  await handler(voteManageSelects, 'vmanage_status')(ended, w.client, ['staff']);
+  assert.deepEqual(json(ended.answer.components[1]).components[0].options.map(option => option.value), [old]);
+  const panel = click({ values: [old] });
+  await handler(voteManageSelects, 'vmanage_vote')(panel, w.client, ['staff']);
+  assert.deepEqual(json(panel.answer.components[0]).components.map(button => button.label), ['Delete', 'Back']);
+  const ask = click();
+  await handler(voteManageButtons, 'vmanage_btn')(ask, w.client, ['delete', 'staff', old]);
+  assert.equal(ask.answer.embeds[0].title, 'Delete vote?');
+  const deleted = [];
+  for (const message of w.sent) message.delete = async () => { deleted.push(message.id); };
+  const result = w.sent.at(-1).id;
+  const confirm = click();
+  await handler(voteManageButtons, 'vmanage_btn')(confirm, w.client, ['confirmdelete', 'staff', old]);
+  assert.equal(json(confirm.answer.embeds[0]).title, 'Success');
+  assert.equal(await loadVote(w.client, GUILD, old), null, 'gone from the store');
+  assert.deepEqual(deleted.sort(), [old, result].sort(), 'the vote and its result message are removed');
+  // Only the staff member who opened it, and only staff.
+  const other = click({ user: { id: 'someone' } });
+  await handler(voteManageButtons, 'vmanage_btn')(other, w.client, ['end', 'staff', open]);
+  assert.match(JSON.stringify(json(other.answer.embeds[0])), /Manage Server/);
+  assert.equal((await loadVote(w.client, GUILD, open)).ended, false);
+  const member = click({ memberPermissions: { has: () => false } });
+  await votemanage.execute(member);
+  assert.match(JSON.stringify(json(member.answer.embeds[0])), /Manage Server/);
 });
