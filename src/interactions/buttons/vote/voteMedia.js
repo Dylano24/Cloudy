@@ -33,7 +33,8 @@ const withPicture = vote => vote.options.map((_, index) => index)
 export function pictureMenu(vote, key, chosen = null) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`${PICK_ID}:${vote.messageId}:${key}`)
-    .setPlaceholder('Choose a choice to see its picture')
+    // The owner's name for it.
+    .setPlaceholder('Choices preview')
     .addOptions(withPicture(vote).map(index => {
       const emoji = parseEmoji(voteNumberIcon(index));
       return {
