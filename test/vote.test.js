@@ -206,7 +206,7 @@ test('duplicate options and a bad duration are refused before anything is posted
   assert.equal(w.sent.length, 0);
 });
 
-test('every vote counts as 1%: 50 votes fill half the bar', () => {
+test('every vote counts as 1%: 50 votes fill half the bar (plain text, no pictures)', () => {
   const vote = { question: 'Q', options: ['A', 'B'], votes: Object.fromEntries(Array.from({ length: 50 }, (_, n) => [`u${n}`, 0])) };
   const text = buildVoteMessage(vote).embeds[0].description;
   assert.match(text, /1️⃣ \*\*A\*\*\n▰{3}▱{3} \*\*50%\*\* · 50 votes/);
@@ -251,9 +251,11 @@ test('an option with a picture gets a small Preview button right next to it; pla
   const previews = card.components.flatMap((part, index) => (part.type === 9 && part.accessory?.type === 2
     ? [[card.components[index - 1].content.replace(/\(.*\)/, ''), part.components.map(item => item.content), part.accessory.custom_id, part.accessory.label]] : []));
   assert.deepEqual(previews, [
-    ['1️⃣ **DZ West**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
-    ['3️⃣ **DZ South**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
-  ], 'Preview only next to options with a picture, level with the bar');
+    ['1️⃣ **DZ West**', ['### ▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
+    ['3️⃣ **DZ South**', ['### ▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
+  ], 'Preview only next to options with a picture; the bar line is a heading, as tall as the button');
+  assert.ok(card.components.some(part => part.type === 10 && part.content === '### ▱▱▱▱▱▱ **0%** · 0 votes'),
+    'an option without a picture has the same heading bar');
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
   assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png');
@@ -328,7 +330,7 @@ test('the option button only votes: the picture opens from the blue link, the no
   assert.equal(embed.description, 'You voted for **DZ West**.');
   assert.equal(embed.image, undefined, 'no picture behind the button');
   assert.equal(first.updated.flags, 32768, 'the card stays a card');
-  assert.match(textOf(first.updated), /1️⃣ \*\*DZ West\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
+  assert.match(textOf(first.updated), /1️⃣ \*\*DZ West\*\*\n### ▱{6} \*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
   t.mock.timers.tick(10_000);
   await new Promise(resolve => { setImmediate(resolve); });
   assert.equal(first.deleted, 1, 'gone after 10 seconds');
