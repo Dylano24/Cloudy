@@ -153,7 +153,8 @@ function voteParts(vote, now) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
   // "Vote started" while it runs, "Vote ended" after (owner's choice).
-  const title = ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote started');
+  // "Community vote started" / "Community vote ended" (owner's choice).
+  const title = ended ? `${vote.title || 'Community vote'} ended` : (vote.title || 'Community vote started');
   return { total, options, end, rows, title, ended };
 }
 
@@ -190,7 +191,7 @@ function buildPreviewVoteMessage(vote, parts) {
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addSectionComponents(titleWithLogo(vote.title || 'Vote started', vote.question))
+    .addSectionComponents(titleWithLogo(vote.title || 'Community vote started', vote.question))
     .addSeparatorComponents(sectionGap());
   // Choices sit tight under their heading in one block, like Results (owner's
   // choice), with one Preview button beside them that shows every picture.
@@ -241,7 +242,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addSectionComponents(titleWithLogo(`${vote.title || 'Vote'} ended`, vote.question));
+    .addSectionComponents(titleWithLogo(`${vote.title || 'Community vote'} ended`, vote.question));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = mostVoted(vote);

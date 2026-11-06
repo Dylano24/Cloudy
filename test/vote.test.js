@@ -130,7 +130,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const card = json(posted.components[0]);
   const [head] = card.components;
   assert.equal(head.type, 9, 'the title and the question beside the logo');
-  assert.deepEqual(head.components.map(part => part.content), ['### Vote started', '**Question**\nNext map?']);
+  assert.deepEqual(head.components.map(part => part.content), ['### Community vote started', '**Question**\nNext map?']);
   assert.equal(head.accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo (owner\'s choice)');
   assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type),
     [14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**', 14,
@@ -215,11 +215,11 @@ test('an ended vote stays as it was without buttons; the result is a message und
   await w.client.db.set(`guild:${GUILD}:votes`, { [messageId]: { ...stored, endsAt: Date.now() - 1000 } });
   await endDueVotes(w.client);
   const edited = w.sent[0].edits.at(-1);
-  assert.match(textOf(edited), /^### Vote started\n/, 'the vote stays as it was');
+  assert.match(textOf(edited), /^### Community vote started\n/, 'the vote stays as it was');
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
+  assert.match(textOf(result), /^### Community vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -274,7 +274,7 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 9, 'the title and the question beside the logo');
-  assert.equal(card.components[0].components[0].content, '### Vote started');
+  assert.equal(card.components[0].components[0].content, '### Community vote started');
   assert.ok(card.components.some(part => part.content === '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press **Preview** to see the pictures.'),
     'the how-to with the Preview line, under the choices');
   assert.equal(card.components[0].components[1].content, '**Question**\nChoose your map');
@@ -613,7 +613,7 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   assert.deepEqual(result.files.map(file => file.name), ['most-votes-2.png'], 'the winner\'s picture goes with the result');
   const card = json(result.components[0]);
   const parts = card.components.filter(part => part.type !== 14);
-  assert.equal(parts[0].components[0].content, '### Vote ended');
+  assert.equal(parts[0].components[0].content, '### Community vote ended');
   assert.equal(parts[0].accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo on the result too (owner\'s choice)');
   assert.match(parts[1].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
   assert.equal(parts[2].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
@@ -719,7 +719,7 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   const card = json(posted.components[1]);
   assert.deepEqual(card.components.flatMap(part => (part.type === 9 ? part.components : part.type === 10 ? [part] : []))
     .map(part => part.content.split('\n')[0]),
-    ['### Vote started', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**'],
+    ['### Community vote started', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**'],
     'Question, Choices, then the how-to (owner\'s choice: where the description was)');
   assert.doesNotMatch(JSON.stringify(card), /Description/);
   const stored = await loadVote(w.client, GUILD, posted.id);
@@ -727,7 +727,7 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   // The result under the vote tags the same role when the vote ends.
   await endVoteNow(w.client, w.client.guilds.cache.get(GUILD), posted.id);
   const result = w.sent.at(-1);
-  assert.match(textOf(result), /### Vote ended/);
+  assert.match(textOf(result), /### Community vote ended/);
   assert.equal(json(result.components[0]).content, '<@&303030303030303030>', 'the tag above the result too');
   assert.deepEqual(result.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'the role is pinged for the result');
   const plain = w.sent.length;
@@ -789,7 +789,7 @@ test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete re
   assert.equal(end.acked, true, 'acknowledged before any database work');
   assert.equal(json(end.answer.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, old)).ended, true);
-  assert.match(textOf(w.sent.at(-1)), /^### Vote ended\n\*\*Question\*\*\nOld one/, 'its result under it, as at its end time');
+  assert.match(textOf(w.sent.at(-1)), /^### Community vote ended\n\*\*Question\*\*\nOld one/, 'its result under it, as at its end time');
   // Ended votes: only Delete and Back.
   const ended = click({ values: ['ended'] });
   await handler(voteManageSelects, 'vmanage_status')(ended, w.client, ['staff']);
