@@ -3,7 +3,7 @@
 // it). Who voted for what is never shown, only the counts.
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
-  MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder,
+  MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder,
 } from 'discord.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
@@ -159,6 +159,13 @@ function voteParts(vote, now) {
 // votes are a card (white side line, Cloudy logo and footer) instead of an embed.
 // A little more room between sections (owner's choice): an empty separator.
 const sectionGap = () => new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
+// The title and the question with the Cloudy logo beside them (owner's choice),
+// on "Vote started" and "Vote ended" alike.
+const titleWithLogo = (title, question) => new SectionBuilder()
+  .addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`### ${title}`),
+    new TextDisplayBuilder().setContent(`**Question**\n${question}`))
+  .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL));
 
 function buildPreviewVoteMessage(vote, parts) {
   // The layout of a classic map poll (owner's choice): Question, Choices with
@@ -178,9 +185,7 @@ function buildPreviewVoteMessage(vote, parts) {
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text(`### ${vote.title || 'Vote started'}`))
-    .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(`**Question**\n${vote.question}`))
+    .addSectionComponents(titleWithLogo(vote.title || 'Vote started', vote.question))
     .addSeparatorComponents(sectionGap());
   // Choices sit tight under their heading in one block, like Results (owner's
   // choice), with one Preview button beside them that shows every picture.
@@ -199,7 +204,8 @@ function buildPreviewVoteMessage(vote, parts) {
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(howTo.join('\n')))
     .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
+    // This heading literally (owner's choice), at the bottom.
+    .addTextDisplayComponents(text(`**Vote ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
     .setURL(VOTE_FOOTER_URL)));
@@ -230,9 +236,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text(`### ${vote.title || 'Vote'} ended`))
-    .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(`**Question**\n${vote.question}`));
+    .addSectionComponents(titleWithLogo(`${vote.title || 'Vote'} ended`, vote.question));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = mostVoted(vote);
