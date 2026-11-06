@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 const keepAsIs = async (buffer, name) => ({ attachment: buffer, name });
-import { CLOUDY_FOOTER, buildVoteMessage, castVote, endDueVotes, endVoteNow, loadVote, voteBarPicture } from '../src/services/voteService.js';
+import { CLOUDY_FOOTER, buildVoteMessage, castVote, endDueVotes, endVoteNow, loadVote, refreshVoteSoon, voteBarPicture } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
 const GUILD = '191919191919191919';
@@ -107,7 +107,8 @@ async function create(w, values, { files = {}, deps = {} } = {}) {
   assert.ok(run.modal, 'the media form opens after the command');
   const form = w.form(run, files);
   // The Preview copies are made in the background; tests that need them make them themselves.
-  await submitVoteForm(form, run.id, { shrink: keepAsIs, ...deps });
+  // No 2-second redraw in tests unless a test asks for it.
+  await submitVoteForm(form, run.id, { shrink: keepAsIs, refreshVote: () => {}, ...deps });
   // The pictures are stored in the background, right after the vote is posted.
   await new Promise(resolve => { setImmediate(resolve); });
   return { run, form };
@@ -869,4 +870,24 @@ test('the vote buttons use a still copy of each number badge (animated ones some
   const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../src/services/voteService.js', import.meta.url), 'utf8'));
   assert.equal((source.match(/\.setEmoji\(buttonIcon\(index\)\)/g) || []).length, 2, 'both layouts use the still badge in their buttons');
   assert.doesNotMatch(source, /\.setEmoji\(numberIcon\(/, 'no animated badge in a button');
+});
+
+test('2 seconds after posting the vote is redrawn once with its current counts, so a missed emoji loads again', async t => {
+  const w = world();
+  const scheduled = [];
+  await create(w, { question: 'Q', option1: 'A', option2: 'B' }, { deps: { refreshVote: (...args) => scheduled.push(args) } });
+  assert.equal(scheduled.length, 1, 'one redraw is planned when the vote is posted');
+  const posted = w.sent[0];
+  assert.equal(scheduled[0][2], posted, 'for the posted vote');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  refreshVoteSoon(w.client, GUILD, posted);
+  await castVote(w.client, GUILD, posted.id, 'member', 1);
+  t.mock.timers.tick(1_999);
+  await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(posted.edits.length, 0, 'not before 2 seconds');
+  t.mock.timers.tick(1);
+  for (let i = 0; i < 5; i += 1) await new Promise(resolve => { setImmediate(resolve); });
+  assert.equal(posted.edits.length, 1, 'redrawn once');
+  assert.deepEqual(countsOf(posted.edits[0]), ['0', '1'], 'with the vote cast in the meantime');
+  t.mock.timers.reset();
 });

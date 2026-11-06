@@ -329,6 +329,23 @@ export async function setVotePictures(client, guildId, messageId, pictures) {
   });
 }
 
+// Discord's app sometimes leaves a custom emoji in a button empty when a vote
+// first appears. One redraw 2 seconds after posting loads it again (owner's
+// choice). The vote is read and redrawn under the votes lock, so a vote cast at
+// that moment is never shown with old counts.
+export const VOTE_REFRESH_MS = 2_000;
+export function refreshVoteSoon(client, guildId, message, delay = VOTE_REFRESH_MS) {
+  const timer = setTimeout(() => {
+    void Mutex.runExclusive(votesKey(guildId), async () => {
+      const vote = (await readVotes(client, guildId))[message.id];
+      if (!vote || vote.ended) return;
+      await message.edit(buildVoteMessage(vote));
+    }).catch(error => logger.warn(`[VOTE] Could not redraw vote ${message.id}: ${error?.message || error}`));
+  }, delay);
+  timer.unref?.();
+  return timer;
+}
+
 export async function loadVote(client, guildId, messageId) {
   return (await readVotes(client, guildId))[messageId] || null;
 }
