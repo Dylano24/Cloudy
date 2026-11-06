@@ -12,6 +12,15 @@ const GIVEAWAY_LOG_ALIASES = ['giveaway-logs', 'giveaway-log'];
 const unix = value => Math.floor((Number.isFinite(value) ? value : Date.now()) / 1000);
 const validId = value => /^\d{17,20}$/.test(String(value || ''));
 
+// The winner country log has its own channel (owner's choice), not #giveaway-logs.
+export const GIVEAWAY_COUNTRY_LOG_CHANNEL_ID = '1567403416890642493';
+
+async function countryLogChannel(guild) {
+  const own = guild?.channels?.cache?.get?.(GIVEAWAY_COUNTRY_LOG_CHANNEL_ID)
+    || await guild?.channels?.fetch?.(GIVEAWAY_COUNTRY_LOG_CHANNEL_ID).catch(() => null);
+  return own?.send ? own : giveawayLogChannel(guild);
+}
+
 async function giveawayLogChannel(guild) {
   const named = findCloudyChannelByAlias(guild, GIVEAWAY_LOG_ALIASES, { textOnly: true });
   if (named?.send) return named;
@@ -92,9 +101,9 @@ async function numberFor(client, guild, giveaway) {
 }
 
 // Logs never stop a giveaway action; a failure is only written to the logs.
-async function send(guild, build, label) {
+async function send(guild, build, label, findChannel = giveawayLogChannel) {
   try {
-    const channel = await giveawayLogChannel(guild);
+    const channel = await findChannel(guild);
     if (!channel) throw new Error('#giveaway-logs is unavailable');
     return await channel.send(await build());
   } catch (error) {
@@ -116,5 +125,5 @@ export function sendGiveawayWinnerCountryLog(client, guild, giveaway, winners) {
   return send(guild, async () => buildGiveawayWinnerCountryLog(guild.id, giveaway, winners, {
     number: await numberFor(client, guild, giveaway),
     ownerRoleId: findCloudyOwnerRole(guild)?.id || null,
-  }), 'winner country');
+  }), 'winner country', countryLogChannel);
 }
