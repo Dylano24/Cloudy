@@ -154,6 +154,9 @@ function voteParts(vote, now) {
 // to every option with a picture, which shows it privately (vote_media). Only
 // Discord's newer message layout can put a button next to text, so these
 // votes are a card (white side line, Cloudy logo and footer) instead of an embed.
+// A little more room between sections (owner's choice): an empty separator.
+const sectionGap = () => new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
+
 function buildPreviewVoteMessage(vote, parts) {
   // The layout of a classic map poll (owner's choice): Question, Choices with
   // a number each (and a Preview button when the option has a picture), Ends,
@@ -164,15 +167,17 @@ function buildPreviewVoteMessage(vote, parts) {
   // A short how-to under the title (owner's choice), like a classic map poll.
   const hasPreview = !parts.ended && parts.options.some(option => option.picture);
   const howTo = [
-    '• Press a number below to vote for your favourite.',
+    '• Press a number below to vote.',
     '• Press another number to change your vote.',
     ...(hasPreview ? ['• Press **Preview** to see the picture of a choice.'] : []),
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
     .addTextDisplayComponents(text([`### ${vote.title || 'Vote started'}`, ...howTo].join('\n')))
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small))
-    .addTextDisplayComponents(text(`**Question**\n${vote.question}\n**Choices**`));
+    .addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(`**Question**\n${vote.question}`))
+    .addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text('**Choices**'));
   parts.options.forEach((option, index) => {
     // Cloudy's own number emoji (owner's choice).
     const line = text(`${numberIcon(index)} **${vote.options[index]}**`);
@@ -187,7 +192,9 @@ function buildPreviewVoteMessage(vote, parts) {
       card.addTextDisplayComponents(line);
     }
   });
-  card.addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`));
+  card.addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
+    .addSeparatorComponents(sectionGap());
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
     .setURL(VOTE_FOOTER_URL)));
   const rows = [];
@@ -212,22 +219,27 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text([`### ${vote.title || 'Vote'} ended`, '**Question**', vote.question].join('\n')));
+    .addTextDisplayComponents(text(`### ${vote.title || 'Vote'} ended`))
+    .addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(`**Question**\n${vote.question}`));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = mostVoted(vote);
-  card.addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes'])].join('\n')));
-  // The winner's picture (owner's choice), right under it.
+  // Results first, then Most votes with the winner's picture (owner's choice).
+  card.addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(['**Results**', ...order.map(line)].join('\n')))
+    .addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes'])].join('\n')));
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
   }
-  card.addTextDisplayComponents(text([
-    '**Results**', ...order.map(line),
-    '**Total**', votes(total),
-    '**Ended**', `<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`,
-  ].join('\n')));
-  card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
+  card.addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(`**Total**\n${votes(total)}`))
+    .addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
+  card.addSeparatorComponents(sectionGap())
+    .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
   return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
