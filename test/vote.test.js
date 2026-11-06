@@ -4,7 +4,7 @@ import { Collection } from 'discord.js';
 import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
-import { forgetVotePreviews, shrinkVotePicture, warmVotePreviews } from '../src/services/votePreviewService.js';
+import { forgetVotePreviews, shrinkVotePicture } from '../src/services/votePreviewService.js';
 import { spawnSync } from 'node:child_process';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
@@ -76,6 +76,7 @@ function world() {
     const interaction = {
       client, guild, guildId: GUILD, channelId: CHANNEL, channel, user, inGuild: () => true,
       fields: { getUploadedFiles: name => (files[name] ? new Collection([['file', files[name]]]) : null) },
+      reply: async payload => { interaction.answer = payload; },
       deferReply: async () => { interaction.deferred = true; },
       editReply: async payload => { interaction.answer = payload; }, deleteReply: async () => {},
     };
@@ -91,7 +92,9 @@ async function create(w, values, { files = {}, deps = {} } = {}) {
   assert.ok(run.modal, 'the media form opens after the command');
   const form = w.form(run, files);
   // The Preview copies are made in the background; tests that need them make them themselves.
-  await submitVoteForm(form, run.id, { warmPreviews: async () => {}, ...deps });
+  await submitVoteForm(form, run.id, { shrink: keepAsIs, ...deps });
+  // The pictures are stored in the background, right after the vote is posted.
+  await new Promise(resolve => { setImmediate(resolve); });
   return { run, form };
 }
 
@@ -106,7 +109,8 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const { form } = await create(w, { question: 'Next map?', option1: 'Procedural', option2: 'Barren', duration: '1h' });
   const posted = w.sent[0];
   const embed = posted.embeds[0];
-  assert.equal(embed.title, 'Vote');
+  assert.equal(embed.title, 'Vote started', '"Vote started" while it runs');
+  assert.equal(form.deferred, undefined, 'answered at once: no "thinking"');
   assert.match(embed.description, /^\*\*Next map\?\*\*\n\n1️⃣ \*\*Procedural\*\*\n▱{6} \*\*0%\*\* · 0 votes\n2️⃣ \*\*Barren\*\*\n/);
   assert.match(embed.description, /\*\*Total votes:\*\* 0\n\n\*\*Ends:\*\* <t:\d+:f>$/, 'only the date: no live countdown that redraws the vote');
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
@@ -188,7 +192,7 @@ test('an ended vote shows the winner and disabled buttons', async () => {
   await endDueVotes(w.client);
   const edited = w.sent[0].edits.at(-1);
   assert.equal(edited.embeds[0].title, 'Vote ended');
-  assert.match(edited.embeds[0].description, /\*\*Total votes:\*\* 1\n\n\*\*Winner:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
+  assert.match(edited.embeds[0].description, /\*\*Total votes:\*\* 1\n\n\*\*Most votes:\*\* B\n\*\*Ended:\*\* <t:\d+:f>$/);
   assert.ok(json(edited.components[0]).components.every(button => button.disabled));
   assert.equal((await castVote(w.client, GUILD, messageId, 'z', 0)).status, 'ended');
 });
@@ -243,7 +247,7 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.type, 17);
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
-  assert.match(card.components[0].content, /^### Vote\n\*\*Choose your map\*\*$/);
+  assert.match(card.components[0].content, /^### Vote started\n\*\*Choose your map\*\*$/);
   assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
   assert.deepEqual(card.components[1], { type: 14, divider: false, spacing: 2 }, 'more room under the question');
   // Each Preview stands next to its bar (the bar is the only text beside it),
@@ -251,11 +255,11 @@ test('an option with a picture gets a small Preview button right next to it; pla
   const previews = card.components.flatMap((part, index) => (part.type === 9 && part.accessory?.type === 2
     ? [[card.components[index - 1].content.replace(/\(.*\)/, ''), part.components.map(item => item.content), part.accessory.custom_id, part.accessory.label]] : []));
   assert.deepEqual(previews, [
-    ['1️⃣ **DZ West**', ['### ▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
-    ['3️⃣ **DZ South**', ['### ▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
-  ], 'Preview only next to options with a picture; the bar line is a heading, as tall as the button');
-  assert.ok(card.components.some(part => part.type === 10 && part.content === '### ▱▱▱▱▱▱ **0%** · 0 votes'),
-    'an option without a picture has the same heading bar');
+    ['1️⃣ **DZ West**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:0', 'Preview'],
+    ['3️⃣ **DZ South**', ['▱▱▱▱▱▱ **0%** · 0 votes'], 'vote_media:2', 'Preview'],
+  ], 'Preview only next to options with a picture; the bar line is normal text, not bold');
+  assert.ok(card.components.some(part => part.type === 10 && part.content === '▱▱▱▱▱▱ **0%** · 0 votes'),
+    'an option without a picture has the same bar line');
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
   assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png');
@@ -330,7 +334,7 @@ test('the option button only votes: the picture opens from the blue link, the no
   assert.equal(embed.description, 'You voted for **DZ West**.');
   assert.equal(embed.image, undefined, 'no picture behind the button');
   assert.equal(first.updated.flags, 32768, 'the card stays a card');
-  assert.match(textOf(first.updated), /1️⃣ \*\*DZ West\*\*\n### ▱{6} \*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
+  assert.match(textOf(first.updated), /1️⃣ \*\*DZ West\*\*\n▱{6} \*\*1%\*\* · 1 vote/, 'the Preview button shows the picture');
   t.mock.timers.tick(10_000);
   await new Promise(resolve => { setImmediate(resolve); });
   assert.equal(first.deleted, 1, 'gone after 10 seconds');
@@ -531,7 +535,6 @@ test('an expired picture link is renewed before the preview is shown', async () 
 test('the small Preview copies are made when the vote is posted, so the first Preview needs no download', async () => {
   forgetVotePreviews();
   const w = world();
-  let warming;
   const shrunk = [];
   const deps = {
     fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
@@ -539,18 +542,16 @@ test('the small Preview copies are made when the vote is posted, so the first Pr
       links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/9/9/${file.name}?ex=1` : null)),
       media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
     }),
-    warmPreviews: (messageId, files) => {
-      warming = warmVotePreviews(messageId, files, async (buffer, name) => {
-        shrunk.push(name);
-        return { attachment: Buffer.from('small'), name: name.replace(/\.\w+$/, '.jpg') };
-      });
-      return warming;
+    shrink: async (buffer, name) => {
+      shrunk.push(name);
+      return { attachment: Buffer.from('small'), name: name.replace(/\.\w+$/, '.jpg') };
     },
   };
   await create(w, { question: 'Map?', option1: 'A', option2: 'B' },
     { files: { media2: { url: 'https://cdn.discordapp.com/a/b.png', name: 'b.png', contentType: 'image/png', size: 10 } }, deps });
-  await warming;
   assert.deepEqual(shrunk, ['option2.png'], 'only options with a picture');
+  assert.deepEqual((await loadVote(w.client, GUILD, w.sent[0].id)).optionLinks,
+    [null, 'https://cdn.discordapp.com/attachments/9/9/option2.jpg?ex=1'], 'the small copy is what Cloudy stores');
   const fetched = [];
   const preview = { id: 'p9', guildId: GUILD, user: { id: 'member' }, message: { id: w.sent[0].id },
     reply: async payload => { preview.answer = payload; }, deferReply: async () => {}, editReply: async () => {}, deleteReply: async () => {} };
@@ -558,6 +559,42 @@ test('the small Preview copies are made when the vote is posted, so the first Pr
   assert.deepEqual(fetched, [], 'no download: the small copy was ready');
   assert.equal(preview.answer.files[0].name, 'option2.jpg');
   assert.equal(preview.answer.embeds[0].image.url, 'attachment://option2.jpg');
+});
+
+test('when a vote with pictures ends, the card shows Most votes with the chosen map', async () => {
+  forgetVotePreviews();
+  const w = world();
+  const deps = {
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }),
+    uploadPictures: async (client, guild, channel, files) => ({
+      links: files.map(file => (file ? `https://cdn.discordapp.com/attachments/8/8/${file.name}?ex=1` : null)),
+      media: { channelId: 't1', messageId: 'm1', names: files.map(file => file?.name || null) },
+    }),
+  };
+  await create(w, { question: 'Which map?', option1: 'DZ West', option2: 'DZ East', duration: '1m' }, {
+    files: {
+      media1: { url: 'https://cdn.discordapp.com/a/w.png', name: 'w.png', contentType: 'image/png', size: 10 },
+      media2: { url: 'https://cdn.discordapp.com/a/e.png', name: 'e.png', contentType: 'image/png', size: 10 },
+    },
+    deps,
+  });
+  const messageId = w.sent[0].id;
+  await castVote(w.client, GUILD, messageId, 'a', 1);
+  await castVote(w.client, GUILD, messageId, 'b', 1);
+  await castVote(w.client, GUILD, messageId, 'c', 0);
+  const stored = await loadVote(w.client, GUILD, messageId);
+  await w.client.db.set(`guild:${GUILD}:votes`, { [messageId]: { ...stored, endsAt: Date.now() - 1000 } });
+  await endDueVotes(w.client);
+  const edit = w.sent[0].edits.at(-1);
+  assert.deepEqual(edit.files.map(file => file.name), ['most-votes-2.png'], 'the chosen map goes along with the last edit');
+  const card = json(edit.components[0]);
+  const texts = card.components.filter(part => part.type === 10).map(part => part.content);
+  assert.match(texts[0], /^### Vote ended\n/);
+  const result = card.components.findIndex(part => part.type === 10 && /\*\*Most votes:\*\* DZ East$/.test(part.content));
+  assert.ok(result > 0, 'Most votes: DZ East');
+  assert.equal(card.components[result + 1].items[0].media.url, 'attachment://most-votes-2.png', 'its map right under it');
+  assert.match(card.components[result + 2].content, /^\*\*Ended:\*\* <t:\d+:f>$/);
+  assert.deepEqual((await loadVote(w.client, GUILD, messageId)).resultPictures, ['most-votes-2.png']);
 });
 
 test('a big picture becomes a small JPG of at most 1024 px wide for Preview', { skip: !hasFfmpeg && 'ffmpeg is not installed' }, async () => {

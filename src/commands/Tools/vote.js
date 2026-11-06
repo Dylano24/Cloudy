@@ -3,9 +3,9 @@ import { successEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { buildVoteMessage, saveVote } from '../../services/voteService.js';
+import { buildVoteMessage, saveVote, setVotePictures } from '../../services/voteService.js';
 import { uploadVotePictures } from '../../services/voteMediaService.js';
-import { warmVotePreviews } from '../../services/votePreviewService.js';
+import { keepVotePreview, shrinkVotePicture } from '../../services/votePreviewService.js';
 import { logger } from '../../utils/logger.js';
 
 const VOTE_OPTIONS = 3;
@@ -53,49 +53,55 @@ function uploadedPicture(interaction, index) {
   }
 }
 
-/** The media form was sent: post the vote, with the pictures that were added or without any. */
-export async function submitVoteForm(interaction, id, dependencies = {}) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+// Discord waits 3 seconds for the answer.
+export const ANSWER_WITHIN_MS = 2_000;
+const wait = ms => new Promise(resolve => {
+  const timer = setTimeout(() => resolve(null), ms);
+  timer.unref?.();
+});
+const warning = text => setPreservedEmbedColor(warningEmbed('Warning', text), CLOUDY_RED_COLOR);
+
+async function readPicture(interaction, index, fetchImpl) {
+  const picture = uploadedPicture(interaction, index);
+  if (!picture) return null;
+  const type = String(picture.contentType || '');
+  if (!type.startsWith('image/')) throw new Error(`Media ${index + 1} must be a picture.`);
+  if (picture.size > MAX_MEDIA_BYTES) throw new Error(`Media ${index + 1} is larger than 10 MB.`);
+  const response = await fetchImpl(picture.url, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error(`Media ${index + 1} could not be downloaded.`);
+  const extension = EXTENSIONS[type.split(';')[0]]
+    || String(picture.name || '').match(/\.(png|jpe?g|gif|webp|heic|heif)$/i)?.[1]?.toLowerCase() || 'png';
+  return { attachment: Buffer.from(await response.arrayBuffer()), name: `option${index + 1}.${extension}` };
+}
+
+// Posts the vote from the form and returns the notice to show. Fast (owner's
+// choice, about a second): the pictures are read at the same time and made
+// small (at most 1024 px wide) before anything is sent; they are stored in
+// the vote-media thread in the background, after the vote is already posted.
+async function postVoteFromForm(interaction, id, dependencies) {
   const draft = drafts.get(id);
   drafts.delete(id);
   if (!draft || draft.expiresAt <= Date.now() || draft.userId !== interaction.user.id) {
-    return warn(interaction, 'This vote form has expired. Use /vote again.');
+    return warning('This vote form has expired. Use /vote again.');
   }
-  if (!interaction.inGuild?.() || !interaction.channel?.send) return warn(interaction, 'Votes only work in a server channel.');
-  // Pictures (owner's choice): uploaded to Discord, each option with a
-  // picture becomes a blue link that opens it (voteMediaService.js).
+  if (!interaction.inGuild?.() || !interaction.channel?.send) return warning('Votes only work in a server channel.');
   const fetchImpl = dependencies.fetchImpl || fetch;
-  const files = [];
-  for (const index of draft.options.keys()) {
-    const picture = uploadedPicture(interaction, index);
-    if (!picture) { files.push(null); continue; }
-    try {
-      const type = String(picture.contentType || '');
-      if (!type.startsWith('image/')) throw new Error(`Media ${index + 1} must be a picture.`);
-      if (picture.size > MAX_MEDIA_BYTES) throw new Error(`Media ${index + 1} is larger than 10 MB.`);
-      const response = await fetchImpl(picture.url, { signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error(`Media ${index + 1} could not be downloaded.`);
-      const extension = EXTENSIONS[type.split(';')[0]]
-        || String(picture.name || '').match(/\.(png|jpe?g|gif|webp|heic|heif)$/i)?.[1]?.toLowerCase() || 'png';
-      files.push({ attachment: Buffer.from(await response.arrayBuffer()), name: `option${index + 1}.${extension}` });
-    } catch (error) {
-      return warn(interaction, error?.message || `Media ${index + 1} could not be added.`);
-    }
+  let files;
+  try {
+    files = await Promise.all(draft.options.map((_, index) => readPicture(interaction, index, fetchImpl)));
+  } catch (error) {
+    return warning(error?.message || 'The pictures could not be added.');
   }
-  let pictures = null;
-  if (files.some(Boolean)) {
-    try {
-      pictures = await (dependencies.uploadPictures || uploadVotePictures)(interaction.client, interaction.guild, interaction.channel, files);
-    } catch (error) {
-      return warn(interaction, error?.message || 'The pictures could not be added.');
-    }
-  }
+  const hasPictures = files.some(Boolean);
+  const shrink = dependencies.shrink || shrinkVotePicture;
+  const small = hasPictures ? await Promise.all(files.map(file => (file ? shrink(file.attachment, file.name) : null))) : files;
+  const upload = () => (dependencies.uploadPictures || uploadVotePictures)(interaction.client, interaction.guild, interaction.channel, small);
   const vote = {
     messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
     question: draft.question, options: draft.options, votes: {},
     endsAt: draft.durationMs ? Date.now() + draft.durationMs : null, ended: false,
     // With pictures: a Preview button next to each option with a picture.
-    ...(pictures ? { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now(), layout: 'preview' } : {}),
+    ...(hasPictures ? { layout: 'preview', pictureOptions: small.map(Boolean) } : {}),
     createdBy: interaction.user.id, createdAt: new Date().toISOString(),
   };
   let message;
@@ -105,7 +111,15 @@ export async function submitVoteForm(interaction, id, dependencies = {}) {
     if (!vote.layout) throw error;
     // Never lose the vote: the normal layout (blue links) if Discord refuses the card.
     logger.warn(`[VOTE] Preview layout refused, normal layout used: ${error?.message || error}`);
+    let pictures;
+    try {
+      pictures = await upload();
+    } catch (uploadError) {
+      return warning(uploadError?.message || 'The pictures could not be added.');
+    }
     delete vote.layout;
+    delete vote.pictureOptions;
+    Object.assign(vote, { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() });
     message = await interaction.channel.send(buildVoteMessage(vote));
   }
   vote.messageId = message.id;
@@ -115,9 +129,29 @@ export async function submitVoteForm(interaction, id, dependencies = {}) {
     await message.delete().catch(() => {});
     throw error;
   }
-  // The small Preview copies are made now, so the first Preview is instant too.
-  if (pictures) void (dependencies.warmPreviews || warmVotePreviews)(message.id, files).catch(() => {});
-  return notice(interaction, successEmbed('Success', 'The vote is live.'));
+  // Preview shows these small copies at once.
+  small.forEach((file, position) => { if (file) keepVotePreview(message.id, position, file); });
+  if (vote.layout === 'preview') {
+    void upload()
+      .then(pictures => setVotePictures(interaction.client, interaction.guildId, message.id, pictures))
+      .catch(error => logger.warn(`[VOTE] Vote pictures could not be stored: ${error?.message || error}`));
+  }
+  return successEmbed('Success', 'The vote is live.');
+}
+
+/** The media form was sent: post the vote, with the pictures that were added or without any. */
+export async function submitVoteForm(interaction, id, dependencies = {}) {
+  // One answer, no "thinking", when the vote is ready within 2 seconds.
+  const posting = postVoteFromForm(interaction, id, dependencies);
+  let embed = await Promise.race([posting, wait(ANSWER_WITHIN_MS)]);
+  if (embed) {
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  } else {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    embed = await posting;
+    await interaction.editReply({ embeds: [embed], components: [] });
+  }
+  removeAfterTenSeconds(interaction);
 }
 
 // /vote (owner's choice, was /poll): a vote with buttons and live counts.

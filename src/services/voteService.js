@@ -10,6 +10,7 @@ import { unwrapReplitData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { feedEmoji } from './feedEmojiService.js';
 import { freshVotePictureLinks } from './voteMediaService.js';
+import { votePreviewFile } from './votePreviewService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -59,6 +60,13 @@ const BAR_LENGTH = 6;
 const votesKey = guildId => `guild:${guildId}:votes`;
 const unix = ms => Math.floor(ms / 1000);
 
+/** The option indexes with the most votes (several on a tie, none without votes). */
+export function mostVoted(vote) {
+  const counts = voteCounts(vote);
+  const best = Math.max(0, ...counts);
+  return best ? counts.flatMap((count, index) => (count === best ? [index] : [])) : [];
+}
+
 export function voteCounts(vote) {
   const counts = vote.options.map(() => 0);
   for (const index of Object.values(vote.votes || {})) {
@@ -67,12 +75,14 @@ export function voteCounts(vote) {
   return counts;
 }
 
-// The progress bar is plain text (owner's choice): ▰ filled, ▱ open. The
-// green bar of custom emoji pictures flickered every time Discord redrew the
-// vote (the pictures loaded again); text never has to load.
+// The progress bar (owner's choice): rounded custom emoji pieces, white when
+// filled (was green), grey when open.
 function bar(share, length) {
   const filled = Math.round(share * length);
-  return '▰'.repeat(filled) + '▱'.repeat(length - filled);
+  return Array.from({ length }, (_, index) => {
+    const end = index === 0 ? 'l' : index === length - 1 ? 'r' : 'm';
+    return feedEmoji(`bar_${end}${index < filled ? 'f' : 'e'}`);
+  }).join('');
 }
 
 // The pieces of a vote, shared by both layouts.
@@ -93,14 +103,15 @@ function voteParts(vote, now) {
       // The card has a Preview button, so its option names are plain text (owner's choice).
       name: `${numberIcon(index)} **${option}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}`,
       bar: `${bar(share, BAR_LENGTH)} **${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`,
-      picture: votePicture(vote, index),
+      // Whether the option has a picture (known at once; its link is stored a moment later).
+      picture: vote.pictureOptions ? Boolean(vote.pictureOptions[index]) : Boolean(votePicture(vote, index)),
     };
   });
   const end = [];
   if (ended) {
-    const best = Math.max(0, ...counts);
-    const winners = total ? vote.options.filter((_, index) => counts[index] === best) : [];
-    end.push(`**${winners.length > 1 ? 'Tie' : 'Winner'}:** ${winners.length ? winners.join(', ') : 'No votes'}`);
+    // The result (owner's choice): the option(s) with the most votes.
+    const winners = mostVoted(vote).map(index => vote.options[index]);
+    end.push(`**Most votes:** ${winners.length ? winners.join(', ') : 'No votes'}`);
     end.push(`**Ended:** <t:${unix(vote.endedAt || vote.endsAt || now)}:f>`);
   } else if (vote.endsAt) {
     // Only the date (owner's choice): a live countdown ("in an hour") made
@@ -118,8 +129,9 @@ function voteParts(vote, now) {
   for (let start = 0; start < buttons.length; start += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
-  const title = ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote');
-  return { total, options, end, rows, title };
+  // "Vote started" while it runs, "Vote ended" after (owner's choice).
+  const title = ended ? `${vote.title || 'Vote'} ended` : (vote.title || 'Vote started');
+  return { total, options, end, rows, title, ended };
 }
 
 // A vote with pictures (owner's choice): a small "Preview" button right next
@@ -138,23 +150,30 @@ function buildPreviewVoteMessage(vote, parts) {
   parts.options.forEach((option, index) => {
     if (index) card.addSeparatorComponents(gap());
     card.addTextDisplayComponents(text(option.name));
-    // The Preview button stands next to the bar itself, level with its middle
-    // (owner's choice), so the bar is the only text beside it.
+    // The Preview button stands next to the bar itself (owner's choice), so
+    // the bar is the only text beside it. Normal text, not bold (owner's choice).
     if (!option.picture) {
-      card.addTextDisplayComponents(text(`### ${option.bar}`));
+      card.addTextDisplayComponents(text(option.bar));
       return;
     }
     card.addSectionComponents(new SectionBuilder()
-      // As a heading (owner's choice): only a line as tall as the button
-      // stands level with it, Discord puts the button at the top of the line.
-      .addTextDisplayComponents(text(`### ${option.bar}`))
+      .addTextDisplayComponents(text(option.bar))
       .setButtonAccessory(new ButtonBuilder()
         .setCustomId(`vote_media:${index}`)
         .setLabel('Preview')
         .setStyle(ButtonStyle.Secondary)));
   });
-  card.addSeparatorComponents(gap())
-    .addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')));
+  card.addSeparatorComponents(gap());
+  const result = parts.ended ? (vote.resultPictures || []).filter(Boolean) : [];
+  if (result.length) {
+    // The chosen map (owner's choice): Most votes with its picture, then the end.
+    card.addTextDisplayComponents(text(`**Total votes:** ${parts.total}\n\n${parts.end[0]}`))
+      .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...result.map(name => new MediaGalleryItemBuilder()
+        .setURL(`attachment://${name}`))))
+      .addTextDisplayComponents(text(parts.end.slice(1).join('\n')));
+  } else {
+    card.addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')));
+  }
   // White and small, on one line (owner's choice): the footer picture.
   // No description: Discord shows an "ALT" label on described pictures, which
   // on this thin picture was a black line at the start of the footer.
@@ -205,6 +224,18 @@ export async function saveVote(client, guildId, vote) {
     votes[vote.messageId] = vote;
     await writeVotes(client, guildId, votes);
     return vote;
+  });
+}
+
+/** Stores where a vote's pictures are kept (uploaded right after the vote was posted). */
+export async function setVotePictures(client, guildId, messageId, pictures) {
+  return Mutex.runExclusive(votesKey(guildId), async () => {
+    const votes = await readVotes(client, guildId);
+    const vote = votes[messageId];
+    if (!vote) return null;
+    votes[messageId] = { ...vote, optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() };
+    await writeVotes(client, guildId, votes);
+    return votes[messageId];
   });
 }
 
@@ -259,9 +290,32 @@ export async function endDueVotes(client) {
     for (const vote of due) {
       const channel = guild.channels?.cache?.get?.(vote.channelId);
       const message = await channel?.messages?.fetch?.(vote.messageId).catch(() => null);
-      if (message?.edit) await message.edit(buildVoteMessage(vote)).catch(error => logger.warn('Could not close vote message:', error));
+      if (!message?.edit) continue;
+      // A card shows the chosen map's picture under Most votes (owner's
+      // choice), sent along with this last edit.
+      const files = vote.layout === 'preview' ? await resultPictureFiles(client, vote).catch(() => []) : [];
+      let closed = vote;
+      if (files.length) {
+        closed = { ...vote, resultPictures: files.map(file => file.name) };
+        await saveVote(client, guild.id, closed).catch(() => {});
+      }
+      await message.edit({ ...buildVoteMessage(closed), ...(files.length ? { files } : {}) })
+        .catch(error => logger.warn('Could not close vote message:', error));
     }
   }
+}
+
+async function resultPictureFiles(client, vote) {
+  const files = [];
+  for (const position of mostVoted(vote)) {
+    const url = votePicture(vote, position);
+    const file = await votePreviewFile({
+      messageId: vote.messageId, position, url,
+      refresh: vote.optionMedia ? async () => (await freshVotePictureLinks(client, vote.optionMedia))?.[position] : null,
+    });
+    if (file) files.push({ attachment: file.attachment, name: `most-votes-${position + 1}.${file.name.split('.').pop()}` });
+  }
+  return files;
 }
 
 // Discord's picture links expire after about a day: the links of votes from
@@ -274,6 +328,8 @@ export async function refreshVotePictureLinks(client, now = Date.now()) {
     const votes = await readVotes(client, guild.id).catch(() => ({}));
     for (const vote of Object.values(votes)) {
       if (!vote.optionMedia || now - (vote.mediaRefreshedAt || 0) < MEDIA_REFRESH_MS) continue;
+      // A card shows no links (its Preview renews an expired link itself), so it is never edited for this.
+      if (vote.layout === 'preview') continue;
       if (now - Date.parse(vote.createdAt || 0) > MEDIA_KEEP_MS) continue;
       const links = await freshVotePictureLinks(client, vote.optionMedia).catch(() => null);
       if (!links) continue;
