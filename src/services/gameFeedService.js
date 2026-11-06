@@ -131,13 +131,27 @@ export function buildGameFeedEmbed(event) {
   const server = line('Server', event.server);
   const serverIcon = line('Server', event.server, 'server');
   switch (event.type) {
-    case 'pvp':
-      return classicEmbed('Player killed', CLOUDY_RED_COLOR, [
-        line('Killer', name(event.killer), 'killer'), line('Victim', name(event.victim), 'victim'), line('Weapon', event.weapon && `${weaponEmoji(event.weapon) || feedEmoji('weapon')} ${event.weapon}`),
-        line('Distance', event.distance == null ? null : `${event.distance} m`, 'distance'),
-        event.headshot ? line('Headshot', feedEmoji('headshot')) : null,
-        event.streak > 1 ? line('Killstreak', `🔥 ${event.streak}`) : null, serverIcon,
-      ], event);
+    case 'pvp': {
+      // Player killed (owner's choice): "Dyn <skull> Dylano" as the title and
+      // every line the owner's icon and its value, no labels or colons.
+      const icon = (key, value) => (value == null || value === '' ? null : `${feedEmoji(key)} ${value}`);
+      return {
+        title: `${event.killer} ${feedEmoji('kill_skull')} ${event.victim}`,
+        description: [
+          icon('kill_killer', name(event.killer)),
+          icon('kill_victim', name(event.victim)),
+          icon('kill_weapon', event.weapon),
+          icon('kill_distance', event.distance == null ? null : `${event.distance} m`),
+          event.headshot ? icon('kill_skull', 'Headshot') : null,
+          event.streak > 1 ? icon('kill_streak', String(event.streak)) : null,
+          icon('server', event.server),
+          icon('dot', `<t:${unix(event.time)}:f>`),
+        ].filter(Boolean).join('\n'),
+        color: CLOUDY_RED_COLOR,
+        thumbnail: { url: CLOUDY_C_LOGO_URL },
+        footer: { text: CLOUDY_FOOTER },
+      };
+    }
     case 'player':
       if (event.action === 'kit') {
         return classicEmbed('Kit claimed', CLOUDY_NEUTRAL_COLOR, [

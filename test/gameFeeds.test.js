@@ -7,6 +7,7 @@ import {
 } from '../src/services/gameFeedService.js';
 import { createGameFeedHandler } from '../src/web/gameFeedApi.js';
 import gamefeed from '../src/commands/GameServer/gamefeed.js';
+import { isGameFeedEmbed } from '../src/services/gameFeedTitles.js';
 
 const SECRET = 'g'.repeat(40);
 const settle = () => new Promise(resolve => { setImmediate(resolve); });
@@ -36,10 +37,13 @@ test.afterEach(() => clearGameFeedQueues());
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
   assert.deepEqual(embeds.map(embed => embed.title.replace(/^<a?:\w+:\d+> /, '')), [
-    'Player killed', 'LOGIN', 'LOGOUT', 'Kit claimed',
+    'Dyn <a:cloudy_headshot:1568299328450207764> Dylano', 'LOGIN', 'LOGOUT', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* <:killer_suit:\d+> `Dyn`\n\*\*Victim:\*\* <:victim_suit:\d+> `Dylano`\n\*\*Weapon:\*\* <:rust_ak:\d+> Assault rifle\n\*\*Distance:\*\* <:distance:\d+> 145 m\n\*\*Headshot:\*\* <:headshot:\d+>\n\*\*Killstreak:\*\* 🔥 3\n\*\*Server:\*\* <a?:server_router:\d+> Darkzone South\n\*\*Time:\*\* <t:\d+:f>$/);
+  // Player killed (owner's choice): the skull between the names, then only an icon and its value per line.
+  assert.match(embeds[0].description, /^<a:cloudy_killer:\d+> `Dyn`\n<a:cloudy_victim:\d+> `Dylano`\n<a:cloudy_rifle:\d+> Assault rifle\n<a:cloudy_distance:\d+> 145 m\n<a:cloudy_headshot:\d+> Headshot\n<a:cloudy_killstreak:\d+> 3\n<a?:server_router:\d+> Darkzone South\n<:W87205667glowingdotwhite:\d+> <t:\d+:f>$/);
+  assert.doesNotMatch(embeds[0].description, /:\*\*/, 'no labels with colons');
+  assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
   assert.match(embeds[2].description, /\*\*Platform:\*\* <:\w*console\w*:\d+>\n/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
@@ -178,7 +182,8 @@ test('the weapon in an event gets its Rust emoji; unknown weapons keep the gener
   assert.equal(id('Timed Explosive Charge'), 'c4');
   assert.equal(weaponEmoji('Spoon'), '');
   const unknown = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'pvp', server: 'S', killer: 'A', victim: 'B', weapon: 'Spoon' }) });
-  assert.match(unknown.description, /\*\*Weapon:\*\* <:X83rust4ar:\d+> Spoon/);
+  // A kill shows the owner's rifle icon before every weapon (owner's choice); raids keep the weapon's own emoji.
+  assert.match(unknown.description, /\n<a:cloudy_rifle:\d+> Spoon\n/);
   const raid = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'raid', server: 'S', attacker: 'A', item: 'Rocket' }) });
   assert.match(raid.description, /\*\*Used:\*\* <:rust_rocket:\d+> Rocket/);
 });
