@@ -40,9 +40,9 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
     'Kill feed', 'LOGIN', 'LOGOUT', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
-  // Player killed (owner's choice): "Kill feed", then one code box with killer, skull, victim and streak (standard emoji only), then icon and value per line.
-  assert.match(embeds[0].description, /^`Dyn 💀 Dylano 🔥 3`\n<a:cloudy_rifle:\d+> Assault rifle\n<a:cloudy_distance:\d+> 145 m\n<a?:server_router:\d+> Darkzone South\n<:W87205667glowingdotwhite:\d+> <t:\d+:f>$/);
-  assert.doesNotMatch(embeds[0].description, /:\*\*/, 'no labels with colons');
+  // Player killed (owner's choice): "Kill feed" with labelled lines and the owner's icons; no distance, no streak.
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* <a:cloudy_killer:\d+> `Dyn`\n\*\*Victim:\*\* <a:cloudy_victim:\d+> `Dylano`\n\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Assault rifle\n\*\*Headshot:\*\* <a:cloudy_headshot:\d+>\n\*\*Server:\*\* <a?:server_router:\d+> Darkzone South\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.doesNotMatch(embeds[0].description, /Distance|Killstreak|145/, 'no distance and no streak');
   assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
   assert.match(embeds[2].description, /\*\*Platform:\*\* <:\w*console\w*:\d+>\n/);
@@ -183,7 +183,7 @@ test('the weapon in an event gets its Rust emoji; unknown weapons keep the gener
   assert.equal(weaponEmoji('Spoon'), '');
   const unknown = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'pvp', server: 'S', killer: 'A', victim: 'B', weapon: 'Spoon' }) });
   // A kill shows the owner's rifle icon before every weapon (owner's choice); raids keep the weapon's own emoji.
-  assert.match(unknown.description, /\n<a:cloudy_rifle:\d+> Spoon\n/);
+  assert.match(unknown.description, /\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Spoon/);
   const raid = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'raid', server: 'S', attacker: 'A', item: 'Rocket' }) });
   assert.match(raid.description, /\*\*Used:\*\* <:rust_rocket:\d+> Rocket/);
 });
