@@ -694,7 +694,7 @@ test('Preview opens a dropdown of the choices with a picture; a choice shows onl
   await votePick.execute(pick, w.client, [w.sent[0].id, 'pall'], { fetchImpl: async () => ({ ok: false }), shrink: keepAsIs });
   assert.equal(pick.answer.embeds.length, 1, 'only the chosen picture');
   const [embed] = pick.answer.embeds;
-  assert.equal(embed.description, '3️⃣ **South**');
+  assert.equal(embed.description, undefined, 'no name above the picture: the dropdown shows the choice');
   assert.equal(embed.image.url, 'attachment://option3.png');
   assert.equal(embed.footer.text, CLOUDY_FOOTER);
   assert.equal(withCloudyFooter({ embeds: pick.answer.embeds }).embeds[0].thumbnail, undefined, 'no logo: it has its own footer');
