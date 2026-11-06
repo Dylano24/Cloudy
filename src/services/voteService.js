@@ -34,6 +34,7 @@ export const VOTE_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️�
 export const MAX_VOTE_OPTIONS = 10;
 // Every number is a custom digit emoji (owner's choice).
 const numberIcon = index => feedEmoji(`vote_${index + 1}`);
+export const voteNumberIcon = numberIcon;
 const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
 
 // A picture added to a vote (e.g. a map screenshot): downloaded from Discord and
@@ -169,7 +170,7 @@ function buildPreviewVoteMessage(vote, parts) {
   const howTo = [
     '• Press a number below to vote.',
     '• Press another number to change your vote.',
-    ...(hasPreview ? ['• Press **Preview** to see the picture of a choice.'] : []),
+    ...(hasPreview ? ['• Press **Preview** to see the pictures.'] : []),
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
@@ -178,29 +179,18 @@ function buildPreviewVoteMessage(vote, parts) {
     .addTextDisplayComponents(text(`**Question**\n${vote.question}`))
     .addSeparatorComponents(sectionGap());
   // Choices sit tight under their heading in one block, like Results (owner's
-  // choice). Only a choice with a picture is its own block: Discord can put
-  // its Preview button only beside a block of its own.
-  let lines = ['**Choices**'];
-  const flush = () => {
-    if (lines.length) card.addTextDisplayComponents(text(lines.join('\n')));
-    lines = [];
-  };
-  parts.options.forEach((option, index) => {
-    // Cloudy's own number emoji (owner's choice).
-    const line = `${numberIcon(index)} **${vote.options[index]}**`;
-    if (option.picture && !parts.ended) {
-      flush();
-      card.addSectionComponents(new SectionBuilder()
-        .addTextDisplayComponents(text(line))
-        .setButtonAccessory(new ButtonBuilder()
-          .setCustomId(`vote_media:${index}`)
-          .setLabel('Preview')
-          .setStyle(ButtonStyle.Secondary)));
-    } else {
-      lines.push(line);
-    }
-  });
-  flush();
+  // choice), with one Preview button beside them that shows every picture.
+  const choices = text(['**Choices**', ...parts.options.map((_, index) => `${numberIcon(index)} **${vote.options[index]}**`)].join('\n'));
+  if (hasPreview) {
+    card.addSectionComponents(new SectionBuilder()
+      .addTextDisplayComponents(choices)
+      .setButtonAccessory(new ButtonBuilder()
+        .setCustomId('vote_media:all')
+        .setLabel('Preview')
+        .setStyle(ButtonStyle.Secondary)));
+  } else {
+    card.addTextDisplayComponents(choices);
+  }
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
