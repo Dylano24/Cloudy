@@ -61,13 +61,19 @@ for (const [key, id, aliases] of WEAPONS) {
 }
 // Vote emojis (owner's choice), made in this repo (assets/vote-emojis) and
 // uploaded as application emojis: white serif digits 1 to 10 in the style of
-// the Cloudy logo, the green progress bar pieces and the ballot icon. Until
+// the Cloudy logo, the white progress bar pieces and the ballot icon. Until
 // they are uploaded the plain fallback is shown.
 ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'].forEach((keycap, index) => {
   BASE_EMOJIS[`vote_${index + 1}`] = { name: `vote_${index + 1}_serif`, file: `../../assets/vote-emojis/digit_${index + 1}.png`, fallback: keycap };
 });
 for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
-  BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/vote-emojis/bar_${piece}.png`, fallback: piece.endsWith('f') ? '▰' : '▱' };
+  // Filled pieces are white (owner's choice, were green); open pieces grey.
+  const filled = piece.endsWith('f');
+  BASE_EMOJIS[`bar_${piece}`] = {
+    name: filled ? `vb_${piece[0]}w` : `vb_${piece}`,
+    file: `../../assets/vote-emojis/bar_${filled ? `${piece[0]}w` : piece}.png`,
+    fallback: filled ? '▰' : '▱',
+  };
 }
 BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/vote_icon.gif', fallback: '🗳️' };
 // Ban log icons (owner's choice): the owner's own emojis (link, Rust gamertag,

@@ -2,7 +2,7 @@
 // small copy of the option's picture (at most 1024 px wide, JPG): a phone
 // screenshot in full size took seconds to send again, and a slow answer meant
 // a "thinking" reply first, which made the vote's bars flicker. The small
-// copies are made right after the vote is posted and kept in memory.
+// copies are made before the vote is posted and kept in memory.
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -69,10 +69,35 @@ export async function shrinkVotePicture(buffer, name, run = runLocalCommand) {
   }
 }
 
-/** Makes the small copies of a new vote's pictures (one entry per option, null without a picture). */
-export async function warmVotePreviews(messageId, files, shrink = shrinkVotePicture) {
-  await Promise.all(files.map(async (file, position) => {
-    if (!file || keptVotePreview(messageId, position)) return;
-    keepVotePreview(messageId, position, await shrink(file.attachment, file.name));
-  }));
+const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
+
+async function download(url, fetchImpl) {
+  try {
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) return null;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return buffer.length && buffer.length <= MAX_PICTURE_BYTES ? buffer : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The small copy of an option's picture: the kept one, else downloaded from
+ * its link (or a fresh link from `refresh` when that one expired) and shrunk.
+ */
+export async function votePreviewFile({ messageId, position, url, refresh = null, fetchImpl = fetch, shrink = shrinkVotePicture }) {
+  const known = keptVotePreview(messageId, position);
+  if (known) return known;
+  let source = url;
+  let buffer = source ? await download(source, fetchImpl) : null;
+  if (!buffer && refresh) {
+    source = await refresh().catch(() => null);
+    if (source) buffer = await download(source, fetchImpl);
+  }
+  if (!buffer) return null;
+  const extension = String(new URL(source).pathname).match(/\.(png|jpe?g|gif|webp)$/i)?.[1]?.toLowerCase() || 'png';
+  const file = await shrink(buffer, `option${position + 1}.${extension}`);
+  keepVotePreview(messageId, position, file);
+  return file;
 }
