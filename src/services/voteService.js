@@ -180,7 +180,8 @@ function buildPreviewVoteMessage(vote, parts) {
   const dot = feedEmoji('dot');
   const howTo = [
     `${dot} Press a number below to vote.`,
-    `${dot} Press another number to change your vote.`,
+    // Short enough for one line on smaller phones too (iPhone 13, SE, 360dp Android).
+    `${dot} Press another to change your vote.`,
     ...(hasPreview ? [`${dot} Press **Preview** to see the pictures.`] : []),
   ];
   const card = new ContainerBuilder()
