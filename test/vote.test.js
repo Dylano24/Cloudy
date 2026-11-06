@@ -119,9 +119,9 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(posted.flags, 32768, 'every vote is the card, also without pictures');
   const card = json(posted.components[0]);
   assert.equal(card.components[0].content, '### Vote started\n• Press a number below to vote.\n• Press another number to change your vote.', 'a short how-to under the title');
-  assert.equal(card.components[2].content, '**Question**\nNext map?\n**Choices**', 'the layout of a classic map poll');
+  assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type), [14, '**Question**\nNext map?', 14, '**Choices**'], 'sections with a little room between them');
   const text = textOf(posted);
-  assert.match(text, /1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n\*\*Ends\*\*\n<t:\d+:f>$/);
+  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n\*\*Ends\*\*\n<t:\d+:f>$/);
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
   assert.equal(card.components.some(part => part.type === 9), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
@@ -203,7 +203,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Total\*\*\n1 vote\n\*\*Ended\*\*\n<t:\d+:f>$/);
+  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total\*\*\n1 vote\n\*\*Ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes, /mapvote) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -259,7 +259,7 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 10, 'no logo: just the title and question');
   assert.match(card.components[0].content, /^### Vote started\n• Press a number below to vote\.\n• Press another number to change your vote\.\n• Press \*\*Preview\*\* to see the picture of a choice\.$/);
-  assert.equal(card.components[2].content, '**Question**\nChoose your map\n**Choices**');
+  assert.equal(card.components[2].content, '**Question**\nChoose your map');
   assert.doesNotMatch(JSON.stringify(card), new RegExp(CLOUDY_LOGO.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), 'no C logo in the card');
   // A Preview button beside each choice that has a picture.
   const previews = card.components.flatMap(part => (part.type === 9 && part.accessory?.type === 2
@@ -595,9 +595,11 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   const result = w.sent[0].reply;
   assert.deepEqual(result.files.map(file => file.name), ['most-votes-2.png'], 'the winner\'s picture goes with the result');
   const card = json(result.components[0]);
-  assert.equal(card.components[1].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
-  assert.equal(card.components[2].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture right under it');
-  assert.match(card.components[3].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%\n/);
+  const parts = card.components.filter(part => part.type !== 14);
+  assert.match(parts[2].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
+  assert.equal(parts[3].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
+  assert.equal(parts[4].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture right under it');
+  assert.ok(card.components.filter(part => part.type === 14).length >= 4, 'a little room between sections');
   assert.equal(w.sent[0].edits.at(-1).components.length, 1, 'the vote itself has no buttons anymore');
 });
 
