@@ -64,7 +64,8 @@ for (const [key, id, aliases] of WEAPONS) {
 // the Cloudy logo, the white progress bar pieces and the ballot icon. Until
 // they are uploaded the plain fallback is shown.
 ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'].forEach((keycap, index) => {
-  BASE_EMOJIS[`vote_${index + 1}`] = { name: `vote_${index + 1}_serif`, file: `../../assets/vote-emojis/digit_${index + 1}.png`, fallback: keycap };
+  // White rounded number badges (owner's choice, were serif digits).
+  BASE_EMOJIS[`vote_${index + 1}`] = { name: `vote_${index + 1}_badge`, file: `../../assets/vote-emojis/key_${index + 1}.png`, fallback: keycap };
 });
 for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
   // Filled pieces are white (owner's choice, were green); open pieces grey.

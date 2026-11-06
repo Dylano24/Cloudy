@@ -3,7 +3,7 @@
 // it). Who voted for what is never shown, only the counts.
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
-  MessageFlags, SectionBuilder, TextDisplayBuilder,
+  MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder,
 } from 'discord.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
@@ -161,9 +161,18 @@ function buildPreviewVoteMessage(vote, parts) {
   // and its count. No bars. After the end the vote stays as it was, without
   // buttons; the result is a separate message under it (buildVoteResultMessage).
   const text = content => new TextDisplayBuilder().setContent(content);
+  // A short how-to under the title (owner's choice), like a classic map poll.
+  const hasPreview = !parts.ended && parts.options.some(option => option.picture);
+  const howTo = [
+    '• Press a number below to vote for your favourite.',
+    '• Press another number to change your vote.',
+    ...(hasPreview ? ['• Press **Preview** to see the picture of a choice.'] : []),
+  ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text(`### ${vote.title || 'Vote started'}\n**Question**\n${vote.question}\n**Choices**`));
+    .addTextDisplayComponents(text([`### ${vote.title || 'Vote started'}`, ...howTo].join('\n')))
+    .addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small))
+    .addTextDisplayComponents(text(`**Question**\n${vote.question}\n**Choices**`));
   parts.options.forEach((option, index) => {
     // Cloudy's own number emoji (owner's choice).
     const line = text(`${numberIcon(index)} **${vote.options[index]}**`);
@@ -203,20 +212,21 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text([
-      `### ${vote.title || 'Vote'} ended`,
-      '**Question**', vote.question,
-      '**Total**', votes(total),
-      '**Results**',
-      // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
-      ...order.map(index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`),
-    ].join('\n')));
-  // The winner's picture (owner's choice).
+    .addTextDisplayComponents(text([`### ${vote.title || 'Vote'} ended`, '**Question**', vote.question].join('\n')));
+  // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
+  const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
+  const winners = mostVoted(vote);
+  card.addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes'])].join('\n')));
+  // The winner's picture (owner's choice), right under it.
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
   }
-  card.addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
+  card.addTextDisplayComponents(text([
+    '**Results**', ...order.map(line),
+    '**Total**', votes(total),
+    '**Ended**', `<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`,
+  ].join('\n')));
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
   return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
