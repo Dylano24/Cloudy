@@ -167,7 +167,7 @@ function buildPreviewVoteMessage(vote, parts) {
   // and its count. No bars. After the end the vote stays as it was, without
   // buttons; the result is a separate message under it (buildVoteResultMessage).
   const text = content => new TextDisplayBuilder().setContent(content);
-  // A short how-to under the title (owner's choice), like a classic map poll.
+  // A short how-to between Choices and Ends (owner's choice), like a classic map poll.
   const hasPreview = !parts.ended && parts.options.some(option => option.picture);
   // The bullets are Cloudy's white glowing dot (owner's choice), as in the feeds.
   const dot = feedEmoji('dot');
@@ -178,7 +178,7 @@ function buildPreviewVoteMessage(vote, parts) {
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text([`### ${vote.title || 'Vote started'}`, ...howTo].join('\n')))
+    .addTextDisplayComponents(text(`### ${vote.title || 'Vote started'}`))
     .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Question**\n${vote.question}`))
     .addSeparatorComponents(sectionGap());
@@ -195,12 +195,10 @@ function buildPreviewVoteMessage(vote, parts) {
   } else {
     card.addTextDisplayComponents(choices);
   }
-  // Question, Choices, then the description (owner's choice), when there is one.
-  if (vote.description) {
-    card.addSeparatorComponents(sectionGap())
-      .addTextDisplayComponents(text(`**Description**\n${vote.description}`));
-  }
+  // Question, Choices, then the how-to (owner's choice: no description).
   card.addSeparatorComponents(sectionGap())
+    .addTextDisplayComponents(text(howTo.join('\n')))
+    .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
@@ -260,7 +258,6 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const parts = voteParts(vote, now);
   if (vote.layout === 'preview') return buildPreviewVoteMessage(vote, parts);
   const lines = [`**${vote.question}**`, '', ...parts.options.flatMap(option => [option.line, option.bar])];
-  if (vote.description) lines.push('', `**Description:** ${vote.description}`);
   lines.push('', `**Total votes:** ${parts.total}`);
   // An empty line between the total and the end (owner's choice).
   if (parts.end.length) lines.push('', ...parts.end);
