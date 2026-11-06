@@ -119,7 +119,8 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(posted.flags, 32768, 'every vote is the card, also without pictures');
   const card = json(posted.components[0]);
   assert.equal(card.components[0].content, '### Vote started\n• Press a number below to vote.\n• Press another number to change your vote.', 'a short how-to under the title');
-  assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type), [14, '**Question**\nNext map?', 14, '**Choices**'], 'sections with a little room between them');
+  assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type),
+    [14, '**Question**\nNext map?', 14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**'], 'choices tight under their heading, like Results');
   const text = textOf(posted);
   assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n\*\*Ends\*\*\n<t:\d+:f>$/);
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
