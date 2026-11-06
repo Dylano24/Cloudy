@@ -3,7 +3,7 @@
 // it). Who voted for what is never shown, only the counts.
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
-  MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder,
+  MessageFlags, SectionBuilder, TextDisplayBuilder,
 } from 'discord.js';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
@@ -117,6 +117,7 @@ function voteParts(vote, now) {
       // The card uses no custom emoji at all (see VOTE_BAR_BASE): plain text.
       plain: `**${index + 1} · ${option}**${vote.optionNotes?.[index] ? ` · ${vote.optionNotes[index]}` : ''}\n**${Math.round(share * 100)}%** · ${counts[index]} ${counts[index] === 1 ? 'vote' : 'votes'}`,
       share,
+      count: counts[index],
       // Whether the option has a picture (known at once; its link is stored a moment later).
       picture: vote.pictureOptions ? Boolean(vote.pictureOptions[index]) : Boolean(votePicture(vote, index)),
     };
@@ -154,49 +155,69 @@ function voteParts(vote, now) {
 // Discord's newer message layout can put a button next to text, so these
 // votes are a card (white side line, Cloudy logo and footer) instead of an embed.
 function buildPreviewVoteMessage(vote, parts) {
-  const gap = (size = SeparatorSpacingSize.Small) => new SeparatorBuilder().setDivider(false).setSpacing(size);
+  // The layout of a classic map poll (owner's choice): Question, Choices with
+  // a number each (and a Preview button when the option has a picture), Ends,
+  // Mode, the Cloudy footer; under it one button per option with its number
+  // and its count. No bars. After the end the vote stays as it was, without
+  // buttons; the result is a separate message under it (buildVoteResultMessage).
   const text = content => new TextDisplayBuilder().setContent(content);
-  // No logo in the card (owner's choice).
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addTextDisplayComponents(text(`### ${parts.title}\n**${vote.question}**`))
-    // More room under the question before the options (owner's choice).
-    .addSeparatorComponents(gap(SeparatorSpacingSize.Large));
+    .addTextDisplayComponents(text(`### ${vote.title || 'Vote started'}\n**Question**\n${vote.question}\n**Choices**`));
   parts.options.forEach((option, index) => {
-    if (index) card.addSeparatorComponents(gap());
-    // Name and count as plain text, the Preview button beside them (owner's
-    // choice), the bar picture under them. No custom emoji: they flickered.
-    const lines = text(option.plain);
+    // Unicode number keycaps (not custom emoji, which flickered on every redraw).
+    const line = text(`${VOTE_NUMBERS[index]} ${vote.options[index]}`);
     if (option.picture && !parts.ended) {
       card.addSectionComponents(new SectionBuilder()
-        .addTextDisplayComponents(lines)
+        .addTextDisplayComponents(line)
         .setButtonAccessory(new ButtonBuilder()
           .setCustomId(`vote_media:${index}`)
           .setLabel('Preview')
           .setStyle(ButtonStyle.Secondary)));
     } else {
-      card.addTextDisplayComponents(lines);
+      card.addTextDisplayComponents(line);
     }
-    card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
-      .setURL(voteBarPicture(option.share))));
   });
-  card.addSeparatorComponents(gap());
-  const result = parts.ended ? (vote.resultPictures || []).filter(Boolean) : [];
-  if (result.length) {
-    // The chosen map (owner's choice): Most votes with its picture, then the end.
-    card.addTextDisplayComponents(text(`**Total votes:** ${parts.total}\n\n${parts.end[0]}`))
-      .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...result.map(name => new MediaGalleryItemBuilder()
-        .setURL(`attachment://${name}`))))
-      .addTextDisplayComponents(text(parts.end.slice(1).join('\n')));
-  } else {
-    card.addTextDisplayComponents(text([`**Total votes:** ${parts.total}`, ...(parts.end.length ? ['', ...parts.end] : [])].join('\n')));
-  }
-  // White and small, on one line (owner's choice): the footer picture.
-  // No description: Discord shows an "ALT" label on described pictures, which
-  // on this thin picture was a black line at the start of the footer.
+  card.addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}\n**Mode**\nSingle votes only`));
   card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
     .setURL(VOTE_FOOTER_URL)));
-  return { flags: MessageFlags.IsComponentsV2, components: [card, ...parts.rows], allowedMentions: { parse: [] } };
+  const rows = [];
+  if (!parts.ended) {
+    const buttons = parts.options.map((option, index) => new ButtonBuilder()
+      .setCustomId(`vote_cast:${index}`)
+      .setEmoji(numberIcon(index))
+      .setLabel(String(option.count))
+      .setStyle(ButtonStyle.Secondary));
+    for (let start = 0; start < buttons.length; start += 5) rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
+  }
+  return { flags: MessageFlags.IsComponentsV2, components: [card, ...rows], allowedMentions: { parse: [] } };
+}
+
+/** The result of a card vote, sent under it when it ends (owner's choice: like a classic map poll result). */
+export function buildVoteResultMessage(vote, pictureNames = []) {
+  const text = content => new TextDisplayBuilder().setContent(content);
+  const counts = voteCounts(vote);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const votes = count => `${count} ${count === 1 ? 'vote' : 'votes'}`;
+  // Most votes first, with the real share of all votes.
+  const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
+  const card = new ContainerBuilder()
+    .setAccentColor(0xFFFFFF)
+    .addTextDisplayComponents(text([
+      `### ${vote.title || 'Vote'} ended`,
+      '**Question**', vote.question,
+      '**Total**', votes(total),
+      '**Results**',
+      ...order.map(index => `${VOTE_NUMBERS[index]} ${(total ? counts[index] / total * 100 : 0).toFixed(2)}% (${votes(counts[index])}) - ${vote.options[index]}`),
+    ].join('\n')));
+  // The winner's picture (owner's choice).
+  if (pictureNames.length) {
+    card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
+      .setURL(`attachment://${name}`))));
+  }
+  card.addTextDisplayComponents(text(`**Ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>\n**Mode**\nSingle votes only`));
+  card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
+  return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
 export function buildVoteMessage(vote, now = Date.now()) {
@@ -308,16 +329,14 @@ export async function endDueVotes(client) {
       const channel = guild.channels?.cache?.get?.(vote.channelId);
       const message = await channel?.messages?.fetch?.(vote.messageId).catch(() => null);
       if (!message?.edit) continue;
-      // A card shows the chosen map's picture under Most votes (owner's
-      // choice), sent along with this last edit.
-      const files = vote.layout === 'preview' ? await resultPictureFiles(client, vote).catch(() => []) : [];
-      let closed = vote;
-      if (files.length) {
-        closed = { ...vote, resultPictures: files.map(file => file.name) };
-        await saveVote(client, guild.id, closed).catch(() => {});
-      }
-      await message.edit({ ...buildVoteMessage(closed), ...(files.length ? { files } : {}) })
-        .catch(error => logger.warn('Could not close vote message:', error));
+      // The vote stays as it was, without buttons (owner's choice).
+      await message.edit(buildVoteMessage(vote)).catch(error => logger.warn('Could not close vote message:', error));
+      if (vote.layout !== 'preview') continue;
+      // The result goes under it as its own message, with the winner's picture.
+      const files = await resultPictureFiles(client, vote).catch(() => []);
+      const result = await message.reply({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
+        .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
+      if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
     }
   }
 }
