@@ -132,15 +132,17 @@ export function buildGameFeedEmbed(event) {
   const serverIcon = line('Server', event.server, 'server');
   switch (event.type) {
     case 'pvp': {
-      // Player killed (owner's choice): the title is "Kill feed", then the
-      // killer, the skull, the victim and the streak on one line, then only an
+      // Player killed (owner's choice, like the KAOSBOT kill feed): the title is
+      // "Kill feed" and the first line is one code box with the killer, a skull,
+      // the victim and the streak. Only standard emoji show inside a code box
+      // (custom emoji never do), so the box holds 💀 and 🔥. Below it only an
       // icon and its value per line, no labels or colons.
       const icon = (key, value) => (value == null || value === '' ? null : `${feedEmoji(key)} ${value}`);
-      const streak = event.streak > 1 ? ` ${feedEmoji('kill_streak')} ${event.streak}` : '';
+      const streak = event.streak > 1 ? ` 🔥 ${event.streak}` : '';
       return {
         title: 'Kill feed',
         description: [
-          `${feedEmoji('kill_killer')} ${name(event.killer)} ${feedEmoji('kill_skull')} ${feedEmoji('kill_victim')} ${name(event.victim)}${streak}`,
+          `\`${event.killer} 💀 ${event.victim}${streak}\``,
           icon('kill_weapon', event.weapon),
           icon('kill_distance', event.distance == null ? null : `${event.distance} m`),
           icon('server', event.server),
