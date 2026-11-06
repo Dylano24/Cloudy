@@ -61,9 +61,11 @@ async function pictureOf(client, vote, position, fetchImpl, shrink) {
 // The picture with its number and the option's name and the Cloudy footer
 // (owner's choice: no title, no logo). A footer of its own keeps Cloudy's
 // automatic logo away: that is only added to embeds without a footer.
-function pictureEmbed(vote, { position, file, url }) {
+// A picture chosen in the dropdown has no name above it (owner's choice): the
+// dropdown under it already shows the choice.
+function pictureEmbed(vote, { position, file, url }, { withName = true } = {}) {
   return {
-    description: `${voteNumberIcon(position)} **${vote.options[position]}**`,
+    ...(withName ? { description: `${voteNumberIcon(position)} **${vote.options[position]}**` } : {}),
     image: { url: file ? `attachment://${file.name}` : url },
     color: 0xFFFFFF,
     footer: { text: CLOUDY_FOOTER },
@@ -115,7 +117,7 @@ export async function pickVotePicture(interaction, client, [messageId, key] = []
     if (!picture) return notAvailable();
     return {
       payload: {
-        embeds: [pictureEmbed(vote, picture)],
+        embeds: [pictureEmbed(vote, picture, { withName: false })],
         files: picture.file ? [picture.file] : [],
         // Only the chosen picture: the one shown before is replaced.
         attachments: [],
