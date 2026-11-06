@@ -120,8 +120,8 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   const card = json(posted.components[0]);
   assert.equal(card.components[0].content, '### Vote started\n**Question**\nNext map?\n**Choices**', 'the layout of a classic map poll');
   const text = textOf(posted);
-  assert.match(text, /1️⃣ Procedural\n2️⃣ Barren\n\*\*Ends\*\*\n<t:\d+:f>\n\*\*Mode\*\*\nSingle votes only$/);
-  assert.doesNotMatch(text, /<a?:\w+:\d+>|[▰▱]|<t:\d+:R>/, 'no custom emoji (they flickered), no bars, no countdown');
+  assert.match(text, /1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n\*\*Ends\*\*\n<t:\d+:f>$/);
+  assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
   assert.equal(card.components.some(part => part.type === 9), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
     [['vote_cast:0', '1️⃣', '0'], ['vote_cast:1', '2️⃣', '0']], 'number and count on each button');
@@ -202,7 +202,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Total\*\*\n1 vote\n\*\*Results\*\*\n2️⃣ 100\.00% \(1 vote\) - B\n1️⃣ 0\.00% \(0 votes\) - A\n\*\*Ended\*\*\n<t:\d+:f>\n\*\*Mode\*\*\nSingle votes only$/);
+  assert.match(textOf(result), /^### Vote ended\n\*\*Question\*\*\nQ\n\*\*Total\*\*\n1 vote\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Ended\*\*\n<t:\d+:f>$/);
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes, /mapvote) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -249,7 +249,7 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.deepEqual(uploads, [['option1.png', null, 'option3.jpg']], 'each picture stays with its own option');
   const posted = w.sent[0];
   const text = textOf(posted);
-  assert.match(text, /1️⃣ DZ West\n2️⃣ DZ East\n3️⃣ DZ South\n/);
+  assert.match(text, /1️⃣ \*\*DZ West\*\*\n2️⃣ \*\*DZ East\*\*\n3️⃣ \*\*DZ South\*\*\n/);
   assert.doesNotMatch(text, /\]\(|cdn\.discordapp\.com/, 'no links in the card: the Preview button shows the picture');
   assert.doesNotMatch(text, /railway|cloudy-embed-media/);
   assert.equal(posted.flags, 32768, "Discord's newer layout: a button can stand next to text");
@@ -262,9 +262,9 @@ test('an option with a picture gets a small Preview button right next to it; pla
   // A Preview button beside each choice that has a picture.
   const previews = card.components.flatMap(part => (part.type === 9 && part.accessory?.type === 2
     ? [[part.components[0].content, part.accessory.custom_id, part.accessory.label]] : []));
-  assert.deepEqual(previews, [['1️⃣ DZ West', 'vote_media:0', 'Preview'], ['3️⃣ DZ South', 'vote_media:2', 'Preview']]);
-  assert.ok(card.components.some(part => part.type === 10 && part.content === '2️⃣ DZ East'), 'no picture: no button');
-  assert.doesNotMatch(JSON.stringify(card), /<a?:\w+:\d+>|vote-bars/, 'no custom emoji, no bars');
+  assert.deepEqual(previews, [['1️⃣ **DZ West**', 'vote_media:0', 'Preview'], ['3️⃣ **DZ South**', 'vote_media:2', 'Preview']]);
+  assert.ok(card.components.some(part => part.type === 10 && part.content === '2️⃣ **DZ East**'), 'no picture: no button');
+  assert.doesNotMatch(JSON.stringify(card), /vote-bars/, 'no bars');
   const footer = card.components.at(-1);
   assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
   assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png');
@@ -371,7 +371,7 @@ test('after /vote a form asks for an optional picture per option; empty posts th
   const empty = w.form(again);
   await submitVoteForm(empty, again.id, { uploadPictures: async () => { throw new Error('no upload without pictures'); } });
   assert.equal(json(empty.answer.embeds[0]).title, 'Success');
-  assert.match(textOf(w.sent[0]), /1️⃣ Procedural/);
+  assert.match(textOf(w.sent[0]), /1️⃣ \*\*Procedural\*\*/);
   assert.equal((await loadVote(w.client, GUILD, w.sent[0].id)).optionMedia, undefined);
   const twice = w.form(again);
   await submitVoteForm(twice, again.id);
@@ -593,7 +593,7 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   const result = w.sent[0].reply;
   assert.deepEqual(result.files.map(file => file.name), ['most-votes-2.png'], 'the winner\'s picture goes with the result');
   const card = json(result.components[0]);
-  assert.match(card.components[0].content, /\*\*Results\*\*\n2️⃣ 66\.67% \(2 votes\) - DZ East\n1️⃣ 33\.33% \(1 vote\) - DZ West$/);
+  assert.match(card.components[0].content, /\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
   assert.equal(card.components[1].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture under the results');
   assert.equal(w.sent[0].edits.at(-1).components.length, 1, 'the vote itself has no buttons anymore');
 });
