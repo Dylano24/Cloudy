@@ -35,23 +35,24 @@ export const MAX_VOTE_OPTIONS = 10;
 // Every number is a custom digit emoji (owner's choice).
 const numberIcon = index => feedEmoji(`vote_${index + 1}`);
 export const voteNumberIcon = numberIcon;
-const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
 
-// A picture added to a vote (e.g. a map screenshot): downloaded from Discord and
-// sent again with the vote as attachment://mapN.ext, so it never expires.
-export async function downloadVotePicture(attachment, index, fetchImpl = fetch) {
-  if (!String(attachment.contentType || '').startsWith('image/')) throw new Error(`Picture ${index} must be an image.`);
-  if (attachment.size > MAX_PICTURE_BYTES) throw new Error(`Picture ${index} is larger than 10 MB.`);
-  const response = await fetchImpl(attachment.url, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`Picture ${index} could not be downloaded.`);
-  const extension = (String(attachment.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[1] || 'png').toLowerCase();
-  const name = `map${index}.${extension}`;
-  return { image: `attachment://${name}`, file: { attachment: Buffer.from(await response.arrayBuffer()), name } };
-}
-
-// All map pictures share this URL so Discord shows them together in one embed.
+// All pictures of an older vote share this URL so Discord shows them together in one embed.
 export const GALLERY_URL = 'https://rustmaps.com';
 const CLOUDY_MEDIA = /\/cloudy-embed-media\//;
+
+// The role tagged when the vote starts (owner's choice): shown above the vote.
+function voteTag(vote) {
+  if (!vote.tagRoleId) return null;
+  return vote.tagRoleId === vote.guildId ? '@everyone' : `<@&${vote.tagRoleId}>`;
+}
+
+// Only the tagged role (or everyone) is pinged, and only when the vote is
+// posted: Discord never pings again when the vote is edited.
+function voteMentions(vote) {
+  if (!vote.tagRoleId) return { parse: [] };
+  if (vote.tagRoleId === vote.guildId) return { parse: ['everyone'] };
+  return { parse: [], roles: [vote.tagRoleId] };
+}
 
 /** The picture an option's Preview button shows, or null. */
 export function votePicture(vote, index) {
@@ -106,7 +107,7 @@ function voteParts(vote, now) {
     // Every vote is 1% (owner's choice), up to 100%.
     const share = Math.min(100, counts[index]) / 100;
     // An option with a picture is a blue link that opens it (Discord's own
-    // picture link); /mapvote links to rustmaps.com. Votes from before this
+    // picture link); older /mapvote votes link to rustmaps.com. Votes from before this
     // (pictures behind buttons) show plain text.
     const link = optionPicture(vote, index) ? null : vote.optionLinks?.[index];
     const label = link && !CLOUDY_MEDIA.test(link) ? `[${option}](${link})` : option;
@@ -193,6 +194,11 @@ function buildPreviewVoteMessage(vote, parts) {
   } else {
     card.addTextDisplayComponents(choices);
   }
+  // Question, Choices, then the description (owner's choice), when there is one.
+  if (vote.description) {
+    card.addSeparatorComponents(sectionGap())
+      .addTextDisplayComponents(text(`**Description**\n${vote.description}`));
+  }
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
@@ -207,7 +213,12 @@ function buildPreviewVoteMessage(vote, parts) {
       .setStyle(ButtonStyle.Secondary));
     for (let start = 0; start < buttons.length; start += 5) rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
-  return { flags: MessageFlags.IsComponentsV2, components: [card, ...rows], allowedMentions: { parse: [] } };
+  const tag = voteTag(vote);
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    components: [...(tag ? [text(tag)] : []), card, ...rows],
+    allowedMentions: voteMentions(vote),
+  };
 }
 
 /** The result of a card vote, sent under it when it ends (owner's choice: like a classic map poll result). */
@@ -248,6 +259,7 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const parts = voteParts(vote, now);
   if (vote.layout === 'preview') return buildPreviewVoteMessage(vote, parts);
   const lines = [`**${vote.question}**`, '', ...parts.options.flatMap(option => [option.line, option.bar])];
+  if (vote.description) lines.push('', `**Description:** ${vote.description}`);
   lines.push('', `**Total votes:** ${parts.total}`);
   // An empty line between the total and the end (owner's choice).
   if (parts.end.length) lines.push('', ...parts.end);
@@ -264,10 +276,12 @@ export function buildVoteMessage(vote, now = Date.now()) {
   // pictures side by side; a click opens a picture in full size.
   // One picture is simply the embed's picture; several share the gallery URL.
   if (images.length) Object.assign(main, { image: { url: images[0] }, ...(images.length > 1 ? { url: GALLERY_URL } : {}) });
+  const tag = voteTag(vote);
   return {
+    ...(tag ? { content: tag } : {}),
     embeds: [main, ...images.slice(1).map(image => ({ url: GALLERY_URL, image: { url: image } }))],
     components: parts.rows,
-    allowedMentions: { parse: [] },
+    allowedMentions: voteMentions(vote),
   };
 }
 
@@ -349,20 +363,46 @@ export async function endDueVotes(client) {
       logger.warn(`Could not close votes in ${guild.id}:`, error);
       continue;
     }
-    for (const vote of due) {
-      const channel = guild.channels?.cache?.get?.(vote.channelId);
-      const message = await channel?.messages?.fetch?.(vote.messageId).catch(() => null);
-      if (!message?.edit) continue;
-      // The vote stays as it was, without buttons (owner's choice).
-      await message.edit(buildVoteMessage(vote)).catch(error => logger.warn('Could not close vote message:', error));
-      if (vote.layout !== 'preview') continue;
-      // The result goes under it as its own message, with the winner's picture.
-      const files = await resultPictureFiles(client, vote).catch(() => []);
-      const result = await message.reply({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
-        .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
-      if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
-    }
+    for (const vote of due) await closeVoteMessage(client, guild, vote);
   }
+}
+
+// The vote stays as it was, without buttons (owner's choice); a card gets its
+// result as its own message under it, with the winner's picture.
+async function closeVoteMessage(client, guild, vote) {
+  const channel = guild.channels?.cache?.get?.(vote.channelId);
+  const message = await channel?.messages?.fetch?.(vote.messageId).catch(() => null);
+  if (!message?.edit) return;
+  await message.edit(buildVoteMessage(vote)).catch(error => logger.warn('Could not close vote message:', error));
+  if (vote.layout !== 'preview') return;
+  const files = await resultPictureFiles(client, vote).catch(() => []);
+  const result = await message.reply({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
+    .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
+  if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
+}
+
+/** The votes of a server that are still open, newest first (/endvote). */
+export async function activeVotes(client, guildId, now = Date.now()) {
+  const votes = await readVotes(client, guildId);
+  return Object.values(votes)
+    .filter(vote => vote?.messageId && !vote.ended && !(vote.endsAt && vote.endsAt <= now))
+    .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+}
+
+/** Ends an open vote at once (/endvote), exactly as when its time runs out. */
+export async function endVoteNow(client, guild, messageId, now = Date.now()) {
+  const vote = await Mutex.runExclusive(votesKey(guild.id), async () => {
+    const votes = await readVotes(client, guild.id);
+    const current = votes[messageId];
+    if (!current || current.ended) return null;
+    const endedAt = current.endsAt && current.endsAt < now ? current.endsAt : now;
+    votes[messageId] = { ...current, ended: true, endedAt };
+    await writeVotes(client, guild.id, votes);
+    return votes[messageId];
+  });
+  if (!vote) return { status: 'not-active' };
+  await closeVoteMessage(client, guild, vote);
+  return { status: 'ended', vote };
 }
 
 async function resultPictureFiles(client, vote) {
