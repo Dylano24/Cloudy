@@ -393,6 +393,25 @@ export async function guildVotes(client, guildId) {
     .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
+/**
+ * Forgets votes whose message is gone from Discord (deleted by hand, a purge
+ * or with its channel), so /votemanage only lists votes that are still in a
+ * channel (owner's choice). Returns the forgotten votes.
+ */
+export async function forgetDeletedVotes(client, guildId, { messageIds = [], channelId = null } = {}) {
+  const ids = new Set(messageIds.map(String));
+  if (!ids.size && !channelId) return [];
+  return Mutex.runExclusive(votesKey(guildId), async () => {
+    const votes = await readVotes(client, guildId);
+    const gone = Object.values(votes)
+      .filter(vote => ids.has(String(vote?.messageId)) || (channelId && vote?.channelId === channelId));
+    if (!gone.length) return [];
+    for (const vote of gone) delete votes[vote.messageId];
+    await writeVotes(client, guildId, votes);
+    return gone;
+  });
+}
+
 /** Deletes a vote for good (/votemanage): its message, its result and what is stored. */
 export async function deleteVote(client, guild, messageId, { deletedBy = null } = {}) {
   const vote = await Mutex.runExclusive(votesKey(guild.id), async () => {

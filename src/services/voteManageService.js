@@ -10,7 +10,7 @@ import { successEmbed, warningEmbed } from '../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { registerPendingDelete, unregisterPendingDelete } from '../utils/pendingTransientDeletes.js';
 import {
-  CLOUDY_C_LOGO_URL, deleteVote, endVoteNow, guildVotes, isVoteOpen, loadVote, voteCounts, voteNumberIcon,
+  CLOUDY_C_LOGO_URL, deleteVote, endVoteNow, forgetDeletedVotes, guildVotes, isVoteOpen, loadVote, voteCounts, voteNumberIcon,
 } from './voteService.js';
 
 export const VOTE_MANAGE_PAGE_SIZE = 25;
@@ -27,6 +27,49 @@ const wait = ms => new Promise(resolve => {
   const timer = setTimeout(() => resolve(null), ms);
   timer.unref?.();
 });
+
+// Unknown Channel / Unknown Message: the vote's message is gone from Discord.
+const GONE = new Set([10003, 10008]);
+
+// Whether a vote's message was deleted in Discord. When it cannot be checked
+// (no access, Discord busy) the vote stays listed: it is never forgotten by guess.
+async function voteMessageGone(guild, vote) {
+  let channel = guild?.channels?.cache?.get?.(vote.channelId);
+  if (!channel) {
+    if (!guild?.channels?.fetch) return false;
+    try {
+      channel = await guild.channels.fetch(vote.channelId);
+    } catch (error) {
+      return GONE.has(error?.code);
+    }
+    if (!channel) return true;
+  }
+  if (channel.messages?.cache?.has?.(vote.messageId)) return false;
+  if (!channel.messages?.fetch) return false;
+  try {
+    return !await channel.messages.fetch(vote.messageId);
+  } catch (error) {
+    return GONE.has(error?.code);
+  }
+}
+
+// Only votes that are still in a channel (owner's choice, like Manage
+// giveaway): a vote deleted in Discord, also while Cloudy was offline, is
+// forgotten here instead of being listed as Active or Ended.
+async function votesInChannels(client, guild) {
+  const votes = await guildVotes(client, guild.id);
+  const gone = new Set();
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < votes.length) {
+      const vote = votes[cursor++];
+      if (await voteMessageGone(guild, vote)) gone.add(vote.messageId);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, votes.length) }, worker));
+  if (gone.size) await forgetDeletedVotes(client, guild.id, { messageIds: [...gone] });
+  return votes.filter(vote => !gone.has(vote.messageId));
+}
 
 // The status picker stays on top, so the other status is one choice away.
 function statusPicker(votes, requesterId, status) {
@@ -161,7 +204,7 @@ async function allowed(interaction, requesterId = interaction.user.id) {
 /** /votemanage: the private status picker, answered in one step when ready within 2 seconds. */
 export async function openVoteManager(interaction) {
   if (!await allowed(interaction)) return;
-  const loading = guildVotes(interaction.client, interaction.guildId)
+  const loading = votesInChannels(interaction.client, interaction.guild)
     .then(votes => buildVoteManagePicker(votes, interaction.guild, interaction.user.id))
     .catch(() => ({ embeds: [warning('Votes could not be loaded. Please try again.')], components: [] }));
   let payload = await Promise.race([loading, wait(ANSWER_WITHIN_MS)]);
@@ -179,7 +222,7 @@ export async function openVoteManager(interaction) {
 export async function chooseVoteStatus(interaction, client, [requesterId] = []) {
   if (!await allowed(interaction, requesterId)) return;
   await interaction.deferUpdate();
-  const votes = await guildVotes(client || interaction.client, interaction.guildId);
+  const votes = await votesInChannels(client || interaction.client, interaction.guild);
   return show(interaction, buildVoteManagePicker(votes, interaction.guild, requesterId, 0, interaction.values?.[0]));
 }
 
@@ -187,7 +230,7 @@ export async function chooseVoteStatus(interaction, client, [requesterId] = []) 
 export async function turnVoteManagePage(interaction, client, [requesterId, status, page] = []) {
   if (!await allowed(interaction, requesterId)) return;
   await interaction.deferUpdate();
-  const votes = await guildVotes(client || interaction.client, interaction.guildId);
+  const votes = await votesInChannels(client || interaction.client, interaction.guild);
   return show(interaction, buildVoteManagePicker(votes, interaction.guild, requesterId, Number(page), status));
 }
 
@@ -195,10 +238,12 @@ export async function turnVoteManagePage(interaction, client, [requesterId, stat
 export async function chooseVoteToManage(interaction, client, [requesterId] = []) {
   if (!await allowed(interaction, requesterId)) return;
   await interaction.deferUpdate();
-  const vote = await loadVote(client || interaction.client, interaction.guildId, String(interaction.values?.[0] || ''));
-  if (!vote) {
-    const votes = await guildVotes(client || interaction.client, interaction.guildId);
-    return show(interaction, buildVoteManagePicker(votes, interaction.guild, requesterId));
+  const bot = client || interaction.client;
+  const vote = await loadVote(bot, interaction.guildId, String(interaction.values?.[0] || ''));
+  // A vote deleted in Discord meanwhile is forgotten and the list shown again.
+  if (!vote || await voteMessageGone(interaction.guild, vote)) {
+    if (vote) await forgetDeletedVotes(bot, interaction.guildId, { messageIds: [vote.messageId] });
+    return show(interaction, buildVoteManagePicker(await votesInChannels(bot, interaction.guild), interaction.guild, requesterId));
   }
   return show(interaction, buildVoteManagePanel(vote, requesterId));
 }
@@ -214,7 +259,7 @@ export async function voteManageAction(interaction, client, [action, requesterId
   if (action === 'panel') return show(interaction, buildVoteManagePanel(vote, requesterId));
   if (action === 'delete') return show(interaction, buildVoteDeleteConfirmation(vote, requesterId));
   if (action === 'back') {
-    return show(interaction, buildVoteManagePicker(await guildVotes(bot, interaction.guildId), interaction.guild, requesterId, 0, statusOf(vote)));
+    return show(interaction, buildVoteManagePicker(await votesInChannels(bot, interaction.guild), interaction.guild, requesterId, 0, statusOf(vote)));
   }
   if (action === 'confirmdelete') {
     await deleteVote(bot, interaction.guild, messageId, { deletedBy: interaction.user });
