@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 const keepAsIs = async (buffer, name) => ({ attachment: buffer, name });
-import { CLOUDY_FOOTER, buildVoteMessage, castVote, endDueVotes, loadVote, voteBarPicture } from '../src/services/voteService.js';
+import { CLOUDY_FOOTER, buildVoteMessage, castVote, endDueVotes, endVoteNow, loadVote, voteBarPicture } from '../src/services/voteService.js';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 
 const GUILD = '191919191919191919';
@@ -723,6 +723,12 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   assert.doesNotMatch(JSON.stringify(card), /Description/);
   const stored = await loadVote(w.client, GUILD, posted.id);
   assert.equal(json(buildVoteMessage({ ...stored, ended: true }).components[0]).content, '<@&303030303030303030>', 'the tag stays on the vote');
+  // The result under the vote tags the same role when the vote ends.
+  await endVoteNow(w.client, w.client.guilds.cache.get(GUILD), posted.id);
+  const result = w.sent.at(-1);
+  assert.match(textOf(result), /### Vote ended/);
+  assert.equal(json(result.components[0]).content, '<@&303030303030303030>', 'the tag above the result too');
+  assert.deepEqual(result.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'the role is pinged for the result');
   const plain = w.sent.length;
   await create(w, { question: 'No tag', option1: 'A', option2: 'B' });
   assert.equal(json(w.sent[plain].components[0]).type, 17, 'without a role the card comes first');
