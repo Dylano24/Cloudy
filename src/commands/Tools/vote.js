@@ -7,6 +7,7 @@ import { buildVoteMessage, refreshVoteSoon, saveVote, setVotePictures, voteMenti
 import { uploadVotePictures } from '../../services/voteMediaService.js';
 import { keepVotePreview, shrinkVotePicture } from '../../services/votePreviewService.js';
 import { logger } from '../../utils/logger.js';
+import { openVoteManager } from '../../services/voteManageService.js';
 
 const VOTE_OPTIONS = 3;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -176,15 +177,22 @@ export default {
   // for a picture per option (e.g. its map); leave it empty for none.
   data: new SlashCommandBuilder()
     .setName('vote')
-    .setDescription('Start a vote with up to 3 options.')
-    .addStringOption(option => option.setName('question').setDescription('What people vote on').setRequired(true).setMaxLength(250))
-    .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true).setMaxLength(80))
-    .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true).setMaxLength(80))
-    .addStringOption(option => option.setName('option3').setDescription('Third option (optional)').setRequired(false).setMaxLength(80))
-    .addStringOption(option => option.setName('duration').setDescription('How long the vote stays open, e.g. 1h or 2d (optional)').setRequired(false).setMaxLength(10))
-    .addRoleOption(option => option.setName('role').setDescription('Role to tag when the vote starts (optional)').setRequired(false)),
+    .setDescription('Start and manage votes.')
+    .addSubcommand(command => command
+      .setName('start')
+      .setDescription('Start a vote with up to 3 options.')
+      .addStringOption(option => option.setName('question').setDescription('What people vote on').setRequired(true).setMaxLength(250))
+      .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true).setMaxLength(80))
+      .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true).setMaxLength(80))
+      .addStringOption(option => option.setName('option3').setDescription('Third option (optional)').setRequired(false).setMaxLength(80))
+      .addStringOption(option => option.setName('duration').setDescription('How long the vote stays open, e.g. 1h or 2d (optional)').setRequired(false).setMaxLength(10))
+      .addRoleOption(option => option.setName('role').setDescription('Role to tag when the vote starts (optional)').setRequired(false)))
+    .addSubcommand(command => command
+      .setName('manage')
+      .setDescription('Manage votes: see active and ended votes, end or delete them.')),
 
   async execute(interaction) {
+    if (interaction.options.getSubcommand?.() === 'manage') return openVoteManager(interaction);
     if (!interaction.inGuild?.() || !interaction.channel?.send) return warn(interaction, 'Votes only work in a server channel.');
     const question = interaction.options.getString('question').trim();
     const options = [];

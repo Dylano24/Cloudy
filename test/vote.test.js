@@ -5,7 +5,6 @@ import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
 import votePick from '../src/interactions/selectMenus/vote/votePick.js';
-import votemanage from '../src/commands/Tools/votemanage.js';
 import voteManageSelects from '../src/interactions/selectMenus/vote/voteManage.js';
 import voteManageButtons from '../src/interactions/buttons/vote/voteManage.js';
 import voteMessageDelete from '../src/events/voteMessageDelete.js';
@@ -78,7 +77,7 @@ function world() {
     ids += 1;
     const interaction = {
       id: `run-${ids}`, client, guildId: GUILD, channelId: CHANNEL, channel, user: { id: 'host' }, inGuild: () => true,
-      options: { getString: name => values[name] ?? null, getRole: name => values[name] ?? null },
+      options: { getSubcommand: () => 'start', getString: name => values[name] ?? null, getRole: name => values[name] ?? null },
       reply: async payload => { interaction.answer = payload; },
       showModal: async modal => { interaction.modal = modal; },
       deleteReply: async () => {},
@@ -117,7 +116,8 @@ async function create(w, values, { files = {}, deps = {} } = {}) {
 test('/poll is now /vote, with buttons, live counts and an optional end time', async () => {
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
-  assert.deepEqual(data.options.map(option => [option.name, Boolean(option.required)]),
+  assert.deepEqual(data.options.map(option => [option.name, option.type]), [['start', 1], ['manage', 1]]);
+  assert.deepEqual(data.options[0].options.map(option => [option.name, Boolean(option.required)]),
     [['question', true], ['option1', true], ['option2', true], ['option3', false], ['duration', false], ['role', false]],
     'question, choices, description, duration and a role to tag; no media next to the options');
   assert.equal(isPlayerCommand('vote'), true);
@@ -759,7 +759,7 @@ test('tagging @everyone or a role that cannot be mentioned needs Mention Everyon
   assert.deepEqual(w.sent[0].allowedMentions, { parse: ['everyone'] });
 });
 
-test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete removes it for good', async () => {
+test('/vote manage: choose Active or Ended, then a vote; End closes it, Delete removes it for good', async () => {
   const w = world();
   await create(w, { question: 'Map?', option1: 'West', option2: 'East' });
   await create(w, { question: 'Old one', option1: 'A', option2: 'B' });
@@ -769,16 +769,16 @@ test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete re
   const staff = { has: () => true };
   const click = (extra = {}) => {
     const interaction = { id: `i${Math.random()}`, client: w.client, guildId: GUILD, guild, inGuild: () => true,
-      user: { id: 'staff' }, memberPermissions: staff,
+      user: { id: 'staff' }, memberPermissions: staff, options: { getSubcommand: () => 'manage' },
       reply: async payload => { interaction.answer = payload; }, deferUpdate: async () => { interaction.acked = true; },
       editReply: async payload => { interaction.answer = payload; }, deleteReply: async () => {}, ...extra };
     return interaction;
   };
-  const data = votemanage.data.toJSON();
-  assert.equal(data.default_member_permissions, '32', 'staff only (Manage Server)');
+  const data = vote.data.toJSON();
+  assert.equal(data.default_member_permissions, undefined, 'members can start votes; Manage Server is checked by the manager');
   // End the old one first, so there is one of each status.
   const first = click();
-  await votemanage.execute(first);
+  await vote.execute(first);
   assert.equal(first.answer.flags, 64, 'private');
   assert.match(first.answer.embeds[0].description, /1 active · 0 ended|2 active · 0 ended/);
   const status = json(first.answer.components[0]).components[0];
@@ -822,11 +822,11 @@ test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete re
   assert.match(JSON.stringify(json(other.answer.embeds[0])), /Manage Server/);
   assert.equal((await loadVote(w.client, GUILD, open)).ended, false);
   const member = click({ memberPermissions: { has: () => false } });
-  await votemanage.execute(member);
+  await vote.execute(member);
   assert.match(JSON.stringify(json(member.answer.embeds[0])), /Manage Server/);
 });
 
-test('/votemanage lists only votes still in a channel: a vote deleted in Discord is forgotten', async () => {
+test('/vote manage lists only votes still in a channel: a vote deleted in Discord is forgotten', async () => {
   const w = world();
   w.client.user = { id: 'bot' };
   for (const question of ['Kept', 'Deleted by hand', 'Deleted while offline', 'Purged']) {
@@ -843,7 +843,7 @@ test('/votemanage lists only votes still in a channel: a vote deleted in Discord
   // A purge.
   await voteMessageBulkDelete.execute(new Collection([[purged, { id: purged, guildId: GUILD, client: w.client }]]));
   assert.equal(await loadVote(w.client, GUILD, purged), null);
-  // Deleted while Cloudy was offline: /votemanage checks the message and forgets it.
+  // Deleted while Cloudy was offline: /vote manage checks the message and forgets it.
   const channel = guild.channels.cache.get(CHANNEL);
   const fetchMessage = channel.messages.fetch;
   channel.messages.fetch = async id => {
@@ -852,18 +852,18 @@ test('/votemanage lists only votes still in a channel: a vote deleted in Discord
   };
   const open = () => {
     const run = { id: `vm${Math.random()}`, client: w.client, guildId: GUILD, guild, inGuild: () => true,
-      user: { id: 'staff' }, memberPermissions: { has: () => true },
+      user: { id: 'staff' }, memberPermissions: { has: () => true }, options: { getSubcommand: () => 'manage' },
       reply: async payload => { run.answer = payload; }, deleteReply: async () => {} };
     return run;
   };
   const first = open();
-  await votemanage.execute(first);
+  await vote.execute(first);
   assert.match(first.answer.embeds[0].description, /1 active · 0 ended/, 'only the vote that is still in its channel');
   assert.equal(await loadVote(w.client, GUILD, offline), null, 'forgotten for good');
   // A message Cloudy cannot check (no access) stays listed: never forgotten by guess.
   channel.messages.fetch = async () => { throw Object.assign(new Error('Missing Access'), { code: 50001 }); };
   const second = open();
-  await votemanage.execute(second);
+  await vote.execute(second);
   assert.match(second.answer.embeds[0].description, /1 active · 0 ended/);
   // A deleted channel takes its votes with it.
   await voteChannelDelete.execute({ id: CHANNEL, guildId: GUILD }, w.client);
