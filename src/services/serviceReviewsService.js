@@ -2,7 +2,6 @@ import {
   ActionRowBuilder, EmbedBuilder, ModalBuilder,
   StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
-import { setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { nextReviewSideColor } from './staffReviewsService.js';
 
 export const SERVICE_REVIEWS_CHANNEL_ID = '1568553373286801450';
@@ -72,17 +71,21 @@ export function serviceReviewModal(type, rating) {
 export function buildPublishedServiceReview(interaction, type, rating, comment, emoji = null) {
   if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid service');
   const stars = emoji ? emoji.repeat(rating) : '⭐'.repeat(rating);
-  return setPreservedEmbedColor(new EmbedBuilder(), nextReviewSideColor())
-    .setAuthor({
+  // Cloudy's shared embeds helper globally removes Unicode emoji, ordinary
+  // footers and timestamps from fluent EmbedBuilder setters. The owner asked
+  // for the SAME stars, footer and authored look as Staff Reviews; supply the
+  // trusted, validated embed fields as raw data to preserve them.
+  return new EmbedBuilder({
+    color: nextReviewSideColor(),
+    author: {
       name: interaction.user.globalName || interaction.user.username,
-      iconURL: interaction.user.displayAvatarURL(),
-    })
-    .setThumbnail(LOGO)
-    .setDescription(
-      `**Product or service**\n${SERVICE_REVIEW_TYPES[type]}\n\n`
+      icon_url: interaction.user.displayAvatarURL(),
+    },
+    thumbnail: { url: LOGO },
+    description: `**Product or service**\n${SERVICE_REVIEW_TYPES[type]}\n\n`
       + `**Rating**\n${stars}\n\n`
       + `**Experience**\n${comment}`,
-    )
-    .setFooter({ text: FOOTER })
-    .setTimestamp();
+    footer: { text: FOOTER },
+    timestamp: new Date().toISOString(),
+  });
 }
