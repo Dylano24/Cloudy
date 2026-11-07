@@ -118,7 +118,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(data.name, 'vote');
   assert.deepEqual(data.options.map(option => [option.name, option.type]), [['start', 1], ['manage', 1]]);
   assert.deepEqual(data.options[0].options.map(option => [option.name, Boolean(option.required)]),
-    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['duration', false], ['role', false]],
+    [['question', true], ['option1', true], ['option2', true], ['option3', false], ['description', false], ['duration', false], ['role', false]],
     'question, choices, description, duration and a role to tag; no media next to the options');
   assert.equal(isPlayerCommand('vote'), true);
   assert.equal(isPlayerCommand('poll'), false);
@@ -144,6 +144,24 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
     [['vote_cast:0', '1️⃣', '0'], ['vote_cast:1', '2️⃣', '0']], 'number and count on each button');
   assert.equal(json(form.answer.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, posted.id)).options.length, 2);
+});
+
+test('optional description appears only after Choices, not before the question or as extra default copy', async () => {
+  const w = world();
+  const { run } = await create(w, {
+    question: 'Which map?', option1: 'Map A', option2: 'Map B',
+    description: 'Maps will be used for the next wipe.',
+  });
+  const posted = w.sent[0];
+  const text = textOf(posted);
+  assert.ok(text.indexOf('**Question**') < text.indexOf('**Choices**'));
+  assert.ok(text.indexOf('**Choices**') < text.indexOf('**Description**'));
+  assert.match(text, /\*\*Description\*\*\nMaps will be used for the next wipe\./);
+  assert.equal((await loadVote(w.client, GUILD, posted.id)).description, 'Maps will be used for the next wipe.');
+  assert.ok(run.modal, 'the existing picture form still opens');
+  const basic = world();
+  await create(basic, { question: 'No extra description', option1: 'Yes', option2: 'No' });
+  assert.ok(!textOf(basic.sent[0]).includes('**Description**'));
 });
 
 test('one vote per member: another option changes it, the same option keeps it; counts show, voters do not', async () => {
