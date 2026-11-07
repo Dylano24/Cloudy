@@ -10,7 +10,7 @@ import {
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../../../utils/ticket/ticketPermissions.js';
-import { getGuildConfig } from '../../../services/config/guildConfig.js';
+import { getGuildConfig, refreshGuildConfig } from '../../../services/config/guildConfig.js';
 import {
   buildCloudyTicketEmbed,
   scheduleTicketReplyDeletion,
@@ -30,6 +30,7 @@ import { logger } from '../../../utils/logger.js';
 import { buildUserErrorEmbed } from '../../../utils/embeds.js';
 
 const PANEL_STATE_PRECHECK_MS = 1200;
+const PANEL_REFRESH_PRECHECK_MS = 800;
 export const TICKET_CREATION_LIMIT_PRECHECK_MS = 600;
 
 async function getPanelStateFast(client, guildId) {
@@ -39,6 +40,21 @@ async function getPanelStateFast(client, guildId) {
       getGuildConfig(client, guildId),
       new Promise(resolve => {
         timer = setTimeout(() => resolve(null), PANEL_STATE_PRECHECK_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function refreshPanelStateFast(client, guildId) {
+  let timer;
+  try {
+    return await Promise.race([
+      refreshGuildConfig(client, guildId),
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(null), PANEL_REFRESH_PRECHECK_MS);
         timer.unref?.();
       }),
     ]);
@@ -128,7 +144,7 @@ const createTicketHandler = {
         });
       }
 
-      const config = await getPanelStateFast(client, interaction.guildId);
+      let config = await getPanelStateFast(client, interaction.guildId);
       if (config?.ticketSystemDisabled === true) {
         return await replyUserError(interaction, {
           type: ErrorTypes.VALIDATION,
@@ -141,10 +157,29 @@ const createTicketHandler = {
         && interaction.message?.id
         && String(config.ticketPanelMessageId) !== String(interaction.message.id)
       ) {
-        return await replyUserError(interaction, {
-          type: ErrorTypes.VALIDATION,
-          message: 'This ticket panel is outdated. Please use the newest ticket panel.',
-        });
+        // A transfer from another process updates PostgreSQL immediately, but
+        // this process can temporarily retain the previous panel ID in cache.
+        // Verify against persistent storage before rejecting the new panel.
+        const latest = await refreshPanelStateFast(client, interaction.guildId);
+        if (!latest) {
+          return await replyUserError(interaction, {
+            type: ErrorTypes.UNKNOWN,
+            message: 'Could not verify the ticket panel. Please try again.',
+          });
+        }
+        config = latest;
+        if (config.ticketSystemDisabled === true) {
+          return await replyUserError(interaction, {
+            type: ErrorTypes.VALIDATION,
+            message: 'The ticket system is currently disabled.',
+          });
+        }
+        if (String(config.ticketPanelMessageId || '') !== String(interaction.message.id)) {
+          return await replyUserError(interaction, {
+            type: ErrorTypes.VALIDATION,
+            message: 'This ticket panel is outdated. Please use the newest ticket panel.',
+          });
+        }
       }
 
       const precheckCompleted = await precheckTicketCreationLimit(
