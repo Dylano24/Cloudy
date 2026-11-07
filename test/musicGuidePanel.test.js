@@ -42,6 +42,7 @@ function setup({ history = [], stored = null, allow = true, channelName = 'ðŸŽ§â
                 id: 'new-guide-' + sent.length,
                 author: { id: BOT },
                 embeds: payload.embeds.map(embed => embed.toJSON()),
+                components: payload.components?.map(row => row.toJSON?.() || row) || [],
                 edit: async value => {
                     edits.push(value);
                     message.embeds = value.embeds;
