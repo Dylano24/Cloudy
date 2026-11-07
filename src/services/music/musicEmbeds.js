@@ -121,7 +121,7 @@ export function buildMusicCommandsEmbed() {
             '**Queue & volume**',
             '`/music volume` — Adjust the music volume.',
             '`/music remove` — Remove a song from the queue.',
-            '`/music move` — Change a song's queue position.',
+            '`/music move` — Move a song within the queue.',
             '`/music clear` — Remove all upcoming songs.',
             '`/music leave` — Disconnect from voice.',
             '',
