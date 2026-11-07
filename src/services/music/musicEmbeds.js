@@ -38,7 +38,81 @@ export function formatDuration(ms) {
 }
 
 function getTrackArtwork(track) {
-    return track?.info?.artworkUrl || track?.info?.thumbnail || null;
+    // Lavalink/Riffy may expose artwork in different metadata fields.
+    // Never invent an album cover when the source provides none.
+    return [
+        track?.info?.artworkUrl,
+        track?.info?.thumbnail,
+        track?.info?.albumArt,
+        track?.pluginInfo?.artworkUrl,
+    ].find(url => typeof url === 'string' && /^https?:\/\//i.test(url)) || null;
+}
+
+function getAlbumName(track) {
+    return track?.info?.albumName
+        || track?.pluginInfo?.albumName
+        || track?.info?.album?.name
+        || null;
+}
+
+export function formatMusicProgress(positionMs, lengthMs, steps = 12) {
+    const length = Number(lengthMs);
+    if (!Number.isFinite(length) || length <= 0) return null;
+    const position = Number(positionMs);
+    const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
+    const filled = Math.round(fraction * steps);
+    return '▰'.repeat(filled) + '▱'.repeat(steps - filled);
+}
+
+export function buildMusicRequestEmbed(track, { playNow = false, queuePosition = 1 } = {}) {
+    const info = track?.info || {};
+    const requester = info.requester;
+    const requesterLabel = requester?.username || requester?.tag || 'Unknown';
+    const album = getAlbumName(track);
+    return createEmbed({
+        title: playNow ? 'Now playing' : 'Added to queue',
+        description: `**${String(info.title || 'Unknown track').slice(0, 220)}**\n${String(info.author || 'Unknown artist').slice(0, 300)}`,
+        color: 'primary',
+        fields: [
+            { name: 'Requested by', value: requesterLabel, inline: true },
+            ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
+            { name: 'Duration', value: formatDuration(info.length), inline: true },
+            ...(!playNow ? [{ name: 'Queue position', value: `#${queuePosition}`, inline: true }] : []),
+        ],
+        thumbnail: CLOUDY_C_LOGO_URL,
+        image: getTrackArtwork(track),
+        footer: CLOUDY_FOOTER,
+    });
+}
+
+export function buildMusicGuideEmbed() {
+    return createEmbed({
+        title: 'Cloudy music',
+        description:
+            'Your music. Your queue. Your experience.\n\n' +
+            '**Getting started**\n' +
+            '1. Join a voice channel.\n' +
+            '2. Use `/play` followed by a song name.\n' +
+            '3. Cloudy joins your channel and starts playing.\n' +
+            '4. Add more songs to build your queue.\n\n' +
+            '**Music commands**\n' +
+            '`/play` — Play a song or add it to the queue.\n' +
+            '`/join` — Join your voice channel.\n' +
+            '`/now playing` — Show the current song and album cover.\n' +
+            '`/queue` — View upcoming songs.\n\n' +
+            '**Playback controls**\n' +
+            '`/music pause` · `/music resume` · `/music skip`\n' +
+            '`/music stop` · `/music shuffle` · `/music loop`\n\n' +
+            '**More controls**\n' +
+            '`/music volume` · `/music seek` · `/music clear`\n' +
+            '`/music leave` · `/music 247`\n\n' +
+            '**Please note**\n' +
+            'You must be in the same voice channel as Cloudy to control playback. ' +
+            'Search by song name instead of using YouTube links.',
+        color: 'primary',
+        thumbnail: CLOUDY_C_LOGO_URL,
+        footer: CLOUDY_FOOTER,
+    });
 }
 
 function getLoopLabel(loop) {
@@ -62,6 +136,8 @@ export function buildNowPlayingEmbed(track, player, guildData) {
     const duration = formatDuration(track?.info?.length || 0);
 
     const queued = player?.queue?.length || 0;
+    const album = getAlbumName(track);
+    const progressBar = formatMusicProgress(player?.position || 0, track?.info?.length);
     // The track's cover is the image; the Cloudy logo stays the thumbnail.
     return createEmbed({
         title: 'Now playing',
@@ -69,8 +145,9 @@ export function buildNowPlayingEmbed(track, player, guildData) {
         color: 'primary',
         fields: [
             { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
+            ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
             { name: 'Requested by', value: requesterLabel, inline: true },
-            { name: 'Progress', value: `${position} / ${duration}`, inline: true },
+            { name: 'Progress', value: `${progressBar ? `${progressBar}\n` : ''}${position} / ${duration}`, inline: true },
             { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
             { name: 'Volume', value: `${guildData?.volume ?? 75}%`, inline: true },
             { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
