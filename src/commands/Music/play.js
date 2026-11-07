@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { playQuery, replyMusicSuccess } from '../../services/music/musicActions.js';
 
@@ -13,7 +13,7 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+        await InteractionHelper.safeDefer(interaction);
         const result = await playQuery(client, interaction, interaction.options.getString('query'));
         await replyMusicSuccess(interaction, result.embed);
     },
