@@ -36,7 +36,7 @@ function textOf(payload) {
   const texts = [];
   const walk = component => {
     const data = json(component);
-    if (data.type === 10) texts.push(data.content);
+    if (data.type === 10 && !data.content.startsWith('-# © Cloudy Inc.')) texts.push(data.content);
     for (const child of data.components || []) walk(child);
   };
   for (const component of payload.components || []) walk(component);
@@ -285,9 +285,8 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.deepEqual(previews, [['**Choices**\n1️⃣ **DZ West**\n2️⃣ **DZ East**\n3️⃣ **DZ South**', 'vote_media:all', 'Preview']]);
   assert.doesNotMatch(JSON.stringify(card), /vote-bars/, 'no bars');
   const footer = card.components.at(-1);
-  assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
-  assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@40fe0e6b8d22ad7ba8750cbc137fd25ab8b96eaa/assets/vote-footer-small.png');
-  assert.equal(footer.items[0].description, undefined, 'no ALT label (it showed as a black line)');
+  assert.equal(footer.type, 10, 'compact native subtext does not stretch on desktop');
+  assert.equal(footer.content, '-# © Cloudy Inc. • Quality. Innovation. Performance.');
   assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
   assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
@@ -723,7 +722,7 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   assert.equal(json(posted.components[0]).type, 17, 'the vote has no tag inside it');
   const card = json(posted.components[0]);
   assert.deepEqual(card.components.flatMap(part => (part.type === 9 ? part.components : part.type === 10 ? [part] : []))
-    .map(part => part.content.split('\n')[0]),
+    .map(part => part.content.split('\n')[0]).filter(content => !content.startsWith('-# © Cloudy Inc.')),
     ['### The vote has started!', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**'],
     'Question, Choices, then the how-to (owner\'s choice: where the description was)');
   assert.doesNotMatch(JSON.stringify(card), /Description/);
