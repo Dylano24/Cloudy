@@ -1,6 +1,9 @@
 import { Events } from 'discord.js';
-import { getFromDb, setInDb } from '../utils/database.js';
+import { getFromDb } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
+import { pruneGoneSystemCatalogRecords } from '../services/embedRegistryService.js';
+import { warmSavedEmbedTemplateScopes } from '../services/embedTemplateService.js';
+import { savedOverlayMatch } from '../services/builderCatalogAdmission.js';
 
 const REGISTRY_PREFIX = 'cloudy:embed-registry:';
 const CATALOG_PREFIX = 'cloudy:system-embed-catalog:';
@@ -28,36 +31,63 @@ function summarizeTitles(records) {
     .map(([title, count]) => ({ title, count }));
 }
 
-async function cleanupOrphanCatalogRegistry(guild) {
+// At most this many Discord look-ups per start; the rest waits for the next start.
+const MAX_ORPHAN_CHECKS = 50;
+
+// The owner's saved work is never removed: an explicit or old Save, or a saved
+// Builder change for the family (also while those changes cannot be read).
+function isProtectedCatalogRow(row) {
+  if (row?.explicitSave === true || row?.manualSaved === true || row?.authoritative === true) return true;
+  return savedOverlayMatch(row) !== 'none';
+}
+
+/**
+ * A stored catalog row whose message is no longer in the catalog list is
+ * removed only when Discord proves the message is gone (Unknown Message);
+ * a timeout or missing permission proves nothing. Protected rows stay as
+ * detached templates. Exported for tests.
+ */
+export async function cleanupOrphanCatalogRegistry(guild) {
   const registryKey = `${REGISTRY_PREFIX}${guild.id}`;
   const catalogKey = `${CATALOG_PREFIX}${guild.id}`;
-  const registry = await getFromDb(registryKey, []);
-  const catalogIds = await getFromDb(catalogKey, []);
-  const records = Array.isArray(registry) ? registry : [];
-  const ids = Array.isArray(catalogIds) ? catalogIds.map(String).filter(Boolean) : [];
-
-  // Never prune if the canonical catalog id list itself is unavailable. This
-  // cleanup is allowed to remove only proven orphan system-catalog references.
+  const registry = await getFromDb(registryKey, null, { strict: true }).catch(() => null);
+  const catalogIds = await getFromDb(catalogKey, null, { strict: true }).catch(() => null);
+  if (!Array.isArray(registry) || !Array.isArray(catalogIds)) {
+    logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-skipped guild=${guild.id} reason=storage-unreadable`);
+    return { removed: 0, detached: 0 };
+  }
+  const ids = catalogIds.map(String).filter(Boolean);
+  // Never prune if the canonical catalog id list itself is unavailable.
   if (!ids.length) {
     logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-skipped guild=${guild.id} reason=no-active-catalog-ids`);
-    return;
+    return { removed: 0, detached: 0 };
   }
 
   const activeIds = new Set(ids);
-  const removed = records.filter(record =>
-    String(record?.source || '') === 'system-catalog'
+  const orphans = registry.filter(record =>
+    String(record?.source || '') === 'system-catalog' && !record?.detached
     && !activeIds.has(String(record?.messageId || '')));
-  const next = records.filter(record =>
-    String(record?.source || '') !== 'system-catalog'
-    || activeIds.has(String(record?.messageId || '')));
+  if (!orphans.length) return { removed: 0, detached: 0 };
 
-  if (!removed.length) {
-    logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-complete guild=${guild.id} removed=0 kept=${next.length}`);
-    return;
+  const gone = new Set();
+  for (const row of orphans.slice(0, MAX_ORPHAN_CHECKS)) {
+    const channel = guild.channels?.cache?.get?.(String(row.backingChannelId || row.channelId || ''));
+    if (!channel?.messages?.fetch) continue;
+    try {
+      await channel.messages.fetch(String(row.messageId));
+    } catch (error) {
+      if (Number(error?.code) === 10008) gone.add(String(row.messageId));
+    }
+  }
+  if (!gone.size) {
+    logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-complete guild=${guild.id} removed=0 orphans=${orphans.length} proven-gone=0`);
+    return { removed: 0, detached: 0 };
   }
 
-  const saved = await setInDb(registryKey, next);
-  logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-complete guild=${guild.id} removed=${removed.length} kept=${next.length} saved=${Boolean(saved)}`);
+  await warmSavedEmbedTemplateScopes(guild.id, [...new Set(orphans.map(row => String(row.channelId || '')))]);
+  const result = await pruneGoneSystemCatalogRecords(guild.id, gone, isProtectedCatalogRow);
+  logger.warn(`[GAMING_CATALOG_DIAGNOSTIC] cleanup-complete guild=${guild.id} removed=${result.removed} kept-as-template=${result.detached} orphans=${orphans.length}`);
+  return result;
 }
 
 async function inspectGuild(guild, phase) {
