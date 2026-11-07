@@ -8,10 +8,12 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { supportBotEmoji, ensureSupportBotEmoji } from './supportBotEmojiService.js';
 import { createExplicitAiService } from './explicitAiService.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { buildCloudyPublicKnowledgeEvidence } from './cloudyPublicKnowledgeService.js';
-import { registerCloudyEmbedMessage } from './embedRegistryService.js';
+import { getEmbedRegistry, registerCloudyEmbedMessage } from './embedRegistryService.js';
+import { sameTicketComponents } from '../utils/ticket/ticketComponentEquality.js';
 
 export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
 export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
@@ -26,7 +28,7 @@ const runFaqKnowledgeAi = createExplicitAiService({
   askEvidence: buildCloudyPublicKnowledgeEvidence,
 });
 
-function buildPanelPayload() {
+function buildPanelPayload(client) {
   const footerText = '© Cloudy Inc. • Quality. Innovation. Performance.';
   const embed = new EmbedBuilder()
     .setColor('#FFFFFF')
@@ -45,7 +47,8 @@ function buildPanelPayload() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(FAQ_AI_BUTTON_ID)
-      .setLabel('❔Ask a question')
+      .setLabel('Ask a question')
+      .setEmoji(supportBotEmoji(client))
       .setStyle(ButtonStyle.Secondary)
   );
 
@@ -96,7 +99,20 @@ export function isFaqPanelComponentContractSafe(message, clientUserId) {
 }
 
 async function repairFaqPanelComponents(message, payload, clientUserId) {
-  if (!message || isFaqPanelComponentContractSafe(message, clientUserId)) return message;
+  if (!message) return message;
+  if (isFaqPanelComponentContractSafe(message, clientUserId)) {
+    const button = faqPanelComponents(message)[0];
+    const data = button.toJSON?.() || button;
+    // Keep a deliberately customized label/style; replace only its old leading
+    // question mark and emoji. The action stays faq_ai_question.
+    const updated = new ButtonBuilder({...data, custom_id: FAQ_AI_BUTTON_ID})
+      .setLabel(String(button.label || data.label || 'Ask a question').replace(/^[❔❓?]\s*/, ''))
+      .setEmoji(payload.components[0].components[0].data.emoji);
+    payload = {components: [new ActionRowBuilder().addComponents(updated)]};
+  }
+  const current = (message.components || []).map(row => row.toJSON?.() || row);
+  const desired = payload.components.map(row => row.toJSON?.() || row);
+  if (sameTicketComponents(current, desired)) return message;
 
   try {
     const repaired = await message.edit({ components: payload.components });
@@ -108,16 +124,17 @@ async function repairFaqPanelComponents(message, payload, clientUserId) {
       channelId: message?.channelId,
       messageId: message?.id,
     });
-    return null;
+    throw error;
   }
 }
 
 export async function reconcileFaqAiPanel(client) {
   try {
-    const channel = await resolveCloudyChannel(client, 'faq', { textOnly: true });
+    const channel = await resolveCloudyChannel(client, 'supportAssistant', { textOnly: true });
     if (!channel?.isTextBased?.() || channel.isThread?.()) return null;
 
-    const payload = buildPanelPayload();
+    if (client?.application?.emojis) await ensureSupportBotEmoji(client);
+    const payload = buildPanelPayload(client);
     let panelMessage = null;
     const savedMessageId = client.db?.get
       ? await client.db.get(FAQ_PANEL_STATE_KEY).catch(() => null)
@@ -142,7 +159,11 @@ export async function reconcileFaqAiPanel(client) {
     // Reused panels do not emit MessageCreate after a restart. Explicitly
     // re-register the complete live panel so Search uses the same snapshot and
     // components as channel Modify.
-    await registerCloudyEmbedMessage(panelMessage, 'bot-history');
+    const records = await getEmbedRegistry(panelMessage.guildId);
+    const prior = records.find(record => record.messageId === panelMessage.id && Number(record.embedIndex || 0) === 0);
+    const componentsChanged = !prior || !sameTicketComponents(prior.components || [], panelMessage.components || []);
+    const registered = await registerCloudyEmbedMessage(panelMessage, 'bot-history', {manualSave: componentsChanged});
+    if (componentsChanged && !registered) throw new Error('Could not record the assistant controls for Embed Builder');
 
     if (client.db?.set) await client.db.set(FAQ_PANEL_STATE_KEY, panelMessage.id).catch(() => {});
     return panelMessage;

@@ -81,5 +81,5 @@ test('FAQ ready reconciliation re-registers the live panel in the Embed Builder 
   const source = fs.readFileSync('src/services/faqAiService.js', 'utf8');
 
   assert.match(source, /registerCloudyEmbedMessage/);
-  assert.match(source, /await registerCloudyEmbedMessage\(panelMessage, 'bot-history'\)/);
+  assert.match(source, /await registerCloudyEmbedMessage\(panelMessage, 'bot-history'[,)]/);
 });
