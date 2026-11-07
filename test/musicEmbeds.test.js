@@ -156,3 +156,17 @@ test('now playing and queue commands publicly show the live track', async t => {
   assert.deepEqual(deferred, [undefined, undefined, undefined]);
   assert.deepEqual(edits.map(payload => payload.embeds[0].toJSON().title), ['Now playing', 'Now playing', 'Music queue']);
 });
+
+test('/music guide also shows the compact embed with its Commands button', async t => {
+  const replies = [];
+  t.mock.method(InteractionHelper, 'safeDefer', async () => true);
+  t.mock.method(InteractionHelper, 'safeEditReply', async (_interaction, payload) => {
+    replies.push(payload);
+    return true;
+  });
+  const interaction = { options: { getSubcommand: () => 'guide' } };
+  await musicCommand.execute(interaction, {}, {});
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].embeds[0].toJSON().title, 'Cloudy music');
+  assert.equal(replies[0].components[0].toJSON().components[0].custom_id, 'dedicated_commands:music');
+});
