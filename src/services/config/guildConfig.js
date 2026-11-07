@@ -152,6 +152,13 @@ export async function warmGuildConfigCache(client, { concurrency = 4 } = {}) {
     return { attempted: count, warmed };
 }
 
+// Explicit fresh read for state changed by an authorized separate maintenance process.
+// Ordinary command reads keep using the fast five-minute in-process cache.
+export async function refreshGuildConfig(client, guildId, context = {}) {
+    const latest = await readLatestGuildConfig(client, guildId, context);
+    return cloneConfig(cacheGuildConfig(guildId, latest));
+}
+
 export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(client, guildId, config, context = {}) {
     return await enqueueGuildWrite(guildId, async () => {
         const normalized = normalizeCloudyGuildConfig(config);
