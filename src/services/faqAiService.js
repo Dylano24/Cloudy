@@ -59,7 +59,7 @@ export function buildFaqQuestionModal() {
   const questionInput = new TextInputBuilder()
     .setCustomId('question')
     .setLabel('What would you like to know?')
-    .setPlaceholder('Ask about Cloudy, purchases, rules, commands or server information.')
+    .setPlaceholder('Ask about Cloudy, purchases, rules, commands, server information or support.')
     .setStyle(TextInputStyle.Paragraph)
     .setMinLength(3)
     .setMaxLength(1000)
