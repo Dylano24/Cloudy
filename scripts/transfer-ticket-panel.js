@@ -55,6 +55,14 @@ async function main() {
     const guild = await client.guilds.fetch(reference.guildId);
     const channel = await guild.channels.fetch(reference.channelId);
     if (!channel?.messages?.fetch) throw new Error('The selected channel is not a message channel');
+    // Preview must be read-only; fetch the existing application emoji for an
+    // accurate white-bot preview. Applying may create it only if missing.
+    if (options.apply) {
+      const {ensureSupportBotEmoji} = await import('../src/services/supportBotEmojiService.js');
+      await ensureSupportBotEmoji(client);
+    } else {
+      await client.application?.emojis?.fetch?.();
+    }
     const {transferTicketPanelControls} = await import('../src/services/ticketPanelTransitionService.js');
     const source = await channel.messages.fetch({message: options.source.messageId, force: true});
     const target = await channel.messages.fetch({message: options.target.messageId, force: true});
