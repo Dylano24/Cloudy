@@ -1,6 +1,6 @@
 import { Events, MessageFlags } from 'discord.js';
 import {
-  AUTO_WIPE_GUILD_ID, autoWipeGiveawayPayload, changeAutoWipeEntry,
+  AUTO_WIPE_GUILD_ID, changeAutoWipeEntry, refreshAutoWipeEntryMessage,
 } from '../services/wipeAutomationService.js';
 import { logger } from '../utils/logger.js';
 
@@ -34,9 +34,9 @@ export default {
       // This must update the original giveaway, never post another panel.
       if (status === 'entered' || status === 'left') {
         if (session?.messageId && interaction.message?.id === session.messageId) {
-          // Always use the latest stored session to avoid showing stale counts.
-          const payload = autoWipeGiveawayPayload(session);
-          await interaction.message.edit(payload);
+          await refreshAutoWipeEntryMessage(
+            interaction.client, interaction.guildId, match[2], interaction.message,
+          );
         }
       }
       await interaction.editReply({ content: texts[status] || 'Could not change participation.' });
