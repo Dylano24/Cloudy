@@ -6,6 +6,7 @@ import { getGuildMusicData, clearUpdateInterval } from './playerStore.js';
 import { canControlMusic, requireVoiceChannel, VOICE_CHANNEL_DENIAL } from './permissions.js';
 import {
     buildNowPlayingEmbed,
+    buildMusicRequestEmbed,
     buildQueueEmbed,
     buildQueuePaginationRow,
     getQueuePageSize,
@@ -191,12 +192,10 @@ export async function playQuery(client, interaction, query) {
         }
 
         return {
-            embed: successEmbed(
-                willPlayNow ? 'Now playing' : 'Track added',
-                willPlayNow
-                    ? `**${track.info.title}**\n${track.info.author}`
-                    : `**${track.info.title}**\n${track.info.author}\nPosition: #${queuePosition} in queue`,
-            ),
+            embed: buildMusicRequestEmbed(track, {
+                playNow: willPlayNow,
+                queuePosition,
+            }),
         };
     }
 
@@ -527,8 +526,15 @@ export async function leaveVoiceChannel(client, interaction) {
 
 export async function replyMusicSuccess(interaction, embed) {
     if (interaction.deferred || interaction.replied) {
-        await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+        await InteractionHelper.safeEditReply(interaction, {
+            embeds: [embed],
+            allowedMentions: { parse: [] },
+        });
     } else {
-        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+            embeds: [embed],
+            flags: MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
     }
 }

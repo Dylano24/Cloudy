@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { buildQueueReply } from '../../services/music/musicActions.js';
 
@@ -13,7 +13,7 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+        await InteractionHelper.safeDefer(interaction);
         const page = (interaction.options.getInteger('page') || 1) - 1;
         const payload = buildQueueReply(client, interaction.guild.id, page);
         await InteractionHelper.safeEditReply(interaction, {
