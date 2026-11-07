@@ -47,6 +47,8 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[1].title, /^<a:cloudy_on:1568309193180581963> Login$/);
   assert.match(embeds[3].title, /^<a:cloudy_kit:1568298883682009109> Kit claimed$/);
   assert.match(embeds[2].title, /^<a:cloudy_off:1568309283261653033> Logout$/);
+  assert.match(embeds[6].title, /^<a:cloudy_alert:1568465464181653594> Raid alert$/);
+  assert.equal(isGameFeedEmbed(embeds[6]), true);
   assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox\n/);
   assert.match(embeds[2].description, /\*\*Platform:\*\* PlayStation\n/);

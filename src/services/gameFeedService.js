@@ -155,7 +155,7 @@ export function buildGameFeedEmbed(event) {
           event.state === 'off' ? line('Protected for', '12h') : null, server,
         ], event);
     case 'raid':
-      return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
+      return classicEmbed(`${feedEmoji('raid')} Raid alert`, CLOUDY_RED_COLOR, [
         // Only the target, server and time (owner's choice: no Raider or Used line).
         line('Target', event.target ? name(event.target) : null), server,
       ], event);
