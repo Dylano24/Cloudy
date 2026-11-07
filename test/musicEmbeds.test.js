@@ -54,6 +54,7 @@ test('a new player panel goes to #music; an existing panel keeps its message', a
   await refreshPlayerMessage(client, guildId);
   assert.deepEqual(sent.map(entry => entry.channel), ['🎧│music']);
   assert.equal(data.playerChannelId, music.id);
+  assert.deepEqual(sent[0].payload.allowedMentions, { parse: [] });
   deleteGuildMusicData(guildId);
 });
 
@@ -62,6 +63,8 @@ test('public song announcement includes verified artwork, artist, album and queu
   const queued = buildMusicRequestEmbed(song, { queuePosition: 2 }).toJSON();
   assert.equal(queued.title, 'Added to queue');
   assert.equal(queued.image.url, song.info.artworkUrl);
+  assert.equal(buildNowPlayingEmbed(song, { position: 0, queue: [] }, {}).toJSON().fields.find(field => field.name === 'Album').value, 'Example album');
+  assert.ok(buildMusicRequestEmbed({info: { title: 'Track', author: 'Artist', album: 'String album' }}).toJSON().fields.some(field => field.name === 'Album' && field.value === 'String album'));
   assert.match(queued.description, /\*\*Song\*\*\nArtist/);
   assert.ok(queued.fields.some(field => field.name === 'Album' && field.value === 'Example album'));
   assert.ok(queued.fields.some(field => field.name === 'Queue position' && field.value === '#2'));
@@ -120,6 +123,7 @@ test('play slash reply is public and includes song cover instead of hiding it', 
   assert.equal(deferOptions, undefined, 'slash response is visible to everyone');
   assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
   assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
+  assert.deepEqual(publicReply.allowedMentions, { parse: [] });
   assert.equal(queue.length, 1);
 });
 
