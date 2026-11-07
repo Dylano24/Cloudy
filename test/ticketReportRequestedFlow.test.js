@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, EmbedBuilder, OverwriteType, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
+import { getGuildConfig } from '../src/services/config/guildConfig.js';
 import buttons, { TICKET_CREATION_LIMIT_PRECHECK_MS } from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
 import { reopenTicketHandler as legacyReopenTicketHandler } from '../src/handlers/ticketButtons.js';
 import modals from '../src/interactions/modals/ticket/createTicketUi.js';
@@ -68,6 +69,24 @@ function fixture(status = 'open', actor = 'creator') {
   return { client, guild, channel, member, interaction, replies, payloads, permissions, initialize,
     deletedReplies: () => deletedReplies, values };
 }
+
+test('new ticket panel is accepted after a separate process changes the stored ID', async () => {
+  const f = fixture();
+  const key = `guild:${f.guild.id}:config`;
+  f.values.set(key, {...f.values.get(key), ticketPanelMessageId: 'old-panel'});
+  await getGuildConfig(f.client, f.guild.id); // Cache stays stale after external update.
+  f.values.set(key, {...f.values.get(key), ticketPanelMessageId: 'new-shield-panel'});
+
+  const handler = buttons.find(button => button.name === 'create_ticket');
+  f.interaction.message = {id: 'new-shield-panel'};
+  await handler.execute(f.interaction, f.client);
+  assert.equal(f.replies.at(-1).custom_id, 'create_ticket_modal', 'new panel opens modal');
+
+  f.interaction.message = {id: 'old-panel'};
+  await handler.execute(f.interaction, f.client);
+  assert.match(JSON.stringify(f.replies.at(-1)), /This ticket panel is outdated/,
+    'old panel is still rejected after the fresh DB check');
+});
 
 test('slow optional ticket-limit precheck still opens the create modal before Discord interaction expiry', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
