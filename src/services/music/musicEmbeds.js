@@ -49,9 +49,10 @@ function getTrackArtwork(track) {
 }
 
 function getAlbumName(track) {
+    const album = track?.info?.album;
     return track?.info?.albumName
         || track?.pluginInfo?.albumName
-        || track?.info?.album?.name
+        || (typeof album === 'string' ? album : album?.name)
         || null;
 }
 
