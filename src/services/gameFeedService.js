@@ -107,12 +107,6 @@ export function normalizeGameFeedEvent(raw) {
 // Player names are shown in a code block (owner's choice).
 const name = value => `\`${value}\``;
 
-function duration(ms) {
-  const minutes = Math.max(1, Math.round(ms / 60_000));
-  const hours = Math.floor(minutes / 60);
-  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
-}
-
 const line = (label, value, emoji) => (value == null || value === '' ? null : `**${label}:** ${emoji ? `${feedEmoji(emoji)} ` : ''}${value}`);
 
 // Classic feed layout (owner's choice): title, labelled lines with names in
@@ -157,7 +151,8 @@ export function buildGameFeedEmbed(event) {
       return classicEmbed(`${feedEmoji(event.state === 'on' ? 'on' : 'off')} ZORP`,
         event.state === 'on' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
-          event.state === 'off' && event.protectedFor ? line('Protected for', duration(event.protectedFor)) : null, server,
+          // ZORP protection is always 12 hours (owner's choice).
+          event.state === 'off' ? line('Protected for', '12h') : null, server,
         ], event);
     case 'raid':
       return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
