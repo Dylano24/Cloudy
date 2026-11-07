@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {ActionRow, Collection, Embed} from 'discord.js';
 import {db} from '../src/utils/database.js';
 import {getEmbedRegistry} from '../src/services/embedRegistryService.js';
-import {FAQ_AI_BUTTON_ID, FAQ_AI_CHANNEL_ID, reconcileFaqAiPanel} from '../src/services/faqAiService.js';
+import {FAQ_AI_BUTTON_ID, FAQ_AI_CHANNEL_ID, reconcileFaqAiPanel, buildFaqQuestionModal} from '../src/services/faqAiService.js';
 
-test('the existing Ask a question button gets the white bot without rewriting the assistant embed', async t => {
+test('the existing question button becomes Assistant with the white bot without rewriting the embed', async t => {
   const values = new Map();
   t.mock.method(db, 'get', async key => structuredClone(values.get(key) ?? null));
   t.mock.method(db, 'set', async (key, value) => {values.set(key, structuredClone(value)); return true;});
@@ -38,7 +38,7 @@ test('the existing Ask a question button gets the white bot without rewriting th
   assert.deepEqual(panel.embeds[0].toJSON(), original);
   const button = panel.components[0].toJSON().components[0];
   assert.equal(button.custom_id, 'faq_ai_question');
-  assert.equal(button.label, 'Ask a question');
+  assert.equal(button.label, 'Assistant');
   assert.equal(button.emoji.id, emoji.id);
   const saved = (await getEmbedRegistry('icon-guild')).find(row => row.messageId === panel.id);
   assert.equal(saved.components[0].components[0].emoji.id, emoji.id, 'a later Builder Save must retain the bot icon');
@@ -61,4 +61,12 @@ test('a failed assistant icon edit never creates a duplicate assistant panel', a
     channels: {cache: new Collection([[channel.id, channel]])}, db: {get: async () => panel.id, set: async () => true}};
   await reconcileFaqAiPanel(client);
   assert.equal(posts, 0);
+});
+
+
+test('the Ask Cloudy modal example removes free kits and the extra comma but keeps support', () => {
+  const modal = buildFaqQuestionModal().toJSON();
+  const input = modal.components[0].components[0];
+  assert.equal(input.placeholder, 'Ask about Cloudy, purchases, rules, commands, server information or support.');
+  assert.equal(input.custom_id, 'question');
 });
