@@ -219,7 +219,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### The vote has ended!\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses\.\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
+  assert.match(textOf(result), /^### The vote has ended!\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\*\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -614,10 +614,10 @@ test('when a vote with pictures ends, the result message shows Most votes with i
   const card = json(result.components[0]);
   const parts = card.components.filter(part => part.type !== 14);
   assert.equal(parts[0].components[0].content, '### The vote has ended!');
-  assert.equal(parts[0].components[1].content, 'In the event of a tie, the outcome will be determined by a random selection among the winning responses.', 'directly under the title (owner\'s choice)');
+  assert.equal(parts[0].components[1].content, '**Question**\nWhich map?', 'no tie sentence under the title (owner\'s choice)');
   assert.equal(parts[0].accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo on the result too (owner\'s choice)');
   assert.match(parts[1].content, /^\*\*Results\*\*\n2️⃣ \*\*DZ East\*\* · 2 votes · 67%\n1️⃣ \*\*DZ West\*\* · 1 vote · 33%$/);
-  assert.equal(parts[2].content, '**Most votes**\n2️⃣ **DZ East** · 2 votes · 67%');
+  assert.equal(parts[2].content, '**Most votes**\n2️⃣ **DZ East**');
   assert.equal(parts[3].items[0].media.url, 'attachment://most-votes-2.png', 'the winner\'s picture right under it');
   assert.ok(card.components.filter(part => part.type === 14).length >= 4, 'a little room between sections');
   assert.equal(w.sent[0].edits.at(-1).components.length, 1, 'the vote itself has no buttons anymore');
@@ -809,7 +809,7 @@ test('/vote manage: choose Active or Ended, then a vote; End closes it, Delete r
   assert.equal(end.acked, true, 'acknowledged before any database work');
   assert.equal(json(end.answer.embeds[0]).title, 'Success');
   assert.equal((await loadVote(w.client, GUILD, old)).ended, true);
-  assert.match(textOf(w.sent.at(-1)), /^### The vote has ended!\nIn the event of a tie[^\n]*\n\*\*Question\*\*\nOld one/, 'its result under it, as at its end time');
+  assert.match(textOf(w.sent.at(-1)), /^### The vote has ended!\n\*\*Question\*\*\nOld one/, 'its result under it, as at its end time');
   // Ended votes: only Delete and Back.
   const ended = click({ values: ['ended'] });
   await handler(voteManageSelects, 'vmanage_status')(ended, w.client, ['staff']);
@@ -920,6 +920,8 @@ test('a tie: Cloudy picks one tied option at random and says so under Most votes
   assert.match(text, /\*\*Random selection result\*\*\\n[^"]*Map 2[^"]*\\nThe result was randomly selected from the most-voted responses due to a tie\./);
   assert.equal(TIE_TEXT, 'The result was randomly selected from the most-voted responses due to a tie.');
   assert.doesNotMatch(text, /Most votes/, 'the heading is Random selection result on a tie');
+  assert.match(text, /\*\*Random selection result\*\*\\n[^\\]*\*\*Map 2\*\*\\nThe result/, 'only the number and the name');
+  assert.doesNotMatch(text, /In the event of a tie/, 'not under The vote has ended!');
   // No tie: the one winner and no sentence.
   const clear = { ...vote, votes: { a: 0, b: 0, c: 1 }, tieWinner: undefined };
   assert.deepEqual(voteWinners(clear), [0]);
