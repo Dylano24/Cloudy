@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, EmbedBuilder, OverwriteType, PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import { db, getTicketData, saveTicketData } from '../src/utils/database.js';
+import { getGuildConfig } from '../src/services/config/guildConfig.js';
 import buttons, { TICKET_CREATION_LIMIT_PRECHECK_MS } from '../src/interactions/buttons/ticket/ticketUiOverrides.js';
 import { reopenTicketHandler as legacyReopenTicketHandler } from '../src/handlers/ticketButtons.js';
 import modals from '../src/interactions/modals/ticket/createTicketUi.js';
@@ -81,6 +82,30 @@ test('slow optional ticket-limit precheck still opens the create modal before Di
   await pending;
   assert.equal(f.replies.length, 1);
   assert.equal(f.replies[0].custom_id, 'create_ticket_modal');
+});
+
+test('a transferred new ticket panel is accepted despite the old cached message ID', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  const key = `guild:${f.guild.id}:config`;
+  f.values.set(key, { ...f.values.get(key), ticketPanelMessageId: 'old-panel' });
+  await getGuildConfig(f.client, f.guild.id);
+  // The authorized transfer ran in a different process, bypassing this cache.
+  f.values.set(key, { ...f.values.get(key), ticketPanelMessageId: 'new-panel' });
+  f.client.db.db = { pool: { query: async () => new Promise(() => {}) } };
+  f.interaction.message = { id: 'new-panel' };
+  const handler = buttons.find(button => button.name === 'create_ticket');
+  const pending = handler.execute(f.interaction, f.client);
+  await new Promise(resolve => { setImmediate(resolve); });
+  t.mock.timers.tick(TICKET_CREATION_LIMIT_PRECHECK_MS);
+  await new Promise(resolve => { setImmediate(resolve); });
+  await pending;
+  assert.equal(f.replies.at(-1).custom_id, 'create_ticket_modal');
+
+  f.interaction.message = { id: 'old-panel' };
+  await handler.execute(f.interaction, f.client);
+  assert.match(JSON.stringify(f.replies.at(-1)), /This ticket panel is outdated/,
+    'the genuinely old panel must still be blocked');
 });
 
 test('real ticket context allows creator close but reserves reopening and management for staff', async () => {
