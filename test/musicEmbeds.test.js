@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChannelType, Collection } from 'discord.js';
-import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
+import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
 import nowCommand from '../src/commands/Music/now.js';
@@ -77,7 +77,13 @@ test('public song announcement includes verified artwork, artist, album and queu
 test('music guide documents the real slash commands and keeps Cloudy branding', () => {
   const guide = buildMusicGuideEmbed().toJSON();
   assert.equal(guide.title, 'Cloudy music');
-  assert.match(guide.description, /\/now playing/);
+  assert.match(guide.description, /Click the button below/);
+  assert.ok(!guide.description.includes('/now playing'), 'the public panel must remain short');
+  const commands = buildMusicCommandsEmbed().toJSON();
+  assert.equal(commands.title, 'Music commands');
+  assert.match(commands.description, /\/now playing/);
+  assert.match(commands.description, /\/music volume/);
+  assert.equal(commands.footer.text, FOOTER);
   assert.match(guide.description, /\/play/);
   assert.equal(guide.footer.text, FOOTER);
   assert.match(guide.thumbnail.url, /cloudy-c-logo/);
