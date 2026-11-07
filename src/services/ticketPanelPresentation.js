@@ -4,6 +4,7 @@ import {
   DEFAULT_TICKET_BUTTON_LABEL,
 } from './ticketPanelBuilder.js';
 import { logger } from '../utils/logger.js';
+import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 
 export const TICKET_PANEL_TITLE = 'Contact the support';
 export const TICKET_PANEL_BUTTON_EMOJI = '💬';
@@ -48,6 +49,7 @@ function enqueuePanelUpdate(message, operation) {
 }
 
 export async function applyTicketPanelPresentation(message) {
+  if (PRESERVE_EXISTING_EMBEDS) return false;
   if (!message?.editable || !message?.guildId || !isTicketPanelMessage(message)) return false;
 
   return enqueuePanelUpdate(message, async () => {

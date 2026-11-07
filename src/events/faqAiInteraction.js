@@ -21,7 +21,7 @@ const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 function isFaqChannel(interaction) {
   return String(interaction.channelId || '') === FAQ_AI_CHANNEL_ID
-    || normalizeCloudyChannelName(interaction.channel?.name) === 'faq';
+    || ['faq', 'support-assistant'].includes(normalizeCloudyChannelName(interaction.channel?.name));
 }
 
 const QUESTION_LABELS = {
