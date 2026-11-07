@@ -22,7 +22,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
   assert.deepEqual(embed.fields.map(field => [field.name, field.value]), [
-    ['Artist', 'Artist'], ['Requested by', 'Dawg'], ['Progress', '▰▰▰▰▱▱▱▱▱▱▱▱\n1:00 / 3:00'], ['Status', 'Paused'],
+    ['Artist', 'Artist'], ['Requested by', 'Dawg'], ['Progress', '▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱\n1:00 / 3:00'], ['Status', 'Paused'],
     ['Volume', '80%'], ['Loop', 'Off'], ['Queue', '1 track'],
   ]);
 });
