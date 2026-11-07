@@ -70,8 +70,10 @@ function fixture(status = 'open', actor = 'creator') {
     deletedReplies: () => deletedReplies, values };
 }
 
-test('new ticket panel is accepted after a separate process changes the stored ID', async () => {
+test('new ticket panel is accepted after a separate process changes the stored ID', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture();
+  f.client.db.db = { pool: { query: async () => new Promise(() => {}) } };
   const key = `guild:${f.guild.id}:config`;
   f.values.set(key, {...f.values.get(key), ticketPanelMessageId: 'old-panel'});
   await getGuildConfig(f.client, f.guild.id); // Cache stays stale after external update.
@@ -79,7 +81,11 @@ test('new ticket panel is accepted after a separate process changes the stored I
 
   const handler = buttons.find(button => button.name === 'create_ticket');
   f.interaction.message = {id: 'new-shield-panel'};
-  await handler.execute(f.interaction, f.client);
+  const pending = handler.execute(f.interaction, f.client);
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(TICKET_CREATION_LIMIT_PRECHECK_MS);
+  await new Promise(resolve => setImmediate(resolve));
+  await pending;
   assert.equal(f.replies.at(-1).custom_id, 'create_ticket_modal', 'new panel opens modal');
 
   f.interaction.message = {id: 'old-panel'};
