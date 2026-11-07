@@ -18,8 +18,8 @@ const BASE_EMOJIS = {
   // Login and Logout (owner's choice): the owner's own on and off emoji, found
   // among the application's emojis by name (the id is not needed), whichever
   // name it has now. Until it is found the old arrows are shown.
-  login: { name: 'cloudy_on', alsoNamed: ['cloudy_zorp_on'], byNameOnly: true, fallbackKey: 'login_arrow', fallback: '' },
-  logout: { name: 'cloudy_off', alsoNamed: ['cloudy_zorp_off'], byNameOnly: true, fallbackKey: 'logout_arrow', fallback: '' },
+  login: { name: 'cloudy_on', alsoNamed: ['cloudy_zorp_on'], id: '1568309193180581963', fallbackKey: 'login_arrow', fallback: '<a:cloudy_on:1568309193180581963>' },
+  logout: { name: 'cloudy_off', alsoNamed: ['cloudy_zorp_off'], id: '1568309283261653033', fallbackKey: 'logout_arrow', fallback: '<a:cloudy_off:1568309283261653033>' },
   login_arrow: { name: 'cloudy_arrow_green_v3', crop: '52:72:38:24', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
   logout_arrow: { name: 'cloudy_arrow_red_v3', crop: '52:72:38:24', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
@@ -118,7 +118,7 @@ export function weaponEmoji(text) {
 
 export function feedEmoji(key) {
   const emoji = FEED_EMOJIS[key];
-  return resolved.get(key) || (emoji?.fallbackKey ? feedEmoji(emoji.fallbackKey) : '') || emoji?.fallback || '';
+  return resolved.get(key) || emoji?.fallback || (emoji?.fallbackKey ? feedEmoji(emoji.fallbackKey) : '') || '';
 }
 
 const markup = emoji => `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`;
