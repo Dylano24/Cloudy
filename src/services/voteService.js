@@ -17,9 +17,9 @@ export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 // The card of a vote with pictures has no real footer: small text is always
 // grey there. White and small (owner's choice) is a thin picture of the footer
-// (assets/vote-footer.png), on a fixed link like the logo, so every edit keeps
+// (assets/vote-footer-small.png, 450 px wide so it is not stretched on PC), on a fixed link like the logo, so every edit keeps
 // the same picture and nothing loads again.
-export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@43d4c3420b7941344631efc0f6a8a2bb38528081/assets/vote-footer.png';
+export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@40fe0e6b8d22ad7ba8750cbc137fd25ab8b96eaa/assets/vote-footer-small.png';
 // The card's progress bar is a thin picture (owner's choice: white, rounded),
 // like the footer: Discord's app loads custom emoji again every time it
 // redraws the vote (each vote and each button press), which made emoji bars
@@ -212,7 +212,8 @@ function buildPreviewVoteMessage(vote, parts) {
     // The owner's own words; one line on an iPhone SE/mini and larger.
     `${dot} Press any number to change your vote.`,
     ...(hasPreview ? [`${dot} Press **Preview** to see the pictures.`] : []),
-    // Its own line without a bullet (owner's choice, literally).
+    // Its own line without a bullet, after an empty line (owner's choice, literally).
+    '',
     TIE_RULE_TEXT,
   ];
   const card = new ContainerBuilder()
