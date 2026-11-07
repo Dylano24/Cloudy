@@ -36,6 +36,7 @@ function fixture(guildId) {
     position: 83000,
     queue,
     loop: 'none',
+    setVolume() {},
   };
   const data = getGuildMusicData(guildId);
   data.playerMessageId = 'player-message';
@@ -123,6 +124,7 @@ test('Add cannot be opened from an outdated player or different voice channel', 
   const replies = [];
   const interaction = {
     guild: { id: guildId }, member: f.member, user: f.user,
+    id: `button-denial-${num}`, createdTimestamp: Date.now(),
     message: { id: 'old-message' },
     customId: MUSIC_BUTTON_IDS.ADD,
     showModal: async () => { opens++; },
@@ -179,6 +181,7 @@ test('a stale Add modal is denied before enqueueing or acknowledging a private s
   t.mock.method(InteractionHelper, 'safeDefer', async () => { defers++; return true; });
   const interaction = {
     guildId, guild: { id: guildId }, channel: { id: 'music-channel' },
+    id: 'stale-modal-id', createdTimestamp: Date.now(),
     member: f.member, user: f.user, customId: `${MUSIC_BUTTON_IDS.ADD_MODAL}:old-player`,
     fields: { getTextInputValue: () => 'New track' },
     reply: async () => { replies++; },
