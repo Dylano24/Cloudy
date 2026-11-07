@@ -161,8 +161,8 @@ export function buildGameFeedEmbed(event) {
         ], event);
     case 'raid':
       return classicEmbed('Raid alert', CLOUDY_RED_COLOR, [
-        line('Raider', name(event.attacker)), line('Target', event.target ? name(event.target) : null),
-        line('Used', event.item && `${weaponEmoji(event.item) ? `${weaponEmoji(event.item)} ` : ''}${event.item}`), server,
+        // Only the target, server and time (owner's choice: no Raider or Used line).
+        line('Target', event.target ? name(event.target) : null), server,
       ], event);
     case 'ban': {
       // Ban log (owner's choice, like the KAOSBOT ban-log in Cloudy style):

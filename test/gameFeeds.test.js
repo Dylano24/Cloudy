@@ -186,10 +186,11 @@ test('the weapon in an event gets its Rust emoji; unknown weapons keep the gener
   assert.equal(id('Timed Explosive Charge'), 'c4');
   assert.equal(weaponEmoji('Spoon'), '');
   const unknown = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'pvp', server: 'S', killer: 'A', victim: 'B', weapon: 'Spoon' }) });
-  // A kill shows the owner's rifle icon before every weapon (owner's choice); raids keep the weapon's own emoji.
+  // A kill shows the owner's rifle icon before every weapon (owner's choice).
   assert.match(unknown.description, /\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Spoon/);
   const raid = buildGameFeedEmbed({ ...normalizeGameFeedEvent({ type: 'raid', server: 'S', attacker: 'A', item: 'Rocket' }) });
-  assert.match(raid.description, /\*\*Used:\*\* <:rust_rocket:\d+> Rocket/);
+  // Raid alert: only Target, Server and Time (owner's choice: no Raider or Used line).
+  assert.doesNotMatch(raid.description, /Raider|Used|Rocket/);
 });
 
 test('ban log: emoji lines without labels, tags the player and staff, relative times', () => {
