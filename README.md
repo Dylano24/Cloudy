@@ -1,6 +1,6 @@
 # Cloudy Discord Bot
 
-**Cloudy**, maintained by **Dylano24**, provides moderation, reports, tickets, economy, music and community tools. It incorporates historical open-source work originating in TitanBot by codebymitch; upstream attribution is preserved. It uses Node.js 24, Discord.js v14 and PostgreSQL. See [the current audit](CODE_QUALITY_AUDIT.md) for verified changes and operational limitations.
+**Cloudy**, maintained by **Dylano24**, provides moderation, reports, tickets, economy, music and community tools. It uses Node.js 24, Discord.js v14 and PostgreSQL. See [the current audit](CODE_QUALITY_AUDIT.md) for verified changes and operational limitations, and [LICENSE](LICENSE) for the applicable notices.
 
 [![Support Server](https://img.shields.io/badge/-Support%20Server-%235865F2?logo=discord&logoColor=white&style=flat-square&logoWidth=20)](https://discord.gg/8kJBYhTGW9)
 [![Discord.js](https://img.shields.io/npm/v/discord.js?style=flat-square&labelColor=%23202225&color=%23202225&logo=npm&logoColor=white&logoWidth=20)](https://www.npmjs.com/package/discord.js)
@@ -129,7 +129,7 @@ This starts the bot and PostgreSQL. The compose file sets `POSTGRES_SSL=false` a
 
 ### Music
 
-Music uses [Lavalink v4](https://github.com/lavalink-devs/Lavalink) via [Riffy](https://github.com/riffy-rb/riffy), similar to [Musicify](https://github.com/codebymitch/Musicify).
+Music uses [Lavalink v4](https://github.com/lavalink-devs/Lavalink) via [Riffy](https://github.com/riffy-rb/riffy).
 
 1. By default, the bot loads multiple public v4 SSL nodes from [`lavalink/nodes.json`](lavalink/nodes.json) (sourced from [lavalink.darrennathanael.com](https://lavalink.darrennathanael.com/SSL/Lavalink-SSL/)). Edit that file to add or remove nodes.
 2. To self-host Lavalink instead, run `docker compose --profile local-lavalink up -d` and set single-node env vars in `.env`:
@@ -182,12 +182,12 @@ docker pull ghcr.io/dylano24/cloudy:main
    GUILD_ID=your_discord_guild_id_here
 
    # PostgreSQL Configuration (Primary Database)
-   # Existing deployments may use the legacy database name 'titanbot'.
+   # Keep the actual database name and credentials for an existing deployment.
    # Do not rename a populated database without a planned migration and backup.
-   POSTGRES_URL=postgresql://postgres:yourpassword@localhost:5432/titanbot
+   POSTGRES_URL=postgresql://postgres:yourpassword@localhost:5432/cloudy
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
-   POSTGRES_DB=titanbot
+   POSTGRES_DB=cloudy
    POSTGRES_USER=postgres
    POSTGRES_PASSWORD=yourpassword
    ```
@@ -224,10 +224,10 @@ Notes:
 4. **Setup PostgreSQL Database** (required in production)
    ```bash
    # Create database and user
-   createdb titanbot
-   createuser titanbot
-   psql -c "ALTER USER titanbot PASSWORD 'yourpassword';"
-   psql -c "GRANT ALL PRIVILEGES ON DATABASE titanbot TO titanbot;"
+   createdb cloudy
+   createuser cloudy
+   psql -c "ALTER USER cloudy PASSWORD 'yourpassword';"
+   psql -c "GRANT ALL PRIVILEGES ON DATABASE cloudy TO cloudy;"
    ```
 
 5. **Verify Database Setup**

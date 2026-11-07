@@ -48,6 +48,8 @@ async function openManager(t, guildId, beforeBackgroundPaint = async () => {}, v
     // registry row here would corrupt the fixture's storage semantics and
     // leave the real registry preload blocked on the background gate.
     if (key.startsWith('cloudy:embed-registry-deleted:')) return [];
+    if (key.startsWith('cloudy:embed-builder-used-catalog:')
+        || key.startsWith('cloudy:embed-builder-hidden-catalog:')) return [];
     return ++storageReads === 1 ? [record] : backgroundRead.promise;
   } };
   const collector = new EventEmitter();

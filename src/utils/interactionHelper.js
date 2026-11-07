@@ -63,7 +63,7 @@ export class InteractionHelper {
 
     static patchInteractionResponses(interaction) {
         observeInteractionLatency(interaction);
-        if (!interaction || interaction.__titanResponsePatched) {
+        if (!interaction || interaction.__cloudyResponsePatched) {
             return;
         }
 
@@ -102,7 +102,7 @@ export class InteractionHelper {
             return await originalFollowUp(cleanOptions);
         };
 
-        interaction.__titanResponsePatched = true;
+        interaction.__cloudyResponsePatched = true;
     }
 
     static isInteractionValid(interaction) {

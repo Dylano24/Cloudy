@@ -1,13 +1,15 @@
-import test from 'node:test';
+import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, Embed, MessageFlags } from 'discord.js';
 import { db } from '../src/utils/database.js';
-import gamble from '../src/commands/Economy/gamble.js';
+import { loadCommands } from '../src/handlers/loaders/commandLoader.js';
+
+// Exercise the same channel wrappers as the deployed command registry.
+before(async () => { await loadCommands({}); });
+import gamble from '../src/commands/Economy/gambling.js';
+import games from '../src/commands/Economy/games.js';
 import shopCommand from '../src/commands/Economy/shop.js';
 import buy from '../src/commands/Economy/buy.js';
-import fight from '../src/commands/Fun/fight.js';
-import flip from '../src/commands/Fun/flip.js';
-import roll from '../src/commands/Fun/roll.js';
 import {
   enforceDedicatedCommandChannel,
   ensureDedicatedChannelGuides,
@@ -48,7 +50,7 @@ function fixture(mode = 'reply') {
   return { sent, deleted, responseMessage, interaction, guild, gambling, shop };
 }
 
-for (const [name, command] of Object.entries({ gamble, fight, flip, roll })) {
+for (const [name, command] of Object.entries({ gamble, game: games })) {
   test(`/${name} rejects the wrong channel before game logic and shows the requested message`, async () => {
     const f = fixture();
     f.interaction.commandName = name;
@@ -245,7 +247,7 @@ for (const useReplyHelper of [false, true]) {
   test(`early cooldown errors in #gambling remain visible through ${useReplyHelper ? 'replyUserError' : 'handleInteractionError'}`, async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const f = fixture();
-    f.interaction.commandName = 'roll';
+    f.interaction.commandName = 'blackjack';
     f.interaction.channelId = f.gambling.id;
     // No command-specific channel guard has run yet.
     if (useReplyHelper) {
@@ -262,54 +264,19 @@ for (const useReplyHelper of [false, true]) {
   });
 }
 
-const gameCases = [
-  { name: 'gamble win', command: gamble, random: 0 },
-  { name: 'gamble loss', command: gamble, random: 0.99 },
-  { name: 'fight', command: fight },
-  { name: 'fight self', command: fight, opponent: 'self' },
-  { name: 'fight bot', command: fight, opponent: 'bot' },
-  { name: 'flip', command: flip },
-  { name: 'roll', command: roll },
-  { name: 'roll invalid input', command: roll, notation: 'invalid', error: true },
-  { name: 'gamble insufficient funds', command: gamble, wallet: 0, error: true },
-  { name: 'gamble cooldown', command: gamble, cooldown: true, error: true },
-];
-
-for (const entry of gameCases) {
-  test(`${entry.name} stays in #gambling without a Close button`, async t => {
+for (const command of [gamble, games]) {
+  test(`/${command.data.name} keeps its current information panel in #gambling`, async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
-    if (entry.random !== undefined) t.mock.method(Math, 'random', () => entry.random);
     const f = fixture();
-    f.guild.id = '100000000000000010';
-    f.interaction.guildId = f.guild.id;
-    f.interaction.user = { id: '100000000000000011', username: 'Player' };
     f.interaction.channelId = f.gambling.id;
-    f.interaction.commandName = entry.command.data.name;
-    f.interaction.deferReply = async () => { f.interaction.deferred = true; };
-    f.interaction.options = {
-      getInteger: () => 10,
-      getString: () => entry.notation || '2d6+1',
-      getUser: () => entry.opponent === 'self'
-        ? f.interaction.user
-        : { id: '100000000000000012', username: 'Opponent', bot: entry.opponent === 'bot' },
-    };
-    const writes = [];
-    const client = { db: {
-      get: async () => ({ wallet: entry.wallet ?? 100, inventory: {}, lastGamble: entry.cooldown ? Date.now() : 0 }),
-      set: async (_key, value) => { writes.push(value); return true; },
-    } };
-    if (entry.error) {
-      let error;
-      await assert.rejects(entry.command.execute(f.interaction, {}, client), caught => { error = caught; return true; });
-      await handleInteractionError(f.interaction, error);
-    } else {
-      await entry.command.execute(f.interaction, {}, client);
-    }
+    f.interaction.commandName = command.data.name;
+    await command.execute(f.interaction);
     assert.equal(f.sent.length, 1);
     assert.deepEqual(f.sent[0].payload.components, []);
     assert.equal((f.sent[0].payload.flags || 0) & MessageFlags.Ephemeral, 0);
-    if (entry.name === 'gamble win') assert.equal(writes[0].wallet, 110);
-    if (entry.name === 'gamble loss') assert.equal(writes[0].wallet, 90);
+    const content = JSON.stringify(f.sent[0].payload);
+    for (const name of ['blackjack', 'baccarat', 'roulette']) assert.match(content, new RegExp('/' + name));
+    assert.doesNotMatch(content, /\/(?:fish|mine|flip|roll|fight|slut)\b/);
     t.mock.timers.tick(60000);
     await settle();
     assert.deepEqual(f.deleted, []);

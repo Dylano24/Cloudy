@@ -1,6 +1,5 @@
 import {
     SlashCommandBuilder,
-    PermissionFlagsBits,
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from "../../utils/embeds.js";
@@ -8,13 +7,7 @@ import logger from '../../utils/logger.js';
 import {
     createSelectMenu,
 } from "../../utils/components.js";
-import fs from "fs/promises";
-import path from "path";
-import { fileURLToPath } from "url";
-import { isBotOwner } from "../../config/bot.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { canSeeAllHelpCommands, getVisibleHelpCommands } from '../../services/helpCommandService.js';
 
 const CATEGORY_SELECT_ID = "help-category-select";
 const ALL_COMMANDS_ID = "help-all-commands";
@@ -49,26 +42,9 @@ function formatCategoryName(rawCategory) {
 }
 
 export async function createInitialHelpMenu(client, interaction = null) {
-    const showAllCommands =
-        isBotOwner(interaction?.user?.id) ||
-        interaction?.memberPermissions?.has(PermissionFlagsBits.Administrator);
-
-    const commandsPath = path.join(__dirname, "../../commands");
-    const categoryDirs = (
-        await fs.readdir(commandsPath, { withFileTypes: true })
-    )
-        .filter((dirent) => dirent.isDirectory())
-        .map((dirent) => dirent.name)
-        .filter((category) => category !== 'Leveling')
-        .filter((category) => showAllCommands || [
-            'Economy',
-            'Fun',
-            'Music',
-            'Search',
-            'Tools',
-            'Utility',
-        ].includes(category))
-        .sort();
+    const showAllCommands = canSeeAllHelpCommands(interaction);
+    const categoryDirs = [...new Set(getVisibleHelpCommands(client, interaction)
+        .map(entry => entry.category))].sort();
 
     const options = [
         ...(showAllCommands

@@ -20,8 +20,8 @@ export const GAMBLING_GAME_COMMAND_NAMES = new Set(
 );
 
 // These older gambling-channel commands are intentionally no longer registered.
-// Their files remain for migration safety, but Discord removes them on the next
-// bulk command sync.
+// Keep their retired names here so stale registrations cannot return in a
+// future bulk command sync. Their command implementations have been removed.
 export const RETIRED_GAMBLING_COMMAND_NAMES = new Set([
   'slots', 'fish', 'mine', 'count', 'fight', 'flip', 'roll', 'slut',
 ]);

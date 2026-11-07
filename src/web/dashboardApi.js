@@ -540,7 +540,7 @@ export const INSIGHTS = {
     return {
       stats: [{ label: 'Running', value: String(active.length) }, { label: 'Total', value: String(giveaways.length) }],
       tables: [{
-        title: 'Giveaways', columns: ['Prize', 'Status', 'Entries', 'Winners', 'Ends'], empty: 'No giveaways yet. Create one with /gcreate.',
+        title: 'Giveaways', columns: ['Prize', 'Status', 'Entries', 'Winners', 'Ends'], empty: 'No giveaways yet. Create one with /giveaway create.',
         rows: sorted.slice(0, 25).map(giveaway => [
           String(giveaway.prize || 'Giveaway').slice(0, 100), isGiveawayFinished(giveaway) ? 'Ended' : 'Running',
           String(giveawayParticipants(giveaway).length),
