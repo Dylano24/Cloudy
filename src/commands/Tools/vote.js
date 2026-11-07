@@ -3,7 +3,7 @@ import { successEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { warningEmbed } from '../../utils/embeds.js';
 import { parseDuration } from '../../services/giveawayService.js';
-import { buildVoteMessage, refreshVoteSoon, saveVote, setVotePictures } from '../../services/voteService.js';
+import { buildVoteMessage, refreshVoteSoon, saveVote, setVotePictures, voteMentions, voteTag } from '../../services/voteService.js';
 import { uploadVotePictures } from '../../services/voteMediaService.js';
 import { keepVotePreview, shrinkVotePicture } from '../../services/votePreviewService.js';
 import { logger } from '../../utils/logger.js';
@@ -106,6 +106,14 @@ async function postVoteFromForm(interaction, id, dependencies) {
     layout: 'preview', pictureOptions: small.map(Boolean),
     createdBy: interaction.user.id, createdAt: new Date().toISOString(),
   };
+  // The tag is its own message right above the vote (owner's choice): it is
+  // never edited, so it cannot disappear when the vote is redrawn after a click.
+  const tag = voteTag(vote);
+  let tagMessage = null;
+  if (tag) {
+    tagMessage = await interaction.channel.send({ content: tag, allowedMentions: voteMentions(vote) });
+    vote.tagMessageId = tagMessage.id;
+  }
   let message;
   try {
     message = await interaction.channel.send(buildVoteMessage(vote));
@@ -119,6 +127,7 @@ async function postVoteFromForm(interaction, id, dependencies) {
       try {
         pictures = await upload();
       } catch (uploadError) {
+        await tagMessage?.delete().catch(() => {});
         return warning(uploadError?.message || 'The pictures could not be added.');
       }
       Object.assign(vote, { optionLinks: pictures.links, optionMedia: pictures.media, mediaRefreshedAt: Date.now() });
@@ -130,6 +139,7 @@ async function postVoteFromForm(interaction, id, dependencies) {
     await saveVote(interaction.client, interaction.guildId, vote);
   } catch (error) {
     await message.delete().catch(() => {});
+    await tagMessage?.delete().catch(() => {});
     throw error;
   }
   // Preview shows these small copies at once.

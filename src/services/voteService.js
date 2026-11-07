@@ -46,18 +46,36 @@ export const GALLERY_URL = 'https://rustmaps.com';
 const CLOUDY_MEDIA = /\/cloudy-embed-media\//;
 
 // The role tagged when the vote starts (owner's choice): shown above the vote.
-function voteTag(vote) {
+export function voteTag(vote) {
   if (!vote.tagRoleId) return null;
   return vote.tagRoleId === vote.guildId ? '@everyone' : `<@&${vote.tagRoleId}>`;
 }
 
 // Only the tagged role (or everyone) is pinged, and only when the vote is
 // posted: Discord never pings again when the vote is edited.
-function voteMentions(vote) {
+export function voteMentions(vote) {
   if (!vote.tagRoleId) return { parse: [] };
   if (vote.tagRoleId === vote.guildId) return { parse: ['everyone'] };
   return { parse: [], roles: [vote.tagRoleId] };
 }
+
+// Newer votes have the tag as its own message right above the vote
+// (`tagMessageId`, owner's choice): that message is never edited, so a click on
+// the vote (which redraws the whole vote in Discord's app) cannot make the tag
+// disappear. Older votes keep the tag inside the vote message.
+const tagInVote = vote => (vote.tagMessageId ? null : voteTag(vote));
+const voteMessageMentions = vote => (vote.tagMessageId ? { parse: [] } : voteMentions(vote));
+
+/**
+ * The option shown under Most votes. On a tie Cloudy picks one of the tied
+ * options at random (owner's choice), stored as `tieWinner` so it never changes.
+ */
+export function voteWinners(vote) {
+  const tied = mostVoted(vote);
+  if (tied.length <= 1) return tied;
+  return [tied.includes(vote.tieWinner) ? vote.tieWinner : tied[0]];
+}
+export const TIE_TEXT = 'The vote ended in a tie, so the bot randomly selected one of the tied options.';
 
 /** The picture an option's Preview button shows, or null. */
 export function votePicture(vote, index) {
@@ -227,11 +245,11 @@ function buildPreviewVoteMessage(vote, parts) {
       .setStyle(ButtonStyle.Secondary));
     for (let start = 0; start < buttons.length; start += 5) rows.push(new ActionRowBuilder().addComponents(buttons.slice(start, start + 5)));
   }
-  const tag = voteTag(vote);
+  const tag = tagInVote(vote);
   return {
     flags: MessageFlags.IsComponentsV2,
     components: [...(tag ? [text(tag)] : []), card, ...rows],
-    allowedMentions: voteMentions(vote),
+    allowedMentions: voteMessageMentions(vote),
   };
 }
 
@@ -248,12 +266,14 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addSectionComponents(titleWithLogo(endedTitle(vote), vote.question));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
-  const winners = mostVoted(vote);
+  const winners = voteWinners(vote);
+  // On a tie the option Cloudy picked, with this sentence under it (owner's choice, literally).
+  const tie = mostVoted(vote).length > 1;
   // Results first, then Most votes with the winner's picture (owner's choice).
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(['**Results**', ...order.map(line)].join('\n')))
     .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes'])].join('\n')));
+    .addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
@@ -294,12 +314,12 @@ export function buildVoteMessage(vote, now = Date.now()) {
   // pictures side by side; a click opens a picture in full size.
   // One picture is simply the embed's picture; several share the gallery URL.
   if (images.length) Object.assign(main, { image: { url: images[0] }, ...(images.length > 1 ? { url: GALLERY_URL } : {}) });
-  const tag = voteTag(vote);
+  const tag = tagInVote(vote);
   return {
     ...(tag ? { content: tag } : {}),
     embeds: [main, ...images.slice(1).map(image => ({ url: GALLERY_URL, image: { url: image } }))],
     components: parts.rows,
-    allowedMentions: voteMentions(vote),
+    allowedMentions: voteMessageMentions(vote),
   };
 }
 
@@ -410,6 +430,12 @@ async function closeVoteMessage(client, guild, vote) {
   if (!message?.edit) return;
   await message.edit(buildVoteMessage(vote)).catch(error => logger.warn('Could not close vote message:', error));
   if (vote.layout !== 'preview') return;
+  // A tie: Cloudy picks one of the tied options at random and keeps it (owner's choice).
+  const tied = mostVoted(vote);
+  if (tied.length > 1 && !tied.includes(vote.tieWinner)) {
+    vote = { ...vote, tieWinner: tied[Math.floor(Math.random() * tied.length)] };
+    await saveVote(client, guild.id, vote).catch(() => {});
+  }
   const files = await resultPictureFiles(client, vote).catch(() => []);
   const result = await message.reply({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
     .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
@@ -460,7 +486,7 @@ export async function deleteVote(client, guild, messageId, { deletedBy = null } 
   });
   if (!vote) return null;
   const channel = guild.channels?.cache?.get?.(vote.channelId);
-  for (const id of [vote.messageId, vote.resultMessageId].filter(Boolean)) {
+  for (const id of [vote.messageId, vote.resultMessageId, vote.tagMessageId].filter(Boolean)) {
     const message = await channel?.messages?.fetch?.(id).catch(() => null);
     if (!message?.delete) continue;
     // The staff member who confirmed Delete is named in the logs.
@@ -488,7 +514,7 @@ export async function endVoteNow(client, guild, messageId, now = Date.now()) {
 
 async function resultPictureFiles(client, vote) {
   const files = [];
-  for (const position of mostVoted(vote)) {
+  for (const position of voteWinners(vote)) {
     const url = votePicture(vote, position);
     const file = await votePreviewFile({
       messageId: vote.messageId, position, url,
