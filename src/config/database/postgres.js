@@ -47,7 +47,7 @@ const validatedTables = Object.fromEntries(
     ])
 );
 
-const DEFAULT_POSTGRES_URL = 'postgresql://localhost:5432/titanbot';
+const DEFAULT_POSTGRES_URL = 'postgresql://localhost:5432/cloudy';
 
 function getPostgresUrl() {
     return (
@@ -68,7 +68,7 @@ function getPgPort() {
 }
 
 function getPgDatabase() {
-    return process.env.POSTGRES_DB || process.env.PGDATABASE || 'titanbot';
+    return process.env.POSTGRES_DB || process.env.PGDATABASE || 'cloudy';
 }
 
 function getPgUser() {

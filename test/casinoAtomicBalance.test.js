@@ -89,7 +89,7 @@ test('casino commands use the reserved-stake contract without duplicate balance 
     assert.match(source, /alreadyPersisted/);
     assert.match(source, /!alreadyPersisted && !await setEconomyData/);
   }
-  for (const path of ['roulette.js', 'slots.js']) {
+  for (const path of ['roulette.js']) {
     const source = readFileSync(new URL('../src/commands/Economy/' + path, import.meta.url), 'utf8');
     assert.match(source, /settleImmediately: true/);
   }

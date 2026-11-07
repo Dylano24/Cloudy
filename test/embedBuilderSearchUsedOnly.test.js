@@ -42,7 +42,7 @@ test('Search shows real posts, notifications and sent replies; never-used code r
   const records = [
     catalogRecord(code[0]),
     catalogRecord(code[1]),
-    catalogRecord(code[2], { manualSaved: true }),
+    catalogRecord(code[2], { manualSaved: true, explicitSave: true }),
     catalogRecord(code[3]),
     catalogRecord({ kind: 'embed', context: 'gambling', title: 'Wrong channel',
       description: 'This command can only be used in the dedicated channel. Please use {dynamic} to play.' }),

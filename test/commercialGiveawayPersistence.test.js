@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
-import { postGiveaway } from '../src/services/giveawayActions.js';
-import reroll from '../src/commands/Giveaway/greroll.js';
-import remove from '../src/commands/Giveaway/gdelete.js';
-import end from '../src/commands/Giveaway/gend.js';
+import { postGiveaway, rerollGiveaway, removeGiveaway, finishGiveaway } from '../src/services/giveawayActions.js';
 
 function fixture({ channel = null, stored = {} } = {}) {
   let logLookups = 0;
@@ -50,7 +47,7 @@ for (const route of ['missing-channel', 'missing-message', 'existing-message']) 
     };
     const f = fixture({ channel, stored: { [giveaway.messageId]: giveaway } });
     let failure;
-    await reroll.execute(f.interaction).catch(error => { failure = error; });
+    await rerollGiveaway(f.client, f.interaction.guild, giveaway.messageId, {rerolledBy: f.interaction.user.id}).catch(error => { failure = error; });
     assert.equal(f.replies.length, 0);
     assert.equal(announcements, 0);
     assert.equal(f.logLookups(), 0);
@@ -61,7 +58,7 @@ for (const route of ['missing-channel', 'missing-message', 'existing-message']) 
 test('giveaway deletion reports failure when its database update is rejected', async () => {
   const giveaway = { messageId: '123456789012345678', channelId: 'target', prize: 'Prize' };
   const f = fixture({ stored: { [giveaway.messageId]: giveaway } });
-  await assert.rejects(remove.execute(f.interaction), /Failed to delete giveaway from database/);
+  await assert.rejects(removeGiveaway(f.client, f.interaction.guild, giveaway.messageId, {deletedBy: f.interaction.user}), /Failed to delete giveaway from database/);
   assert.equal(f.replies.length, 0);
   assert.equal(f.logLookups(), 0);
 });
@@ -85,7 +82,7 @@ for (const rejectedWrite of [1, 2]) {
       return true;
     };
     let failure;
-    await end.execute(f.interaction).catch(error => { failure = error; });
+    await finishGiveaway(f.client, f.interaction.guild, giveaway.messageId, {endedBy: f.interaction.user.id}).catch(error => { failure = error; });
     assert.equal(f.replies.length, 0);
     assert.equal(f.logLookups(), 0);
     assert.equal(edits, rejectedWrite === 1 ? 0 : 1);

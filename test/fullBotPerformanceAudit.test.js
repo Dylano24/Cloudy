@@ -80,11 +80,11 @@ test('manual Builder embeds are never collapsed by history cleanup', async () =>
   assert.equal(records.filter(record => record.source === 'embed-builder').length, 2);
 });
 
-test('expensive gaming catalog inspection is opt-in but orphan cleanup remains automatic', () => {
+test('gaming catalog inspection is opt-in and never overwrites saved registry data', () => {
   const source = fs.readFileSync('src/events/gamingCatalogDiagnosticReady.js', 'utf8');
 
   assert.match(source, /CLOUDY_CATALOG_DIAGNOSTICS/);
-  assert.match(source, /cleanupOrphanCatalogRegistry\(guild\)/);
+  assert.doesNotMatch(source, /setInDb|cleanupOrphanCatalogRegistry/);
   assert.match(source, /if \(!ENABLE_CATALOG_DIAGNOSTICS\) return/);
 });
 

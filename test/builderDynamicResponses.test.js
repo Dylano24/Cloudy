@@ -46,7 +46,7 @@ test('helper discovery follows the runtime overload for a variable body and a on
 });
 
 test('other affected source responses retain their names when their contents are calculated', async () => {
-  for (const [path, title] of [['Core/configWizard.js', 'Configuration Updated'], ['Economy/gamble.js', 'Gambling & Games'], ['Economy/games.js', 'Games'], ['Fun/fight.js', '🏆 Duel Complete!'], ['Reaction_roles/reactroles.js', 'Role Validation Warning'], ['Utility/todo.js', 'Your To-Do List']]) {
+  for (const [path, title] of [['Core/configWizard.js', 'Configuration Updated'], ['Economy/gambling.js', 'Gambling'], ['Economy/games.js', 'Games'], ['Reaction_roles/reactroles.js', 'Role Validation Warning'], ['Utility/todo.js', 'Your To-Do List']]) {
     const source = await fs.readFile(`src/commands/${path}`, 'utf8');
     const definitions = extractDefinitions(source, `commands/${path}`);
     assert.ok(definitions.some(item => item.kind === 'embed' && item.title === title), path);

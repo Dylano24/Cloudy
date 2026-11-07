@@ -367,7 +367,7 @@ function capturePayload(payload, source) {
 
   if (typeof normalized?.content === 'string' && normalized.content.trim()) {
     if (normalized.content.trim() !== SYSTEM_CATALOG_CONTENT) {
-      applyPlainResponseTemplate({ content: normalized.content }, source);
+      applyPlainResponseTemplate({ content: normalized.content }, source, { capture: true });
       captured = true;
     }
   }
