@@ -1,4 +1,4 @@
-import { MessageFlags } from 'discord.js';
+import { ActionRowBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { handleInteractionError } from '../utils/errorHandler.js';
 import { getGuildMusicData } from '../services/music/playerStore.js';
 import {
@@ -18,6 +18,35 @@ async function handleMusicButton(interaction, client) {
     const player = getPlayer(client, interaction.guild.id);
     const guildData = getGuildMusicData(interaction.guild.id);
     const customId = interaction.customId;
+
+    if (customId === MUSIC_BUTTON_IDS.ADD) {
+        if (!player?.current) {
+            return replyUserError(interaction, { type: ErrorTypes.USER_INPUT, message: 'Nothing is playing right now.' });
+        }
+        if (!canControlMusic(interaction.member, player)) {
+            return replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: VOICE_CHANNEL_DENIAL });
+        }
+        // The button must belong to the current editable player message,
+        // not to a stale player panel from an earlier voice session.
+        if (!guildData.playerMessageId
+            || interaction.message?.id !== guildData.playerMessageId) {
+            return replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'This music player is outdated. Use the current player.' });
+        }
+        const modal = new ModalBuilder()
+            .setCustomId(`${MUSIC_BUTTON_IDS.ADD_MODAL}:${guildData.playerMessageId}`)
+            .setTitle('Add to queue')
+            .addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('music_add_query')
+                    .setLabel('Song name')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Song title or artist')
+                    .setMinLength(2)
+                    .setMaxLength(200)
+                    .setRequired(true),
+            ));
+        return interaction.showModal(modal);
+    }
 
     if (customId === MUSIC_BUTTON_IDS.QUEUE) {
         if (!player?.current) {
