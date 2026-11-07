@@ -76,7 +76,7 @@ export function voteWinners(vote) {
   return [tied.includes(vote.tieWinner) ? vote.tieWinner : tied[0]];
 }
 export const TIE_TEXT = 'The result was randomly selected from the most-voted responses due to a tie.';
-// Directly under "The vote has ended!" on every result (owner's choice, literally).
+// On its own line under the how-to of the started card (owner's choice, literally).
 export const TIE_RULE_TEXT = 'In the event of a tie, the outcome will be determined by a random selection among the winning responses.';
 
 /** The picture an option's Preview button shows, or null. */
@@ -269,17 +269,19 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addSectionComponents(titleWithLogo(endedTitle(vote), vote.question, TIE_RULE_TEXT));
+    .addSectionComponents(titleWithLogo(endedTitle(vote), vote.question));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = voteWinners(vote);
+  // The winner: only its number and name, no votes or share (owner's choice).
+  const winnerLine = index => `${numberIcon(index)} **${vote.options[index]}**`;
   // On a tie the option Cloudy picked, with this sentence under it (owner's choice, literally).
   const tie = mostVoted(vote).length > 1;
   // Results first, then Most votes with the winner's picture (owner's choice).
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(['**Results**', ...order.map(line)].join('\n')))
     .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text([tie ? '**Random selection result**' : '**Most votes**', ...(winners.length ? winners.map(line) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
+    .addTextDisplayComponents(text([tie ? '**Random selection result**' : '**Most votes**', ...(winners.length ? winners.map(winnerLine) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
