@@ -14,8 +14,9 @@ const BASE_EMOJIS = {
   ban: { name: 'ban', id: '1567878137059082414', fallback: '<a:ban:1567878137059082414>' },
   kit: { name: 'cloudy_kit', id: '1568298883682009109', fallback: '<a:cloudy_kit:1568298883682009109>' },
   unban: { name: 'unban', id: '1567878123259830384', fallback: '<a:unban:1567878123259830384>' },
-  // Server icon (owner's choice): the owner's own cloudy_hosting_server.
-  server: { name: 'cloudy_hosting_server', id: '1568466956044992522', fallback: '<a:cloudy_hosting_server:1568466956044992522>' },
+  // Server icon (owner's choice): the owner's own cloudy_hosting_server_small;
+// its picture is kept in assets so Cloudy can always upload it.
+  server: { name: 'cloudy_hosting_server_small', id: '1568468995747881030', file: '../../assets/feed-emojis/cloudy_hosting_server_small.gif', fallback: '<a:cloudy_hosting_server_small:1568468995747881030>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
   // Login and Logout (owner's choice): the owner's own on and off emoji, found
   // among the application's emojis by name (the id is not needed), whichever
@@ -108,7 +109,7 @@ for (const [key, file, fallback] of [
 ]) {
   BASE_EMOJIS[key] = { name: key, file: `../../assets/feed-emojis/${file}`, fallback };
 }
-// The server icon in the ban log is the same cloudy_hosting_server (owner's choice).
+// The server icon in the ban log is the same emoji (owner's choice).
 BASE_EMOJIS.ban_server = { ...BASE_EMOJIS.server };
 // The link icon is the owner's own animated `cloudy_link` (owner's choice).
 BASE_EMOJIS.ban_link = { name: 'cloudy_link', id: '1568299107930341608', fallback: '<a:cloudy_link:1568299107930341608>' };
@@ -240,6 +241,9 @@ export async function ensureFeedEmojis(client) {
         if (emoji.crop) image = await cropEmojiImage(image, emoji.crop).catch(() => image);
         if (emoji.unwhite) image = await removeWhiteBackground(image).catch(() => image);
         own = await manager.create({ attachment: image, name: emoji.name });
+        // Another key with the same emoji (the ban log's server icon) reuses it
+        // instead of uploading it a second time, which Discord refuses.
+        existing.set(own.id, own);
         created.push(emoji.name);
       }
       resolved.set(key, markup(own));
