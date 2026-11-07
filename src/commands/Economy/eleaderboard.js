@@ -66,7 +66,7 @@ export async function buildEconomyLeaderboardEmbed(client, guildId, userId) {
         const rank = i + 1;
 
         leaderboardEntries.push(
-            `**#${rank}** <@${user.userId}> - 🏦 ${user.net_worth.toLocaleString()}`,
+            `**#${rank}** <@${user.userId}> - 🏦 ${user.net_worth.toLocaleString('en-US')}`,
         );
     }
 
