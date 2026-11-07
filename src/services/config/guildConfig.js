@@ -152,6 +152,14 @@ export async function warmGuildConfigCache(client, { concurrency = 4 } = {}) {
     return { attempted: count, warmed };
 }
 
+// A separate authorized maintenance process may update the persistent panel
+// configuration while this bot still holds a five-minute local cache.
+// Only callers explicitly requesting a fresh read bypass that cache.
+export async function refreshGuildConfig(client, guildId, context = {}) {
+    const latest = await readLatestGuildConfig(client, guildId, context);
+    return cloneConfig(cacheGuildConfig(guildId, latest));
+}
+
 export const setGuildConfig = wrapServiceBoundary(async function setGuildConfig(client, guildId, config, context = {}) {
     return await enqueueGuildWrite(guildId, async () => {
         const normalized = normalizeCloudyGuildConfig(config);
