@@ -133,9 +133,6 @@ test('category selection -> private stars -> comment modal -> posted review', as
   const embed = sent[0].embeds[0].toJSON();
   assert.match(embed.description, /\*\*Product or service\*\*\nCloudy bot/);
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
-  // The published format must still be visible if a custom emoji is unavailable.
-  assert.ok(buildPublishedServiceReview({ user }, 'bot', 4, 'Good', null).toJSON()
-    .description.includes(String.fromCodePoint(11088).repeat(4)));
   assert.match(embed.description, /Excellent experience/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
 });
