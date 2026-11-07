@@ -566,8 +566,11 @@ function findFeatureChannel(guild, slugs = []) {
 }
 
 function contactUsCatalogChannel(message, embed) {
-    const text = cleanName(systemTemplateSearchText(embed));
-    const contactPanel = /\b(?:contact the staff team|contact staff team|contact us|support & help|get assistance)\b/.test(text);
+    // Route by the template's title or explicit metadata only. A Staff team
+    // template can mention "contact us" in its body without being a contact panel.
+    const data = typeof embed?.toJSON === 'function' ? embed.toJSON() : (embed || {});
+    const title = cleanName(data.title || '');
+    const contactPanel = /\b(?:contact the staff team|contact staff team|contact us|support & help|get assistance)\b/.test(title);
     const context = systemTemplateContext(embed);
     const explicitContext = /^(?:contact-us|contact|support)(?:\/|$)/.test(context);
     if (!contactPanel && !explicitContext) return null;
