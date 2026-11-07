@@ -36,7 +36,7 @@ test.afterEach(() => clearGameFeedQueues());
 
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
-  assert.deepEqual(embeds.map(embed => embed.title.replace(/^<a?:\w+:\d+> /, '')), [
+  assert.deepEqual(embeds.map(embed => embed.title.replace(/^(<a?:\w+:\d+>|⚠️) /, '')), [
     'Kill feed', 'Login', 'Logout', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
@@ -47,6 +47,9 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[1].title, /^<a:cloudy_on:1568309193180581963> Login$/);
   assert.match(embeds[3].title, /^<a:cloudy_kit:1568298883682009109> Kit claimed$/);
   assert.match(embeds[2].title, /^<a:cloudy_off:1568309283261653033> Logout$/);
+  // Raid alert (owner's choice): the owner's warning sign before the title.
+  assert.match(embeds[6].title, /^(<a:cloudy_alert:\d+>|⚠️) Raid alert$/);
+  assert.equal(isGameFeedEmbed(embeds[6]), true);
   assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox\n/);
   assert.match(embeds[2].description, /\*\*Platform:\*\* PlayStation\n/);
