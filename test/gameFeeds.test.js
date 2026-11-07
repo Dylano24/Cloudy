@@ -42,7 +42,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   ]);
   // Player killed (owner's choice): the skull before "Kill feed", labelled lines with the owner's icons; no headshot, distance or streak.
   assert.match(embeds[0].title, /^<a:cloudy_headshot:\d+> Kill feed$/);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* <a:cloudy_killer:\d+> `Dyn`\n\*\*Victim:\*\* <a:cloudy_victim:\d+> `Dylano`\n\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Assault rifle\n\*\*Server:\*\* <a:cloudy_hosting_server:1568466956044992522> Cloudy Rust\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* <a:cloudy_killer:\d+> `Dyn`\n\*\*Victim:\*\* <a:cloudy_victim:\d+> `Dylano`\n\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Assault rifle\n\*\*Server:\*\* <a:cloudy_hosting_server_small:1568468995747881030> Cloudy Rust\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.doesNotMatch(embeds[0].description, /Headshot|Distance|Killstreak|145/, 'no headshot, distance or streak');
   assert.match(embeds[1].title, /^<a:cloudy_on:1568309193180581963> Login$/);
   assert.match(embeds[3].title, /^<a:cloudy_kit:1568298883682009109> Kit claimed$/);
@@ -200,7 +200,7 @@ test('ban log: emoji lines without labels, tags the player and staff, relative t
     discord: '132048835679420418', byDiscord: '155555555555555555', reason: 'Raid in a red zone', expiresAt: 1_900_000_000_000, time: 1_800_000_000_000 }));
   const lines = ban.description.split('\n');
   assert.deepEqual(lines.map(text => text.match(/^<a?:(\w+):\d+>|^\S+/)[1] || 'staff'),
-    ['cloudy_link', 'log_rust', 'log_reason', 'cloudy_hosting_server']);
+    ['cloudy_link', 'log_rust', 'log_reason', 'cloudy_hosting_server_small']);
   assert.deepEqual(lines.map(text => text.replace(/^(?:<a?:\w+:\d+>|\S+) /, '')), [
     '<@132048835679420418>', '`nathanwh3344`', 'Raid in a red zone', 'S1',
   ]);
