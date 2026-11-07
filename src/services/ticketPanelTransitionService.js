@@ -23,6 +23,20 @@ function validateTargets(client, source, target) {
   }
 }
 
+function isKnownFaqToSupportUpgrade(previous, plan, guildId) {
+  if (previous.length !== 1 || plan.length !== 1) return false;
+  const before = previous[0]?.components || [];
+  const after = plan[0]?.components || [];
+  if (previous[0]?.type !== 1 || before.length !== 2 || after.length !== 2) return false;
+  const oldLink = before[1];
+  const newLink = after[1];
+  if (oldLink.type !== 2 || oldLink.style !== 5 || oldLink.label !== 'FAQ'
+    || oldLink.emoji?.name !== '❔'
+    || oldLink.url !== `https://discord.com/channels/${guildId}/${TICKET_FAQ_CHANNEL_ID}`
+    || newLink.label !== 'Support assistant' || newLink.url !== oldLink.url) return false;
+  return sameRows([{type: 1, components: [before[0]]}], [{type: 1, components: [after[0]]}]);
+}
+
 // Explicit maintenance operation, never invoked by startup or history scans.
 // Preview is read-only. Applying edits only message components, then records
 // those same components for Builder and changes only the panel config fields.
@@ -40,7 +54,8 @@ export async function transferTicketPanelControls(client, {source, target}, {app
       ticketFaqChannelId: TICKET_FAQ_CHANNEL_ID};
     const plan = preview(freshSource, freshTarget, config);
     const previous = structuredClone(rowsOf(freshTarget));
-    if (previous.length && !sameRows(previous, plan.components)) {
+    if (previous.length && !sameRows(previous, plan.components)
+      && !isKnownFaqToSupportUpgrade(previous, plan.components, freshTarget.guildId)) {
       throw new Error('The target already has different controls; review them before replacing anything');
     }
     if (sameRows(previous, plan.components) && config.ticketPanelMessageId === freshTarget.id) return plan;
