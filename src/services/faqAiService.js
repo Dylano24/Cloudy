@@ -47,7 +47,7 @@ function buildPanelPayload(client) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(FAQ_AI_BUTTON_ID)
-      .setLabel('Cloudy assistant')
+      .setLabel('Assistant')
       .setEmoji(supportBotEmoji(client))
       .setStyle(ButtonStyle.Secondary)
   );
@@ -105,10 +105,10 @@ async function repairFaqPanelComponents(message, payload, clientUserId) {
     const data = button.toJSON?.() || button;
     // Keep a deliberately customized label/style; replace only its old leading
     // question mark and emoji. The action stays faq_ai_question.
-    const previousLabel = String(button.label || data.label || 'Cloudy assistant')
+    const previousLabel = String(button.label || data.label || 'Assistant')
       .replace(/^[❔❓?]\s*/, '');
     const updated = new ButtonBuilder({...data, custom_id: FAQ_AI_BUTTON_ID})
-      .setLabel(previousLabel === 'Ask a question' ? 'Cloudy assistant' : previousLabel)
+      .setLabel(['Ask a question', 'Cloudy assistant'].includes(previousLabel) ? 'Assistant' : previousLabel)
       .setEmoji(payload.components[0].components[0].data.emoji);
     payload = {components: [new ActionRowBuilder().addComponents(updated)]};
   }
