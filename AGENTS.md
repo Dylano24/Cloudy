@@ -36,6 +36,7 @@ This file is the persistent working context for every Codex session that edits t
 - Add media starts the banner's permanent copy at once (`prefetchDiscordEmbedMedia`); Post/Save reuse that same copy (one download per upload link). Pictures Cloudy cannot store as-is are converted first: iPhone HEIC/HEIF to JPG with `heic-convert` in a worker thread, other formats (AVIF, BMP, TIFF, ...) to PNG with local ffmpeg (`embedMediaImageConvert.js`).
 - After Post/Save of a newly uploaded banner the private preview keeps showing Discord's own upload link (`builderPreviewBanner.js`), so it appears at once; the posted message always uses Cloudy's permanent media link.
 - Every Builder form (title/message, footer, picture, add link, edit button) gets a unique custom id per opening, so a form that was closed and opened again never answers one submit twice.
+- A real Discord message opens in the Builder with only its own content (or a fresher read of that same message): text, fields, footer, picture, logo and colour (`loadRecordSnapshotIntoState`, owner's choice). Cloudy's code copy of a bot embed (`{dynamic}` placeholders, a literal `\u200b`, the code's own field names) and other messages of the same family only fill in bot templates that have no real message; a Save once wrote that code copy into a real welcome message.
 
 ## Staff/Member/AutoMod message logs
 
