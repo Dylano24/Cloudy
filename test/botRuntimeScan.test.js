@@ -107,7 +107,8 @@ test('twenty concurrent player refreshes coalesce into two edits and keep latest
   await Promise.all(requests);
   assert.equal(payloads.length, 2);
   assert.equal(peak, 1);
-  assert.equal(payloads.at(-1).components[0].toJSON().components[0].disabled, true);
+  assert.equal(payloads.at(-1).components[0].toJSON().components[0].custom_id, 'music_resume');
+  assert.equal(payloads.at(-1).components[0].toJSON().components[0].label, 'Resume');
   deleteGuildMusicData(f.guildId);
 });
 
