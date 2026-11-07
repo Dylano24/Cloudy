@@ -8,7 +8,9 @@ import {
     buildPlayerButtonRows,
 } from './musicEmbeds.js';
 
-const UPDATE_INTERVAL_MS = 15 * 1000;
+// One edit every 10 seconds while playing: near-live time without per-second
+// Discord API writes, and still only one editable player message.
+const UPDATE_INTERVAL_MS = 10 * 1000;
 const IDLE_DISCONNECT_MS = 30 * 1000;
 const playerRefreshJobs = new WeakMap();
 
