@@ -60,7 +60,10 @@ test('the audit backup includes original GIF bytes and fails rather than replaci
   assert.equal(saved.media.files[0].path, 'original.gif');
   assert.equal(saved.media.files[0].sha256, '8982b14f155fa2637ea77514f97feb845737cec9920842147d6c0c6fe31da006');
   assert.deepEqual(await readFile(path.join(dir, 'backup', 'media', 'original.gif')), gif);
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    // Windows filesystems do not expose POSIX 0600 permission bits reliably.
+    assert.equal((await stat(file)).mode & 0o777, 0o600);
+  }
   await assert.rejects(save({formatVersion: 1, complete: true, tables: []}, file, {mediaDir}), /exist/i);
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), saved);
 });

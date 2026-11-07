@@ -71,15 +71,15 @@ test('automatic panel presentation cannot replace the shield embed after control
   assert.equal(w.target.edits.length, 0);
 });
 
-test('contact controls keep Start chat and FAQ with a question mark and the corrected channel', t => {
+test('contact controls keep Start chat and the white-bot Support assistant link', t => {
   const w = world(t);
   assert.equal(typeof panels.buildTicketPanelComponents, 'function');
   const rows = panels.buildTicketPanelComponents(w.client, w.guildId, {}, w.old.components).map(row => row.toJSON());
   assert.equal(rows[0].components[0].custom_id, 'create_ticket');
   assert.equal(rows[0].components[0].label, 'Start chat');
   assert.equal(rows[0].components[0].emoji.name, '💬');
-  assert.equal(rows[0].components[1].label, 'FAQ');
-  assert.equal(rows[0].components[1].emoji.name, '❔');
+  assert.equal(rows[0].components[1].label, 'Support assistant');
+  assert.equal(rows[0].components[1].emoji.id, '1800000000000000099');
   assert.equal(rows[0].components[1].url, `https://discord.com/channels/${w.guildId}/1554538586001645679`);
   assert.equal(rows[0].components.length, 2);
 });
@@ -113,7 +113,8 @@ test('explicit transfer keeps the message and full embed intact and records its 
   assert.ok(record, 'the replacement stays editable in the existing Builder');
   assert.deepEqual(record.snapshot.description, before.description);
   assert.equal(record.components[0].components[0].custom_id, 'create_ticket');
-  assert.equal(record.components[0].components[1].label, 'FAQ');
+  assert.equal(record.components[0].components[1].label, 'Support assistant');
+  assert.equal(record.components[0].components[1].emoji.id, '1800000000000000099');
   assert.equal(record.components[0].components.length, 2);
   const editCount = w.target.edits.length;
   await transfer(w.client, {source: w.old, target: w.target}, {apply: true});
