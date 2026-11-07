@@ -87,9 +87,14 @@ test('music guide documents the real slash commands and keeps Cloudy branding', 
     assert.ok(!commands.description.includes(hidden), `${hidden} must be removed from the Commands list`);
   }
   assert.match(commands.description, /\/music leave/);
+  assert.match(commands.description, /\/now playing` — View the song and album cover\./);
+  assert.match(commands.description, /\/music stop` — Stop and clear the queue\./);
+  assert.match(commands.description, /\/music remove` — Remove a song from the queue\./);
   assert.ok(!commands.description.includes('Please note'));
   for (const line of commands.description.split('\n').filter(line => line.includes(' — '))) {
-    assert.ok(line.split(' — ')[1].length <= 15, `Command explanation must stay short: ${line}`);
+    const explanation = line.split(' — ')[1];
+    assert.ok(explanation.length >= 20 && explanation.length <= 42,
+      `Command explanation should be informative but concise: ${line}`);
   }
   assert.equal(commands.footer.text, FOOTER);
   assert.match(guide.description, /\/play/);
