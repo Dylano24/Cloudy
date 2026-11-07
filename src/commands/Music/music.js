@@ -17,12 +17,16 @@ import {
     replyMusicSuccess,
 } from '../../services/music/musicActions.js';
 import { deferMusicCommand } from '../../services/music/prefixSupport.js';
+import { buildMusicGuideEmbed } from '../../services/music/musicEmbeds.js';
 
 export default {
     category: 'Music',
     data: new SlashCommandBuilder()
         .setName('music')
         .setDescription('Manage playback, queue, and voice session settings')
+        .addSubcommand((sub) =>
+            sub.setName('guide').setDescription('How Cloudy music works and which commands to use'),
+        )
         .addSubcommand((sub) =>
             sub.setName('pause').setDescription('Pause playback'),
         )
@@ -105,8 +109,15 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await deferMusicCommand(interaction);
         const subcommand = interaction.options.getSubcommand();
+        if (subcommand === 'guide') {
+            await InteractionHelper.safeDefer(interaction);
+            await InteractionHelper.safeEditReply(interaction, {
+                embeds: [buildMusicGuideEmbed()],
+            });
+            return;
+        }
+        await deferMusicCommand(interaction);
 
         switch (subcommand) {
             case 'pause': {

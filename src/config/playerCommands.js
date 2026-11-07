@@ -21,6 +21,7 @@ const PLAYER_COMMAND_NAMES = [
   'join',
   'music',
   'nowplaying',
+  'now',
   'play',
   'queue',
   'search',
