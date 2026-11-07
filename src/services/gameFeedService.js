@@ -146,7 +146,7 @@ export function buildGameFeedEmbed(event) {
           line('Player', name(event.player)), line('Kit', event.kit), server,
         ], event);
       }
-      return classicEmbed(event.action === 'join' ? `${feedEmoji('login')} LOGIN` : `${feedEmoji('logout')} LOGOUT`,
+      return classicEmbed(event.action === 'join' ? `${feedEmoji('login')} Login` : `${feedEmoji('logout')} Logout`,
         event.action === 'join' ? CLOUDY_GREEN_COLOR : CLOUDY_RED_COLOR, [
           line('Player', name(event.player)),
           event.platform ? line('Platform', feedEmoji(/xbox/i.test(event.platform) ? 'xbox' : 'console')) : null, server,
