@@ -6,7 +6,6 @@ on:
     branches:
       - main
       - master
-      - mitchwork
 
 jobs:
   migration-check:
@@ -16,24 +15,24 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: titanbot
-          POSTGRES_PASSWORD: titanbot
-          POSTGRES_DB: titanbot
+          POSTGRES_USER: cloudy
+          POSTGRES_PASSWORD: cloudy
+          POSTGRES_DB: cloudy
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U titanbot -d titanbot"
+          --health-cmd "pg_isready -U cloudy -d cloudy"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
-      POSTGRES_URL: postgresql://titanbot:titanbot@localhost:5432/titanbot
+      POSTGRES_URL: postgresql://cloudy:cloudy@localhost:5432/cloudy
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
-      POSTGRES_DB: titanbot
-      POSTGRES_USER: titanbot
-      POSTGRES_PASSWORD: titanbot
+      POSTGRES_DB: cloudy
+      POSTGRES_USER: cloudy
+      POSTGRES_PASSWORD: cloudy
       POSTGRES_SSL: "false"
       SCHEMA_VERSION: "1"
       SCHEMA_VERSION_LABEL: "baseline-v1"
@@ -63,7 +62,7 @@ jobs:
         run: node --test test/economyPostgresTransfer.integration.test.js test/economyPostgresDaily.integration.test.js test/economyPostgresRobbery.integration.test.js
 
       - name: Verify focused audit regression tests
-        run: timeout --signal=TERM --kill-after=10s 4m node --test --test-timeout=30000 test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js test/robberyVictimBalancePersistence.test.js test/robCommandAtomic.test.js test/begAndCrimeAtomic.test.js test/fishAndMineAtomic.test.js test/casinoAtomicBalance.test.js test/gambleAndAdminGiveAtomic.test.js test/interactionEditReplyNoErrorMessage.test.js test/levelingLeaderboardConcurrency.test.js test/economyAtomicDailyClaim.test.js test/dailyCommandAtomic.test.js test/workCommandAtomic.test.js test/economyBankMovementsAtomic.test.js test/cloudyLegacyBrandMigration.test.js test/moderationDeliveryLatency.test.js test/appealDeliveryPersistence.test.js test/cleanedCommandImportsSmoke.test.js test/embedBuilderPostCloseLifecycle.test.js
+        run: timeout --signal=TERM --kill-after=10s 4m node --test --test-timeout=30000 test/publicApiRateLimitOrder.test.js test/economyAtomicTransfer.test.js test/massModerationTargets.test.js test/robberyVictimBalancePersistence.test.js test/robCommandAtomic.test.js test/begAndCrimeAtomic.test.js test/casinoAtomicBalance.test.js test/adminGiveAtomic.test.js test/interactionEditReplyNoErrorMessage.test.js test/levelingLeaderboardConcurrency.test.js test/economyAtomicDailyClaim.test.js test/dailyCommandAtomic.test.js test/workCommandAtomic.test.js test/economyBankMovementsAtomic.test.js test/cloudyLegacyBrandMigration.test.js test/moderationDeliveryLatency.test.js test/appealDeliveryPersistence.test.js test/cleanedCommandImportsSmoke.test.js test/embedBuilderPostCloseLifecycle.test.js
 
       - name: Verify Embed Builder registry, Search and Modify regressions
         run: |

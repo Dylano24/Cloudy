@@ -9,6 +9,9 @@ import { discoverEmbedDefinitions } from './embedDefinitionDiscoveryService.js';
 import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
 import { getGuildConfig } from './config/guildConfig.js';
+import { builderCatalogMetadata, builderCatalogFingerprint, classifyBuilderRecord } from './builderCatalogPolicy.js';
+import { builderCatalogFeature } from '../config/builderCatalogManifest.js';
+import retiredCatalogFingerprints from '../config/retiredBuilderCatalogFingerprints.json' with { type: 'json' };
 import {
   CLOUDY_RED_COLOR,
   CLOUDY_GREEN_COLOR,
@@ -61,6 +64,8 @@ const USED_BUILDER_CATALOG_PERSIST_MS = 5_000;
 // Keys of the bot replies found in Cloudy's code (not the fixed notifications,
 // ticket templates or Builder notices, which always stay in Search).
 const codeDiscoveredCatalogKeys = new Set();
+const builderPolicyDefinitions = new Map();
+const fixedBuilderPolicyIdentities = new Set();
 const hiddenBuilderCatalogWrites = new Map();
 const HIDDEN_BUILDER_CATALOG_PREFIX = 'cloudy:embed-builder-hidden-catalog:';
 
@@ -696,39 +701,67 @@ export function markBuilderCatalogUsed(guildId, key) {
   return true;
 }
 
-// Fixed notifications, ticket templates and the Builder's own notices always
-// stay in Search; only the replies found in Cloudy's code are filtered.
-function isAlwaysListedCatalogContext(context) {
-  const value = normalize(context);
-  return isTicketContext(value) || /^ticket-(?:logs|transcripts)(?:\/|$)/.test(value)
-    || /embed-?builder|embed-manager/.test(value);
+export function getBuilderCatalogSourceEvidence(definition = {}) {
+  const entry = definitionToCatalog(normalizeDiscoveredDefinition(definition));
+  return {key: entry.key, context: entry.context, kind: entry.kind,
+    fingerprint: builderCatalogFingerprint(entry.data),
+    sourcePath: definition.sourcePath || (definition.variantId ? 'src/' + definition.variantId.split(':')[0] : '')};
+}
+
+export function shouldSeedBuilderCatalogDefinition(definition, guildId) {
+  const evidence = getBuilderCatalogSourceEvidence(definition);
+  return fixedBuilderPolicyIdentities.has(cacheIdentity(evidence.key, evidence.context))
+    || builderCatalogFeature(evidence).approved
+    || usedBuilderCatalogByGuild.get(String(guildId || ''))?.has(normalize(evidence.key)) === true;
 }
 
 export function rememberCodeDiscoveredCatalogKeys(definitions = []) {
   const fixed = new Set([...DEFAULT_TEMPLATES, TICKET_MAIN_CATALOG_TEMPLATE, ...TICKET_LOG_CATALOG_TEMPLATES]
     .map(entry => normalize(definitionToCatalog(entry).key)));
+  for (const definition of getBuiltInSystemCatalogDefinitions()) {
+    const entry = definitionToCatalog(definition);
+    fixedBuilderPolicyIdentities.add(cacheIdentity(entry.key, entry.context));
+  }
   codeDiscoveredCatalogKeys.clear();
   for (const definition of definitions) {
-    if (normalize(definition?.kind) === 'content' || isAlwaysListedCatalogContext(definition?.context)) continue;
-    const key = normalize(definitionToCatalog(definition).key);
+    const entry = definitionToCatalog(normalizeDiscoveredDefinition(definition));
+    builderPolicyDefinitions.set(cacheIdentity(entry.key, entry.context), {
+      data: entry.data,
+      sourcePath: getBuilderCatalogSourceEvidence(definition).sourcePath,
+    });
+    const key = normalize(entry.key);
     if (key && !fixed.has(key)) codeDiscoveredCatalogKeys.add(key);
   }
+  for (const guildId of searchableCatalogRevisionByGuild.keys()) bumpSearchCatalogRevision(guildId);
   return codeDiscoveredCatalogKeys.size;
 }
 
-/**
- * True for a Search catalog entry that only comes from Cloudy's code and was
- * never sent in this server (owner's choice: Search lists what is used).
- * Unknown (not loaded yet) means false: then Search shows everything.
- */
-export function isUnusedBuilderCatalogRecord(record) {
-  if (String(record?.source || '').toLowerCase() !== 'system-catalog' || record?.manualSaved === true) return false;
-  const used = usedBuilderCatalogByGuild.get(String(record.guildId || ''));
-  if (!used || !codeDiscoveredCatalogKeys.size) return false;
-  const metadata = parseTemplateMetadata(record.snapshot || record.sourceRecord?.snapshot || {});
-  if (!metadata.key || !codeDiscoveredCatalogKeys.has(metadata.key)) return false;
-  if (isAlwaysListedCatalogContext(metadata.context)) return false;
-  return !used.has(metadata.key);
+// One preservation rule for Search, Modify and stale selection resolution.
+// Unknown usage or any unexplained difference remains available for review.
+export function getBuilderRecordPolicy(record, { saved = null } = {}) {
+  const metadata = [record, record?.sourceRecord, record?.previewRecord]
+    .filter(Boolean).map(builderCatalogMetadata).find(value => value.key)
+    || builderCatalogMetadata(record);
+  const identity = cacheIdentity(metadata.key, metadata.context);
+  const frozen = retiredCatalogFingerprints[[metadata.kind, metadata.context, metadata.key].join('|')];
+  const definition = builderPolicyDefinitions.get(identity);
+  const canonical = normalize(saved?.canonicalIdentity);
+  const used = usedBuilderCatalogByGuild.get(String(record?.guildId || ''));
+  const ownerModified = saved?.matched === true && canonical && (
+    canonical === metadata.key || canonical === normalize(record?.canonicalIdentity)
+  );
+  return classifyBuilderRecord(record, {
+    metadata, sourcePath: definition?.sourcePath || frozen?.sourcePath,
+    baselineFingerprints: !saved?.matched ? frozen?.fingerprints : undefined,
+    baseline: saved?.matched === true && !canonical ? null : definition?.data,
+    curated: fixedBuilderPolicyIdentities.has(identity), ownerModified: Boolean(ownerModified),
+    everUsed: used?.has(metadata.key) === true,
+    usageState: used ? 'ready' : 'unknown',
+  });
+}
+
+export function isUnusedBuilderCatalogRecord(record, options = {}) {
+  return getBuilderRecordPolicy(record, options).decision === 'archive';
 }
 
 // Delete in the Builder removes a searchable *response type*, not merely one
@@ -1075,7 +1108,8 @@ export function getBuiltInSystemCatalogCoverage(guildId) {
 }
 
 async function loadCatalogMessages(context) {
-  const storedIds = await getFromDb(storageKey(context.guild.id), []);
+  const storedIds = await getFromDb(storageKey(context.guild.id), [], { strict: true });
+  if (!Array.isArray(storedIds)) throw new Error('Invalid stored Cloudy catalog IDs');
   const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
   if (!ids.length) return [];
 
@@ -1096,7 +1130,7 @@ async function loadCatalogMessages(context) {
     const batch = await context.channel.messages.fetch({
       limit: 100,
       ...(before ? { before } : {}),
-    }).catch(() => null);
+    });
     if (!batch?.size) break;
 
     for (const message of batch.values()) {
@@ -1123,7 +1157,12 @@ async function loadCatalogMessages(context) {
 }
 
 async function saveCatalogIds(guildId, messages) {
-  await setInDb(storageKey(guildId), messages.map(message => message.id));
+  // A history window can omit a still-existing message. Only explicit Delete
+  // may retire stored IDs; startup must never replace the list with a subset.
+  const stored = await getFromDb(storageKey(guildId), [], { strict: true });
+  if (!Array.isArray(stored)) throw new Error('Invalid stored Cloudy catalog IDs');
+  const ids = [...new Set([...stored.map(String), ...messages.map(message => String(message.id))])];
+  if (!(await setInDb(storageKey(guildId), ids))) throw new Error('Could not save Cloudy catalog IDs');
 }
 
 async function registerCatalogMessages(messages) {
@@ -1359,7 +1398,7 @@ async function syncSourceDefinitionEntries(context, messages, sourceDefinitions 
   if (!sourceDefinitions.length) return 0;
   const baselineKey = sourceBaselineStorageKey(context.guild.id);
   const previousBaseline = await getFromDb(baselineKey, {});
-  const nextBaseline = {};
+  const nextBaseline = { ...previousBaseline };
   const claimedLegacy = new Set();
   let changedCount = 0;
 
@@ -1888,7 +1927,7 @@ function contentFromPayload(payload) {
   return typeof payload?.content === 'string' ? payload.content : null;
 }
 
-export function applyPlainResponseTemplate(payload, contextSource = null) {
+export function applyPlainResponseTemplate(payload, contextSource = null, { capture = false } = {}) {
   const content = contentFromPayload(payload);
   if (!content?.trim()) return payload;
 
@@ -1898,6 +1937,7 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
   const signature = responseSignature('content', '', content);
   const stableKey = plainSourceAliases.get(plainSourceAliasIdentity(context, content)) || null;
   const key = stableKey || signature;
+  if (capture && guildId) markBuilderCatalogUsed(guildId, key);
   const template = findTemplate(key, context, guildId) || (stableKey ? findTemplate(signature, context, guildId) : null);
 
   if (!template) {
@@ -1938,7 +1978,10 @@ async function buildSystemEmbedCatalogs(client) {
 
   sourceDefinitionCache.clear();
   sourceDefinitionKeyCache.clear();
-  for (const definition of discoveredDefinitions) rememberSourceDefinition(definition);
+  for (const definition of discoveredDefinitions) {
+    rememberSourceDefinition(definition);
+    registerPlainSourceAlias(definition);
+  }
 
   let totalAdded = 0;
 
@@ -1965,14 +2008,15 @@ async function buildSystemEmbedCatalogs(client) {
     await cleanupSystemCatalogEntries(messages);
     for (const message of messages) rememberCatalogMessage(message);
 
-    const sourceDefinitions = definitions.filter(definition => normalize(definition.kind) === 'content');
+    const admittedDefinitions = definitions.filter(definition => shouldSeedBuilderCatalogDefinition(definition, guild.id));
+    const sourceDefinitions = admittedDefinitions.filter(definition => normalize(definition.kind) === 'content');
     totalAdded += await syncSourceDefinitionEntries(context, messages, sourceDefinitions);
 
     const entries = [
       ...DEFAULT_TEMPLATES.map(definitionToCatalog),
       definitionToCatalog(TICKET_MAIN_CATALOG_TEMPLATE),
       ...TICKET_LOG_CATALOG_TEMPLATES.map(definitionToCatalog),
-      ...definitions.filter(definition => normalize(definition.kind) !== 'content').map(definition =>
+      ...admittedDefinitions.filter(definition => normalize(definition.kind) !== 'content').map(definition =>
         definitionToCatalog(isTicketContext(definition.context) ? { ...definition, key: `source:ticket:${shortHash(`${definition.context}|${canonicalSystemEmbedResponseTitle(definition.title)}`)}` } : definition)),
     ];
 

@@ -384,7 +384,7 @@ test('Search Save is used by the next real Builder deletion response with exact 
   function component(id) {
     const interaction = f.component(id);
     interaction.__cloudyFullResponseCatalogPatched = false;
-    interaction.__titanResponsePatched = false;
+    interaction.__cloudyResponsePatched = false;
     InteractionHelper.patchInteractionResponses(interaction);
     return interaction;
   }

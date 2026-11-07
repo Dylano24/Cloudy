@@ -1,0 +1,117 @@
+{
+  "embed|gambling/fish|embed-type:a25a3530": {
+    "fingerprints": [
+      "778179337d5ca3af011febb1d0ba95152adb0abbc4a5525d930354cd49c9e8b9"
+    ],
+    "sourcePath": "src/commands/Economy/fish.js"
+  },
+  "embed|gambling/gamble|embed-type:d8be0d62": {
+    "fingerprints": [
+      "ed0d5ac148bd5201e69f44e835c86a9e09eed20a9c5803ffa094ba8227b79784"
+    ],
+    "sourcePath": "src/commands/Economy/gamble.js"
+  },
+  "embed|gambling/gamble|embed-type:c126d133": {
+    "fingerprints": [
+      "200871a52b2e0f45d59dd35bda11b64bbfb9786ba5efb76b238ac368579dd30f"
+    ],
+    "sourcePath": "src/commands/Economy/gamble.js"
+  },
+  "embed|gambling/gamble|embed-type:8f8a6c3c": {
+    "fingerprints": [
+      "1f3e109260303213810b53be0c102ea752187423a0229fb6617c1ae7fd5109ce"
+    ],
+    "sourcePath": "src/commands/Economy/gamble.js"
+  },
+  "embed|gambling/gamble|embed-type:f9782c8a": {
+    "fingerprints": [
+      "edd89d7060ba600b06d0f26a7292f8de9462552a4ff483475dd24deb641427bf"
+    ],
+    "sourcePath": "src/commands/Economy/gamble.js"
+  },
+  "embed|gambling/mine|embed-type:a69f4467": {
+    "fingerprints": [
+      "aa2333798d168e27abb1ff3b51c5545e5aebb354f6009e14d2e62b3129cd786e"
+    ],
+    "sourcePath": "src/commands/Economy/mine.js"
+  },
+  "embed|botlog/count|embed-type:47a308b9": {
+    "fingerprints": [
+      "4bbe7cd6c8eca7a7baacba5fd78443fbc205d9424544dbf09c1a9266863d5a83"
+    ],
+    "sourcePath": "src/commands/Fun/count.js"
+  },
+  "embed|botlog/count|embed-type:34a755ca": {
+    "fingerprints": [
+      "9ecaee6d018fbd31fc439a21e1d4a8e19de6d3c1aab8d24fa135d6500a6b1e27"
+    ],
+    "sourcePath": "src/commands/Fun/count.js"
+  },
+  "embed|botlog/count|embed-type:2f60e954": {
+    "fingerprints": [
+      "c475ca1d7d18371a765ed656aeec1df59fbba0ca54b4a5a5d5d3fee43eb48678"
+    ],
+    "sourcePath": "src/commands/Fun/count.js"
+  },
+  "embed|botlog/count|embed-type:6cf79fbf": {
+    "fingerprints": [
+      "974a08b46bc76fdec714b6d10b78912cce4862a72d6f346a3da40dff358e196d",
+      "32f5f515aa3bedccd23e76f0fc4a47be85d109071e21ee83c544f14131f0da13"
+    ],
+    "sourcePath": "src/commands/Fun/count.js"
+  },
+  "embed|botlog/count|embed-type:47be6dde": {
+    "fingerprints": [
+      "37bedec96454d8e5b6c1369be69f6da08b8604898430012ea1aea1daf9e7bf29"
+    ],
+    "sourcePath": "src/commands/Fun/count.js"
+  },
+  "embed|gambling/fight|embed-type:2e82aa30": {
+    "fingerprints": [
+      "80c5b81348da44a63c58ead1ebe50459acd252d98946b30595f96685bda6c4b6"
+    ],
+    "sourcePath": "src/commands/Fun/fight.js"
+  },
+  "embed|gambling/fight|embed-type:d349fcce": {
+    "fingerprints": [
+      "cf6624819acb6ad8c020b77d18d94e6055e76c43d1c4bfe1e0f3863231d90795"
+    ],
+    "sourcePath": "src/commands/Fun/fight.js"
+  },
+  "embed|gambling/fight|embed-type:784c405a": {
+    "fingerprints": [
+      "52616f4433772528db0cf59c50068ce6e1fac80c4532669a05e175292b8b176b"
+    ],
+    "sourcePath": "src/commands/Fun/fight.js"
+  },
+  "embed|gambling/flip|embed-type:9d0fe153": {
+    "fingerprints": [
+      "2178ed7bfb7fef4bb5d1bc3cfe7a82dd9e2f87a4a6080161a3548fb7ba4d14cf"
+    ],
+    "sourcePath": "src/commands/Fun/flip.js"
+  },
+  "embed|gambling/roll|embed-type:ae1f245f": {
+    "fingerprints": [
+      "6d61b1d6865062a2b17609833db2aab5a9ba36438ff60abad27bf4cda4ef4b3c"
+    ],
+    "sourcePath": "src/commands/Fun/roll.js"
+  },
+  "embed|giveaway/gdelete|embed-type:7cf018b7": {
+    "fingerprints": [
+      "d87eda88d8d648acf711f3d9546828baaed291d951ec489716b8f4346272cc8a"
+    ],
+    "sourcePath": "src/commands/Giveaway/gdelete.js"
+  },
+  "embed|giveaway/gend|embed-type:4d1510e8": {
+    "fingerprints": [
+      "119c0baeae747358d070944487d22c600202d9d941fcf97c01e46d10aec7c957"
+    ],
+    "sourcePath": "src/commands/Giveaway/gend.js"
+  },
+  "embed|giveaway/greroll|embed-type:c72e1fc9": {
+    "fingerprints": [
+      "d5422090d7387a3210cb6c85ffc986b00bff9012fdf46f60183478a112833050"
+    ],
+    "sourcePath": "src/commands/Giveaway/greroll.js"
+  }
+}

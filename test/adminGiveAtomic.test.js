@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import gamble from '../src/commands/Economy/gamble.js';
 import giveMoney from '../src/commands/Economy/currency.js';
 import { getInitialEconomyData } from '../src/utils/economy.js';
 
@@ -40,36 +39,6 @@ function fixture(inventory = {}) {
   });
   return { client, interaction, replies, read: () => structuredClone(account), writes: () => writes };
 }
-
-test('two simultaneous /gamble wins grant one reward and consume one clover', async t => {
-  t.mock.method(Math, 'random', () => 0);
-  const f = fixture({ lucky_clover: 1 });
-  const results = await Promise.allSettled([
-    gamble.execute(f.interaction(100), {}, f.client),
-    gamble.execute(f.interaction(100), {}, f.client),
-  ]);
-  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
-  assert.equal(results.filter(r => r.status === 'rejected').length, 1);
-  assert.equal(f.read().wallet, 600);
-  assert.equal(f.read().inventory.lucky_clover, 0);
-  assert.ok(f.read().lastGamble > 0);
-  assert.equal(f.writes(), 1);
-  assert.match(JSON.stringify(f.replies[0]), /You Won/);
-  assert.match(JSON.stringify(f.replies[0]), /Lucky Clover/);
-});
-
-test('failed /gamble loses only one bet and starts cooldown', async t => {
-  t.mock.method(Math, 'random', () => 0.99);
-  const f = fixture({ lucky_charm: 2 });
-  await gamble.execute(f.interaction(100), {}, f.client);
-  assert.equal(f.read().wallet, 400);
-  assert.equal(f.read().inventory.lucky_charm, 1);
-  assert.equal(f.writes(), 1);
-  assert.match(JSON.stringify(f.replies[0]), /You Lost/);
-  await assert.rejects(gamble.execute(f.interaction(100), {}, f.client));
-  assert.equal(f.read().inventory.lucky_charm, 1);
-  assert.equal(f.writes(), 1);
-});
 
 test('two simultaneous /give money me operations add cash without lost updates', async () => {
   const f = fixture();

@@ -55,10 +55,6 @@ export class CloudyError extends Error {
     }
 }
 
-// Backwards-compatible import for existing integrations and third-party modules.
-// Internally Cloudy uses CloudyError; both names refer to the same class.
-export const TitanBotError = CloudyError;
-
 // Discord API error codes that indicate a permission problem rather than a bug.
 const DISCORD_PERMISSION_CODES = new Set([
     50001, // Missing Access
@@ -556,7 +552,6 @@ export function createError(message, type = ErrorTypes.UNKNOWN, userMessage = nu
 export default {
     ErrorTypes,
     CloudyError,
-    TitanBotError,
     categorizeError,
     getUserMessage,
     replyUserError,

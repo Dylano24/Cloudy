@@ -44,13 +44,16 @@ test('event loader executes files from paths containing spaces, # and %', async 
   assert.equal(client.executions, 1);
 });
 
-test('help lists real command modules from paths containing spaces, # and %', async t => {
+test('help uses a loaded command from a path containing spaces, # and %', async t => {
   const fixture = await relocatedModule(t, 'src/handlers/help/helpSelectMenus.js');
   const commands = join(fixture.directory, 'src/commands/Birthday');
   await mkdir(commands, { recursive: true });
   await writeFile(join(commands, 'birthday #percent%.js'),
     "export default { data: { name: 'birthday', description: 'Fixture birthday', options: [] } };\n");
-  const client = { application: { commands: { fetch: async () => new Collection() } } };
+  const commandUrl = pathToFileURL(join(commands, 'birthday #percent%.js'));
+  const { default: command } = await import(commandUrl.href);
+  command.category = 'Birthday';
+  const client = { commands: new Collection([['birthday', command]]), application: { commands: { fetch: async () => new Collection() } } };
   const viewer = { memberPermissions: new PermissionsBitField('Administrator') };
   const all = await fixture.module.createAllCommandsMenu(1, client, viewer);
   assert.match(all.embeds[0].toJSON().fields[0].value, /`\/birthday`/);

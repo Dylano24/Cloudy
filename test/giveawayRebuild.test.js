@@ -22,7 +22,7 @@ import {
 import buttons from '../src/interactions/buttons/giveaway/giveaway.js';
 import timerModal from '../src/interactions/modals/giveawayTimer.js';
 import textModal from '../src/interactions/modals/giveawayText.js';
-import create from '../src/commands/Giveaway/gcreate.js';
+import create from '../src/commands/Giveaway/giveaway.js';
 import { handleGiveawayBuilderInteraction } from '../src/services/giveawayBuilderService.js';
 import { giveawayClaimModalHandler } from '../src/handlers/giveawayButtons.js';
 
@@ -717,10 +717,11 @@ test('the automatic check ends due giveaways once; a removed giveaway message is
   assert.equal((await loadGiveaway(gone.client, GUILD, MESSAGE)).ended, true);
 });
 
-test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, then Post', async () => {
+test('/giveaway create opens the Giveaway Builder: preview, edit forms, tag, channel, then Post', async () => {
   const w = world({});
   const staff = w.interaction('staff', { staff: true });
   const command = Object.assign(staff, { channelId: 'giveaways', guild: { ...w.guild, channels: { ...w.guild.channels, fetch: async id => w.guild.channels.cache.get(id) } } });
+  command.options = {...command.options, getSubcommand: () => 'create'};
   await create.execute(command);
   const builder = command.replies[0];
   assert.equal(builder.flags, 64);
@@ -853,6 +854,7 @@ test('/gcreate opens the Giveaway Builder: preview, edit forms, tag, channel, th
   // Reopening after posting restores the user's authored preview, without
   // restoring the previous role tag or the last giveaway's timer and winners.
   const reopen = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways', guild: command.guild });
+  reopen.options = {...reopen.options, getSubcommand: () => 'create'};
   await create.execute(reopen);
   // A new giveaway must restore the original defaults; previous authored
   // giveaway/claim changes belong only to the already-posted giveaway.
@@ -887,6 +889,7 @@ test('opening a new builder ignores past giveaways and legacy saved templates', 
     channelId: 'giveaways',
     guild: { ...w.guild, channels: { ...w.guild.channels, fetch: async id => w.guild.channels.cache.get(id) } },
   });
+  command.options = {...command.options, getSubcommand: () => 'create'};
   await create.execute(command);
   const [giveaway, winner] = command.replies[0].embeds;
   assert.match(giveaway.description, /\*\*Your prize\*\*/);
@@ -905,9 +908,11 @@ test('opening a new builder ignores past giveaways and legacy saved templates', 
 test('only staff can open the Giveaway Builder; @everyone can be tagged', async () => {
   const w = world({});
   const member = Object.assign(w.interaction('member'), { channelId: 'giveaways' });
+  member.options = {...member.options, getSubcommand: () => 'create'};
   await create.execute(member);
   assert.match(JSON.stringify(json(member.replies[0].embeds[0])), /Only staff/);
   const staff = Object.assign(w.interaction('staff', { staff: true }), { channelId: 'giveaways' });
+  staff.options = {...staff.options, getSubcommand: () => 'create'};
   await create.execute(staff);
   const sessionId = json(staff.replies[0].components[2]).components[0].custom_id.split(':')[2];
   const everyone = Object.assign(w.interaction('staff', { staff: true }), {

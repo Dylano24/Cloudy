@@ -56,12 +56,6 @@ export const commandAliases = {
     'bday': 'birthday',
     'b': 'birthday',
 
-    'flip': 'flip',
-    'coin': 'flip',
-    'roll': 'roll',
-    'dice': 'roll',
-    'fight': 'fight',
-
     'giveaway': 'giveaway',
 
     'ticket': 'ticket',

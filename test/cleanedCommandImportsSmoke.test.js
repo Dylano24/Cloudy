@@ -20,33 +20,12 @@ const commands = [
     "../src/commands/Moderation/purge.js",
     "purge"
   ],
-  [
-    "../src/commands/Giveaway/gcreate.js",
-    "gcreate"
-  ],
-  [
-    "../src/commands/Giveaway/gdelete.js",
-    "gdelete"
-  ],
-  [
-    "../src/commands/Giveaway/gend.js",
-    "gend"
-  ],
-  [
-    "../src/commands/Giveaway/greroll.js",
-    "greroll"
-  ],
-  [
-    "../src/commands/Economy/fish.js",
-    "fish"
-  ],
+  ["../src/commands/Giveaway/giveaway.js", "giveaway"],
+  ["../src/commands/Economy/gambling.js", "gamble"],
+  ["../src/commands/Economy/games.js", "game"],
   [
     "../src/commands/Economy/inventory.js",
     "inventory"
-  ],
-  [
-    "../src/commands/Economy/mine.js",
-    "mine"
   ],
   [
     "../src/commands/Utility/todo.js",

@@ -20,24 +20,24 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: titanbot
-          POSTGRES_PASSWORD: titanbot
-          POSTGRES_DB: titanbot
+          POSTGRES_USER: cloudy
+          POSTGRES_PASSWORD: cloudy
+          POSTGRES_DB: cloudy
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U titanbot -d titanbot"
+          --health-cmd "pg_isready -U cloudy -d cloudy"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
-      POSTGRES_URL: postgresql://titanbot:titanbot@localhost:5432/titanbot
+      POSTGRES_URL: postgresql://cloudy:cloudy@localhost:5432/cloudy
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
-      POSTGRES_DB: titanbot
-      POSTGRES_USER: titanbot
-      POSTGRES_PASSWORD: titanbot
+      POSTGRES_DB: cloudy
+      POSTGRES_USER: cloudy
+      POSTGRES_PASSWORD: cloudy
       POSTGRES_SSL: "false"
       SCHEMA_VERSION: "1"
       SCHEMA_VERSION_LABEL: "baseline-v1"
