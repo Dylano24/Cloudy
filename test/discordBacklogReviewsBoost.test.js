@@ -31,6 +31,7 @@ function mockClient() {
 function addChannel(client, guild, id, extras = {}) {
   const channel = {
     id, guild, guildId: guild.id,
+    name: id === '1554538607233073182' ? '🔹│boost' : '',
     isTextBased: () => true,
     isSendable: () => true,
     messages: { fetch: async () => null },
