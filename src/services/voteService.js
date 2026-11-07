@@ -212,6 +212,8 @@ function buildPreviewVoteMessage(vote, parts) {
     // The owner's own words; one line on an iPhone SE/mini and larger.
     `${dot} Press any number to change your vote.`,
     ...(hasPreview ? [`${dot} Press **Preview** to see the pictures.`] : []),
+    // Its own line without a bullet (owner's choice, literally).
+    TIE_RULE_TEXT,
   ];
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
