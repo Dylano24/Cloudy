@@ -1148,6 +1148,42 @@ function detachMatchingRegistryRecords(guildId, matches) {
     }, () => committedRecords);
 }
 
+/**
+ * Removes stored catalog rows whose Discord message is proven gone (Unknown
+ * Message). A protected row (the owner's saved work) stays as a detached
+ * template instead. Serialized with every other registry write, so a Save at
+ * the same moment is never overwritten by an older list.
+ */
+export async function pruneGoneSystemCatalogRecords(guildId, goneMessageIds, isProtected = () => false) {
+    const gone = new Set([...(goneMessageIds || [])].map(String));
+    const result = { removed: 0, detached: 0 };
+    if (!gone.size) return result;
+    let committedRecords = null;
+    await mutateRegistry(guildId, async () => {
+        const records = cleanStoredRecords(await readStoredRecords(guildId));
+        let changed = false;
+        const next = records.flatMap(record => {
+            if (String(record?.source || '') !== 'system-catalog' || record.detached
+                || !gone.has(String(record.messageId))) return [record];
+            changed = true;
+            if (isProtected(record)) {
+                const detached = normalizeRecord({ ...record, snapshot: getEmbedRegistrySnapshot(record), detached: true });
+                if (detached) {
+                    result.detached += 1;
+                    return [detached];
+                }
+            }
+            result.removed += 1;
+            return [];
+        });
+        if (!changed) return;
+        const sorted = sortRecords(next);
+        if (!await setInDb(registryKey(guildId), sorted)) throw new Error('Registry write failed');
+        committedRecords = sorted;
+    }, () => committedRecords);
+    return result;
+}
+
 export async function removeEmbedRegistryRecord(guildId, channelId, messageId, embedIndex = 0) {
     if (isEmbedRegistryMoveInProgress(guildId, channelId, messageId)) return false;
     return detachMatchingRegistryRecords(guildId, item => (
