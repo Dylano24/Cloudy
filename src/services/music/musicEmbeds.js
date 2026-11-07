@@ -86,30 +86,53 @@ export function buildMusicRequestEmbed(track, { playNow = false, queuePosition =
     });
 }
 
+export const MUSIC_GUIDE_DESCRIPTION =
+    'Listen to music together with Cloudy. Join a voice channel and use `/play` to start a song. ' +
+    'Click the button below to view all available music commands.';
+
 export function buildMusicGuideEmbed() {
     return createEmbed({
         title: 'Cloudy music',
-        description:
-            'Your music. Your queue. Your experience.\n\n' +
-            '**Getting started**\n' +
-            '1. Join a voice channel.\n' +
-            '2. Use `/play` followed by a song name.\n' +
-            '3. Cloudy joins your channel and starts playing.\n' +
-            '4. Add more songs to build your queue.\n\n' +
-            '**Music commands**\n' +
-            '`/play` — Play a song or add it to the queue.\n' +
-            '`/join` — Join your voice channel.\n' +
-            '`/now playing` — Show the current song and album cover.\n' +
-            '`/queue` — View upcoming songs.\n\n' +
-            '**Playback controls**\n' +
-            '`/music pause` · `/music resume` · `/music skip`\n' +
-            '`/music stop` · `/music shuffle` · `/music loop`\n\n' +
-            '**More controls**\n' +
-            '`/music volume` · `/music seek` · `/music clear`\n' +
-            '`/music leave` · `/music 247`\n\n' +
-            '**Please note**\n' +
+        description: MUSIC_GUIDE_DESCRIPTION,
+        color: 'primary',
+        thumbnail: CLOUDY_C_LOGO_URL,
+        footer: CLOUDY_FOOTER,
+    });
+}
+
+export function buildMusicCommandsEmbed() {
+    return createEmbed({
+        title: 'Music commands',
+        description: [
+            '**Getting started**',
+            '`/play query` — Play a song or add it to the queue.',
+            '`/join` — Join your voice channel.',
+            '`/now playing` — See the current song and its album cover.',
+            '`/nowplaying` — Alternative command for Now playing.',
+            '`/queue` — View upcoming tracks.',
+            '',
+            '**Playback controls**',
+            '`/music pause` — Pause the music.',
+            '`/music resume` — Resume playback.',
+            '`/music skip` — Skip to the next track.',
+            '`/music stop` — Stop playback and clear the queue.',
+            '`/music shuffle` — Shuffle upcoming tracks.',
+            '`/music loop` — Repeat a song or the queue.',
+            '',
+            '**Advanced controls**',
+            '`/music volume` — Adjust volume (0–100).',
+            '`/music seek` — Jump to a specific position.',
+            '`/music remove` — Remove a queued song.',
+            '`/music move` — Move a song in the queue.',
+            '`/music clear` — Clear upcoming songs.',
+            '`/music leave` — Disconnect Cloudy.',
+            '`/music 247` — Toggle 24/7 mode.',
+            '`/music guide` — Show the music introduction.',
+            '',
+            '**Please note**',
             'You must be in the same voice channel as Cloudy to control playback. ' +
-            'Search by song name instead of using YouTube links.',
+              'Search by song name instead of using YouTube links.',
+        ].join('\\n').replaceAll('\\n', '\n'),
         color: 'primary',
         thumbnail: CLOUDY_C_LOGO_URL,
         footer: CLOUDY_FOOTER,
