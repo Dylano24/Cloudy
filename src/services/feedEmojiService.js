@@ -96,7 +96,6 @@ BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/v
 // reason; a green reason for an unban) and the server icon, all trimmed and
 // scaled to the same size in assets/feed-emojis so they look equally big.
 for (const [key, file, fallback] of [
-  ['ban_link', 'ban_link.gif', '<a:log_link:1567920525018398803>'],
   ['ban_rust', 'ban_rust.gif', '<a:log_rust:1567920463206678639>'],
   ['ban_reason', 'ban_reason.gif', '<a:log_reason:1567920506928111739>'],
   ['ban_reason_green', 'ban_reason_green.gif', '<a:log_reason:1567920506928111739>'],
@@ -104,6 +103,8 @@ for (const [key, file, fallback] of [
 ]) {
   BASE_EMOJIS[key] = { name: key, file: `../../assets/feed-emojis/${file}`, fallback };
 }
+// The link icon is the owner's own animated `cloudy_link` (owner's choice).
+BASE_EMOJIS.ban_link = { name: 'cloudy_link', id: '1568299107930341608', fallback: '<a:cloudy_link:1568299107930341608>' };
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
