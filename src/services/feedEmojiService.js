@@ -14,7 +14,8 @@ const BASE_EMOJIS = {
   ban: { name: 'ban', id: '1567878137059082414', fallback: '<a:ban:1567878137059082414>' },
   kit: { name: 'cloudy_kit', id: '1568298883682009109', fallback: '<a:cloudy_kit:1568298883682009109>' },
   unban: { name: 'unban', id: '1567878123259830384', fallback: '<a:unban:1567878123259830384>' },
-  server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
+  // Server icon (owner's choice): the owner's own cloudy_hosting_server.
+  server: { name: 'cloudy_hosting_server', id: '1568466956044992522', fallback: '<a:cloudy_hosting_server:1568466956044992522>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
   // Login and Logout (owner's choice): the owner's own on and off emoji, found
   // among the application's emojis by name (the id is not needed), whichever
@@ -104,10 +105,11 @@ for (const [key, file, fallback] of [
   ['ban_rust', 'ban_rust.gif', '<a:log_rust:1567920463206678639>'],
   ['ban_reason', 'ban_reason.gif', '<a:log_reason:1567920506928111739>'],
   ['ban_reason_green', 'ban_reason_green.gif', '<a:log_reason:1567920506928111739>'],
-  ['ban_server', 'ban_server.png', '<a:server_router:1567766741889585203>'],
 ]) {
   BASE_EMOJIS[key] = { name: key, file: `../../assets/feed-emojis/${file}`, fallback };
 }
+// The server icon in the ban log is the same cloudy_hosting_server (owner's choice).
+BASE_EMOJIS.ban_server = { ...BASE_EMOJIS.server };
 // The link icon is the owner's own animated `cloudy_link` (owner's choice).
 BASE_EMOJIS.ban_link = { name: 'cloudy_link', id: '1568299107930341608', fallback: '<a:cloudy_link:1568299107930341608>' };
 // The reason signs a little smaller (owner's choice): the same picture with
