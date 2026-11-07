@@ -132,7 +132,7 @@ export function buildMusicCommandsEmbed() {
             '**Please note**',
             'You must be in the same voice channel as Cloudy to control playback. ' +
               'Search by song name instead of using YouTube links.',
-        ].join('\\n').replaceAll('\\n', '\n'),
+        ].join('\n'),
         color: 'primary',
         thumbnail: CLOUDY_C_LOGO_URL,
         footer: CLOUDY_FOOTER,
