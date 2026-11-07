@@ -19,8 +19,8 @@ const BASE_EMOJIS = {
   // Login and Logout (owner's choice): the owner's own on and off emoji, found
   // among the application's emojis by name (the id is not needed), whichever
   // name it has now. Until it is found the old arrows are shown.
-  login: { name: 'cloudy_on', alsoNamed: ['cloudy_zorp_on'], id: '1568309193180581963', fallbackKey: 'login_arrow', fallback: '<a:cloudy_on:1568309193180581963>' },
-  logout: { name: 'cloudy_off', alsoNamed: ['cloudy_zorp_off'], id: '1568309283261653033', fallbackKey: 'logout_arrow', fallback: '<a:cloudy_off:1568309283261653033>' },
+  login: { name: 'cloudy_on', id: '1568309193180581963', fallbackKey: 'login_arrow', fallback: '<a:cloudy_on:1568309193180581963>' },
+  logout: { name: 'cloudy_off', id: '1568309283261653033', fallbackKey: 'logout_arrow', fallback: '<a:cloudy_off:1568309283261653033>' },
   login_arrow: { name: 'cloudy_arrow_green_v3', crop: '52:72:38:24', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
   logout_arrow: { name: 'cloudy_arrow_red_v3', crop: '52:72:38:24', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
@@ -35,8 +35,11 @@ const BASE_EMOJIS = {
   kill_victim: { name: 'cloudy_victim', id: '1568299277766238273', fallback: '<a:cloudy_victim:1568299277766238273>' },
   kill_weapon: { name: 'cloudy_rifle', id: '1568299289984106526', fallback: '<a:cloudy_rifle:1568299289984106526>' },
   kill_skull: { name: 'cloudy_headshot', id: '1568299328450207764', fallback: '<a:cloudy_headshot:1568299328450207764>' },
-  on: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
-  off: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
+  // ZORP on/off (owner's choice): the owner's own cloudy_zorp_on / cloudy_zorp_off.
+  on: { name: 'cloudy_zorp_on', id: '1568458840775729264', fallbackKey: 'on_swipe', fallback: '<a:cloudy_zorp_on:1568458840775729264>' },
+  off: { name: 'cloudy_zorp_off', id: '1568458812761833632', fallbackKey: 'off_swipe', fallback: '<a:cloudy_zorp_off:1568458812761833632>' },
+  on_swipe: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
+  off_swipe: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
 };
 
 // Rust weapon emojis (owner's choice): shown after "Weapon:" / "Used:" for the
