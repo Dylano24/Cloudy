@@ -33,6 +33,7 @@ import {
     ensureHiddenBuilderCatalogLoaded,
     isSystemCatalogHiddenFromBuilder,
     isBuilderSearchTitleHiddenFromBuilder,
+    isUnusedBuilderCatalogRecord,
     getSearchableSystemCatalogRecords,
     getSearchableSystemCatalogRevision,
     getSystemSourceDefinitionPreview,
@@ -869,7 +870,36 @@ function mergeSearchRecords(guildId, registryRecords) {
             unique.set(key, record);
         }
     }
-    return [...unique.values()];
+    const merged = [...unique.values()];
+    const postedTitles = new Set(merged.filter(isPostedSearchRecord)
+        .map(record => searchUsageTitle(record.snapshot?.title || record.title)).filter(Boolean));
+    return merged.filter(record => !isUnusedBuilderSearchRecord(record, postedTitles));
+}
+
+// Search lists only what is really used (owner's choice): a bot reply found in
+// Cloudy's code appears once Cloudy has sent it in this server, once it was
+// saved in the Builder, or when a real message of it is posted in the server.
+// Real posts, fixed notifications, ticket templates and the Builder's own
+// notices always stay.
+function isPostedSearchRecord(record) {
+    const source = String(record?.source || '').toLowerCase();
+    return Boolean(record) && !record.detached && !['system-catalog', 'runtime-preview'].includes(source)
+        && Boolean(record.messageId) && !String(record.messageId).startsWith('draft-');
+}
+
+// Generic status titles say nothing about which reply was sent.
+const GENERIC_USAGE_TITLES = /^(?:success|error|warning|information|info|invalid|invalid input|failed|expired|done|saved|updated|not enough)$/;
+function searchUsageTitle(value) {
+    const title = normalize(value);
+    return title && !GENERIC_USAGE_TITLES.test(title) ? title : '';
+}
+
+function isUnusedBuilderSearchRecord(record, postedTitles = new Set()) {
+    if (!isUnusedBuilderCatalogRecord(record)) return false;
+    if (isPostedSearchRecord(record.previewRecord)) return false;
+    const title = searchUsageTitle(record.snapshot?.title || record.title);
+    if (title && postedTitles.has(title)) return false;
+    return !savedSearchSnapshot(record).matched;
 }
 
 function isInternalSearchRecord(record) {
