@@ -48,8 +48,8 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[3].title, /^<a:cloudy_kit:1568298883682009109> Kit claimed$/);
   assert.match(embeds[2].title, /^<a:cloudy_off:1568309283261653033> Logout$/);
   assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
-  assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
-  assert.match(embeds[2].description, /\*\*Platform:\*\* <:\w*console\w*:\d+>\n/);
+  assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* Xbox\n/);
+  assert.match(embeds[2].description, /\*\*Platform:\*\* PlayStation\n/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
   assert.match(embeds[9].description, /^\*\*Darkzone South\*\* has just wiped!\n\n<:W87205667glowingdotwhite:\d+> \*\*Wipe:\*\* Map wipe\n<:W87205667glowingdotwhite:\d+> \*\*Map:\*\* Procedural 4000\n\n\*\*How to play on this server\?\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> Open the community tab in Rust\n<:W87205667glowingdotwhite:\d+> Search for `Darkzone South`\n\n\*\*Current wipe\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> \*\*Start:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*End:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*Time:\*\*/);
