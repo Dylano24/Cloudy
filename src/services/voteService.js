@@ -75,7 +75,9 @@ export function voteWinners(vote) {
   if (tied.length <= 1) return tied;
   return [tied.includes(vote.tieWinner) ? vote.tieWinner : tied[0]];
 }
-export const TIE_TEXT = 'The vote ended in a tie, so the bot randomly selected one of the tied options.';
+export const TIE_TEXT = 'The result was randomly selected from the most-voted responses due to a tie.';
+// Directly under "The vote has ended!" on every result (owner's choice, literally).
+export const TIE_RULE_TEXT = 'In the event of a tie, the outcome will be determined by a random selection among the winning responses.';
 
 /** The picture an option's Preview button shows, or null. */
 export function votePicture(vote, index) {
@@ -183,13 +185,14 @@ function voteParts(vote, now) {
 // A little more room between sections (owner's choice): an empty separator.
 const sectionGap = () => new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
 // The titles (owner's choice): "The vote has started" and "The vote has ended".
-const startedTitle = vote => vote.title || 'The vote has started';
-const endedTitle = vote => (vote.title ? `${vote.title} ended` : 'The vote has ended');
+const startedTitle = vote => vote.title || 'The vote has started!';
+const endedTitle = vote => (vote.title ? `${vote.title} ended` : 'The vote has ended!');
 // The title and the question with the Cloudy logo beside them (owner's choice),
 // on "Vote started" and "Vote ended" alike.
-const titleWithLogo = (title, question) => new SectionBuilder()
+const titleWithLogo = (title, question, note = null) => new SectionBuilder()
   .addTextDisplayComponents(
     new TextDisplayBuilder().setContent(`### ${title}`),
+    ...(note ? [new TextDisplayBuilder().setContent(note)] : []),
     new TextDisplayBuilder().setContent(`**Question**\n${question}`))
   .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL));
 
@@ -263,7 +266,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
-    .addSectionComponents(titleWithLogo(endedTitle(vote), vote.question));
+    .addSectionComponents(titleWithLogo(endedTitle(vote), vote.question, TIE_RULE_TEXT));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
   const winners = voteWinners(vote);
@@ -273,7 +276,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(['**Results**', ...order.map(line)].join('\n')))
     .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
+    .addTextDisplayComponents(text([tie ? '**Random selection result**' : '**Most votes**', ...(winners.length ? winners.map(line) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
@@ -285,12 +288,12 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addTextDisplayComponents(text(`**Vote ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
   card.addSeparatorComponents(sectionGap())
     .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
-  // The role tagged on the vote is tagged on its result too (owner's choice).
-  const tag = voteTag(vote);
+  // The role tag is its own message above the result (owner's choice, as on
+  // the start), so Discord highlights only the tag and not the result.
   return {
     flags: MessageFlags.IsComponentsV2,
-    components: [...(tag ? [text(tag)] : []), card],
-    allowedMentions: voteMentions(vote),
+    components: [card],
+    allowedMentions: { parse: [] },
   };
 }
 
@@ -437,7 +440,15 @@ async function closeVoteMessage(client, guild, vote) {
     await saveVote(client, guild.id, vote).catch(() => {});
   }
   const files = await resultPictureFiles(client, vote).catch(() => []);
-  const result = await message.reply({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
+  // The role tagged on the vote is tagged on its result too (owner's choice):
+  // its own message, the reply to the vote, with the result right under it.
+  // It is never removed by Cloudy (owner's choice).
+  const tag = voteTag(vote);
+  const tagMessage = tag
+    ? await message.reply({ content: tag, allowedMentions: voteMentions(vote) })
+      .catch(error => { logger.warn('Could not tag the vote result:', error); return null; })
+    : null;
+  const result = await (tagMessage ? channel.send.bind(channel) : message.reply.bind(message))({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
     .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
   if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
 }
