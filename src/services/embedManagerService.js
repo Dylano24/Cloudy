@@ -1,6 +1,6 @@
 // CLOUDY_INTERACTION_LATENCY_V1
 // BUILDER_SAVED_PARITY_V1
-import { isSystemCatalogHiddenFromBuilder } from './systemEmbedCatalogService.js';
+import { isSystemCatalogHiddenFromBuilder, isUnusedBuilderCatalogRecord, ensureHiddenBuilderCatalogLoaded } from './systemEmbedCatalogService.js';
 import { acquireEmbedBuilderMessageMutation } from './embedBuilderMutationLock.js';
 import { embedMediaStorageEnabled, storeEmbedMediaBuffer, storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
 import { rememberPreviewBanner } from '../utils/builderPreviewBanner.js';
@@ -791,6 +791,9 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
 // Physical catalog records remain the Save target; runtime records supply examples.
 export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, { perChannel = false } = {}) {
     let records = suppliedRecords || await getEmbedRegistry(guild.id);
+    if (records.some(record => record.source === 'system-catalog')) {
+        await ensureHiddenBuilderCatalogLoaded(guild.id).catch(() => null);
+    }
     if (String(guild.id) === '1532882647838228723'
         && !records.some(record => String(record.messageId) === '1554543233047199787')) {
         const channel = guild.channels.cache.get('1554538634898710654');
@@ -813,6 +816,7 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         if (isRetiredGamblingEmbed(raw)) continue;
         const isOwnerPost = record.source === 'embed-builder' && record.manualSaved === true;
         const saved = isOwnerPost ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, record.channelId, raw);
+        if (isUnusedBuilderCatalogRecord(record, { saved })) continue;
         const identity = isOwnerPost
             ? `owner:${record.backingChannelId || record.channelId}:${record.messageId}:${record.embedIndex || 0}`
             : (balanceResponseIdentity(raw) || saved.canonicalIdentity || templateIdentity(record.channelId, raw));
@@ -1102,6 +1106,8 @@ export function loadRecordSnapshotIntoState(
 ) {
     const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
+    const saved = getCachedSavedEmbedTemplateData(record.guildId, record.channelId, snapshot);
+    if (isUnusedBuilderCatalogRecord(record, { saved })) return false;
 
     // Manually posted physical embeds own their exact existing logo asset.
     // Global branding migration applies to Cloudy-generated templates, not
@@ -1591,6 +1597,8 @@ export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true }
     if (!record?.messageId) return false;
     if (isRecentlyPurgedMessage(record)) return false;
     if (isSystemCatalogHiddenFromBuilder(record)) return false;
+    const saved = getCachedSavedEmbedTemplateData(record.guildId, record.channelId, record.snapshot || {});
+    if (isUnusedBuilderCatalogRecord(record, { saved })) return false;
 
     const source = String(record.source || '').toLowerCase();
     if (record.detached && source !== 'embed-builder') return false;
@@ -1706,6 +1714,9 @@ async function loadCurrentRegistry(guild, botUserId) {
     // registry resolves every stored Discord message and grows linearly with the
     // catalog. Only bootstrap from Discord when the registry is genuinely empty.
     const records = await getEmbedRegistry(guild.id);
+    if (records.some(record => record.source === 'system-catalog')) {
+        await ensureHiddenBuilderCatalogLoaded(guild.id).catch(() => null);
+    }
     if (records.length) return records;
 
     await refreshRecentEmbedHistory(guild, botUserId, true);

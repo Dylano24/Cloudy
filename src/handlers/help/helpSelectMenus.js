@@ -1,16 +1,9 @@
 import { createEmbed } from '../../utils/embeds.js';
 import { createButton, getPaginationRow } from '../../utils/components.js';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
-import { Collection, ActionRowBuilder, PermissionFlagsBits } from 'discord.js';
+import { Collection, ActionRowBuilder } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { handleInteractionError } from '../../utils/errorHandler.js';
-import { isPlayerCommand } from '../../config/playerCommands.js';
-import { isBotOwner } from '../../config/bot.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { canSeeAllHelpCommands as canSeeAllCommands, getVisibleHelpCommands } from '../../services/helpCommandService.js';
 
 const BACK_BUTTON_ID = "help-back-to-main";
 const ALL_COMMANDS_ID = "help-all-commands";
@@ -43,13 +36,6 @@ const CATEGORY_ICONS = {
     Verification: "✅",
     Config: "⚙️",
 };
-
-function canSeeAllCommands(interaction) {
-    return Boolean(
-        isBotOwner(interaction?.user?.id) ||
-        interaction?.memberPermissions?.has(PermissionFlagsBits.Administrator)
-    );
-}
 
 function formatCategoryName(rawCategory) {
     return rawCategory
@@ -131,24 +117,28 @@ function normalizeCommandData(command) {
     };
 }
 
-async function getRegisteredCommands(client) {
-    const cached = registeredCommandCache.get(client);
+async function getRegisteredCommands(client, interaction) {
+    const scope = String(interaction?.guildId || 'global');
+    const scopes = registeredCommandCache.get(client) || new Map();
+    const cached = scopes.get(scope);
     if (cached?.expiresAt > Date.now()) {
         return cached.commands;
     }
 
     const registeredCommands = new Collection();
     try {
-        if (client?.application?.commands?.fetch) {
-            const commands = await client.application.commands.fetch();
+        const manager = interaction?.guild?.commands || client?.application?.commands;
+        if (manager?.fetch) {
+            const commands = await manager.fetch();
             for (const cmd of commands.values()) {
                 registeredCommands.set(cmd.name, cmd);
             }
         }
-        registeredCommandCache.set(client, {
+        scopes.set(scope, {
             commands: registeredCommands,
             expiresAt: Date.now() + REGISTERED_COMMAND_CACHE_TTL_MS,
         });
+        registeredCommandCache.set(client, scopes);
     } catch (error) {
         logger.error('Error fetching registered commands:', error);
     }
@@ -162,38 +152,13 @@ async function createCategoryCommandsMenu(category, client, interaction = null) 
 
     const categoryCommands = [];
 
-    try {
-        const categoryPath = path.join(__dirname, "../../commands", category);
-        const commandFiles = (await fs.readdir(categoryPath))
-            .filter((file) => file.endsWith(".js"))
-            .sort();
-
-        for (const file of commandFiles) {
-            const filePath = path.join(categoryPath, file);
-            const commandModule = await import(pathToFileURL(filePath).href);
-            const command = commandModule.default;
-            const commandData = normalizeCommandData(command);
-
-            if (commandData && (canSeeAllCommands(interaction) || isPlayerCommand(commandData.name))) {
-                if (
-                    commandData.name === "help" ||
-                    commandData.name === "commandlist"
-                )
-                    continue;
-
-                categoryCommands.push(...buildHelpEntries(command, categoryName));
-            }
-        }
-    } catch (error) {
-        logger.error(
-            `Error reading commands from category ${category}:`,
-            error,
-        );
+    for (const entry of getVisibleHelpCommands(client, interaction)) {
+        if (entry.category === category) categoryCommands.push(...buildHelpEntries(entry.command, categoryName));
     }
 
     categoryCommands.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    const registeredCommands = await getRegisteredCommands(client);
+    const registeredCommands = await getRegisteredCommands(client, interaction);
 
     const embed = createEmbed({
         title: `${icon} ${categoryName} Commands`,
@@ -268,56 +233,15 @@ export async function createAllCommandsMenu(page = 1, client, interaction = null
     const commandsPerPage = 45;
     const allCommands = [];
 
-    const commandsPath = path.join(__dirname, "../../commands");
-    const categoryDirs = (
-        await fs.readdir(commandsPath, { withFileTypes: true })
-    )
-        .filter((dirent) => dirent.isDirectory() && dirent.name !== 'Leveling')
-        .map((dirent) => dirent.name)
-        .sort();
-
-    for (const category of categoryDirs) {
-        try {
-            const categoryPath = path.join(
-                __dirname,
-                "../../commands",
-                category,
-            );
-            const commandFiles = (await fs.readdir(categoryPath))
-                .filter((file) => file.endsWith(".js"))
-                .sort();
-
-            for (const file of commandFiles) {
-                const filePath = path.join(categoryPath, file);
-                const commandModule = await import(pathToFileURL(filePath).href);
-                const command = commandModule.default;
-                const commandData = normalizeCommandData(command);
-
-                if (commandData && (canSeeAllCommands(interaction) || isPlayerCommand(commandData.name))) {
-                    if (
-                        commandData.name === "help" ||
-                        commandData.name === "commandlist"
-                    )
-                        continue;
-
-                    const categoryName = formatCategoryName(category);
-
-                    allCommands.push(...buildHelpEntries(command, categoryName));
-                }
-            }
-        } catch (error) {
-            logger.error(
-                `Error reading commands from category ${category}:`,
-                error,
-            );
-        }
+    for (const entry of getVisibleHelpCommands(client, interaction)) {
+        allCommands.push(...buildHelpEntries(entry.command, formatCategoryName(entry.category)));
     }
 
     allCommands.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    const registeredCommands = await getRegisteredCommands(client);
+    const registeredCommands = await getRegisteredCommands(client, interaction);
 
-    const totalPages = Math.ceil(allCommands.length / commandsPerPage);
+    const totalPages = Math.max(1, Math.ceil(allCommands.length / commandsPerPage));
     const startIndex = (page - 1) * commandsPerPage;
     const endIndex = startIndex + commandsPerPage;
     const pageCommands = allCommands.slice(startIndex, endIndex);
