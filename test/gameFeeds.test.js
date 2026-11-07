@@ -44,6 +44,8 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[0].title, /^<a:cloudy_headshot:\d+> Kill feed$/);
   assert.match(embeds[0].description, /^\*\*Killer:\*\* <a:cloudy_killer:\d+> `Dyn`\n\*\*Victim:\*\* <a:cloudy_victim:\d+> `Dylano`\n\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Assault rifle\n\*\*Server:\*\* <a?:server_router:\d+> Darkzone South\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.doesNotMatch(embeds[0].description, /Headshot|Distance|Killstreak|145/, 'no headshot, distance or streak');
+  assert.match(embeds[1].title, /^<a:cloudy_on:1568309193180581963> Login$/);
+  assert.match(embeds[2].title, /^<a:cloudy_off:1568309283261653033> Logout$/);
   assert.equal(isGameFeedEmbed(embeds[0]), true, 'still skipped by every response-template layer');
   assert.match(embeds[1].description, /^\*\*Player:\*\* `Dylano`\n\*\*Platform:\*\* <:whitexboxlogominimal:\d+>\n/);
   assert.match(embeds[2].description, /\*\*Platform:\*\* <:\w*console\w*:\d+>\n/);
