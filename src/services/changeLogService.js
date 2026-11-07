@@ -17,7 +17,7 @@ export function changeLogModal() {
     .setCustomId(CHANGE_LOG_MODAL_ID)
     .setTitle('Change log')
     .addComponents(
-      input('server', 'Server', TextInputStyle.Short, { placeholder: 'Server 1 Rust', max: 60 }),
+      input('server', 'Server', TextInputStyle.Short, { placeholder: 'Cloudy Rust', max: 60 }),
       input('changes', 'Changes (one per line)', TextInputStyle.Paragraph, { placeholder: 'Gather rate set to 2x', max: 3000 }),
       input('note', 'Note', TextInputStyle.Paragraph, { placeholder: 'Optional', required: false, max: 500 }),
     );

@@ -246,16 +246,16 @@ export function enrichGameFeedEvent(event) {
 
 // Example events, used by /gamefeed preview.
 export const SAMPLE_GAME_FEED_EVENTS = Object.freeze([
-  { type: 'pvp', server: 'Darkzone South', killer: 'Dyn', victim: 'Dylano', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
-  { type: 'player', server: 'Darkzone South', action: 'join', player: 'Dylano', platform: 'Xbox Series' },
-  { type: 'player', server: 'Darkzone South', action: 'leave', player: 'Dyn', platform: 'PlayStation 5' },
-  { type: 'player', server: 'Darkzone South', action: 'kit', player: 'Cloudy', kit: 'Full Kit AK' },
-  { type: 'zorp', server: 'Darkzone South', state: 'on', player: 'Dyn' },
-  { type: 'zorp', server: 'Darkzone South', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
-  { type: 'raid', server: 'Darkzone South', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
-  { type: 'ban', server: 'Darkzone South', action: 'ban', player: 'Dyn', reason: 'Exploit', by: 'Dylano', expiresAt: Date.now() + 3 * 86_400_000 },
-  { type: 'ban', server: 'Darkzone South', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted', by: 'Dylano', bannedAt: Date.now() - 4 * 86_400_000 },
-  { type: 'wipe', server: 'Darkzone South', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
+  { type: 'pvp', server: 'Cloudy Rust', killer: 'Dyn', victim: 'Dylano', weapon: 'Assault rifle', distance: 145, headshot: true, streak: 3 },
+  { type: 'player', server: 'Cloudy Rust', action: 'join', player: 'Dylano', platform: 'Xbox Series' },
+  { type: 'player', server: 'Cloudy Rust', action: 'leave', player: 'Dyn', platform: 'PlayStation 5' },
+  { type: 'player', server: 'Cloudy Rust', action: 'kit', player: 'Cloudy', kit: 'Full Kit AK' },
+  { type: 'zorp', server: 'Cloudy Rust', state: 'on', player: 'Dyn' },
+  { type: 'zorp', server: 'Cloudy Rust', state: 'off', player: 'Dyn', protectedFor: 8_040_000 },
+  { type: 'raid', server: 'Cloudy Rust', attacker: 'Dylano', target: 'Dyn', item: 'Rocket' },
+  { type: 'ban', server: 'Cloudy Rust', action: 'ban', player: 'Dyn', reason: 'Exploit', by: 'Dylano', expiresAt: Date.now() + 3 * 86_400_000 },
+  { type: 'ban', server: 'Cloudy Rust', action: 'unban', player: 'Cloudy', reason: 'Appeal accepted', by: 'Dylano', bannedAt: Date.now() - 4 * 86_400_000 },
+  { type: 'wipe', server: 'Cloudy Rust', state: 'done', kind: 'map', map: 'Procedural 4000', next: Date.now() + 7 * 86_400_000 },
 ]);
 
 // Embeds go out per channel in batches (up to 10 per message), so a busy

@@ -42,7 +42,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   ]);
   // Player killed (owner's choice): the skull before "Kill feed", labelled lines with the owner's icons; no headshot, distance or streak.
   assert.match(embeds[0].title, /^<a:cloudy_headshot:\d+> Kill feed$/);
-  assert.match(embeds[0].description, /^\*\*Killer:\*\* <a:cloudy_killer:\d+> `Dyn`\n\*\*Victim:\*\* <a:cloudy_victim:\d+> `Dylano`\n\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Assault rifle\n\*\*Server:\*\* <a?:server_router:\d+> Darkzone South\n\*\*Time:\*\* <t:\d+:f>$/);
+  assert.match(embeds[0].description, /^\*\*Killer:\*\* <a:cloudy_killer:\d+> `Dyn`\n\*\*Victim:\*\* <a:cloudy_victim:\d+> `Dylano`\n\*\*Weapon:\*\* <a:cloudy_rifle:\d+> Assault rifle\n\*\*Server:\*\* <a?:server_router:\d+> Cloudy Rust\n\*\*Time:\*\* <t:\d+:f>$/);
   assert.doesNotMatch(embeds[0].description, /Headshot|Distance|Killstreak|145/, 'no headshot, distance or streak');
   assert.match(embeds[1].title, /^<a:cloudy_on:1568309193180581963> Login$/);
   assert.match(embeds[3].title, /^<a:cloudy_kit:1568298883682009109> Kit claimed$/);
@@ -52,7 +52,7 @@ test('classic feed embeds with names in code, big logo, footer with small logo a
   assert.match(embeds[2].description, /\*\*Platform:\*\* PlayStation\n/);
   assert.match(embeds[3].description, /\*\*Kit:\*\* Full Kit AK/);
   assert.match(embeds[5].description, /\*\*Protected for:\*\* 2h 14m/);
-  assert.match(embeds[9].description, /^\*\*Darkzone South\*\* has just wiped!\n\n<:W87205667glowingdotwhite:\d+> \*\*Wipe:\*\* Map wipe\n<:W87205667glowingdotwhite:\d+> \*\*Map:\*\* Procedural 4000\n\n\*\*How to play on this server\?\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> Open the community tab in Rust\n<:W87205667glowingdotwhite:\d+> Search for `Darkzone South`\n\n\*\*Current wipe\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> \*\*Start:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*End:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*Time:\*\*/);
+  assert.match(embeds[9].description, /^\*\*Cloudy Rust\*\* has just wiped!\n\n<:W87205667glowingdotwhite:\d+> \*\*Wipe:\*\* Map wipe\n<:W87205667glowingdotwhite:\d+> \*\*Map:\*\* Procedural 4000\n\n\*\*How to play on this server\?\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> Open the community tab in Rust\n<:W87205667glowingdotwhite:\d+> Search for `Cloudy Rust`\n\n\*\*Current wipe\*\*\n-# \u200b\n<:W87205667glowingdotwhite:\d+> \*\*Start:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*End:\*\* <t:\d+:s>\n<:W87205667glowingdotwhite:\d+> \*\*Time:\*\*/);
   for (const embed of embeds) {
     assert.equal(embed.thumbnail.url, CLOUDY_C_LOGO_URL);
     assert.deepEqual(embed.footer, { text: CLOUDY_FOOTER });
