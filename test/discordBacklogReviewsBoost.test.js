@@ -5,7 +5,6 @@ import { Collection, MessageFlags } from 'discord.js';
 import {
   SERVICE_REVIEW_TYPES, SERVICE_REVIEW_PANEL_TITLE, SERVICE_REVIEW_SELECT_ID,
   serviceReviewChoiceRow, serviceReviewRatingRow, serviceReviewModal,
-  buildPublishedServiceReview,
 } from '../src/services/serviceReviewsService.js';
 import serviceReviewInteraction from '../src/events/serviceReviewsInteraction.js';
 import { reconcileServiceReviewsPanel } from '../src/events/serviceReviewsReady.js';
