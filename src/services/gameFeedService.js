@@ -132,13 +132,12 @@ export function buildGameFeedEmbed(event) {
   const serverIcon = line('Server', event.server, 'server');
   switch (event.type) {
     case 'pvp':
-      // Player killed (owner's choice): title "Kill feed", labelled lines with
-      // the owner's animated icons; no distance and no streak.
-      return classicEmbed('Kill feed', CLOUDY_RED_COLOR, [
+      // Player killed (owner's choice): the skull before the title "Kill feed",
+      // labelled lines with the owner's animated icons; no headshot, distance or streak.
+      return classicEmbed(`${feedEmoji('kill_skull')} Kill feed`, CLOUDY_RED_COLOR, [
         line('Killer', name(event.killer), 'kill_killer'),
         line('Victim', name(event.victim), 'kill_victim'),
         line('Weapon', event.weapon, 'kill_weapon'),
-        event.headshot ? line('Headshot', feedEmoji('kill_skull')) : null,
         line('Server', event.server, 'server'),
       ], event);
     case 'player':
