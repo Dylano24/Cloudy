@@ -9,6 +9,8 @@ const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 export const MUSIC_BUTTON_IDS = {
     PAUSE: 'music_pause',
+    ADD: 'music_add',
+    ADD_MODAL: 'music_add_modal',
     RESUME: 'music_resume',
     SKIP: 'music_skip',
     STOP: 'music_stop',
@@ -150,12 +152,14 @@ export function buildNowPlayingEmbed(track, player, guildData) {
         ? (requester.username || requester.tag || 'Unknown')
         : 'Unknown';
 
-    const position = formatDuration(player?.position || 0);
+    // The starting position is 0:00, not 'Live'. Unknown track duration
+    // still displays Live, as before.
+    const position = player?.position > 0 ? formatDuration(player.position) : '0:00';
     const duration = formatDuration(track?.info?.length || 0);
 
     const queued = player?.queue?.length || 0;
     const album = getAlbumName(track);
-    const progressBar = formatMusicProgress(player?.position || 0, track?.info?.length);
+    const progressBar = formatMusicProgress(player?.position || 0, track?.info?.length, 20);
     // The track's cover is the image; the Cloudy logo stays the thumbnail.
     return createEmbed({
         title: 'Now playing',
@@ -165,7 +169,7 @@ export function buildNowPlayingEmbed(track, player, guildData) {
             { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
             ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
             { name: 'Requested by', value: requesterLabel, inline: true },
-            { name: 'Progress', value: `${progressBar ? `${progressBar}\n` : ''}${position} / ${duration}`, inline: true },
+            { name: 'Progress', value: `${progressBar ? `${progressBar}\n` : ''}${position} / ${duration}`, inline: false },
             { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
             { name: 'Volume', value: `${guildData?.volume ?? 75}%`, inline: true },
             { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
@@ -211,38 +215,43 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 }
 
 export function buildPlayerButtonRows(player, guildData) {
-    const paused = player?.paused;
+    // Discord components appear directly below the embed. Keep the core
+    // controls together and show one context-sensitive Pause/Resume button.
+    const paused = Boolean(player?.paused);
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.PAUSE)
-            .setLabel('Pause')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('⏸️')
-            .setDisabled(Boolean(paused)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.RESUME)
-            .setLabel('Resume')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('▶️')
-            .setDisabled(!paused),
+            .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
+            .setLabel(paused ? 'Resume' : 'Pause')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(paused ? '▶️' : '⏸️'),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SKIP)
             .setLabel('Skip')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('⏭️'),
         new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.ADD)
+            .setLabel('Add')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('➕'),
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
+            .setLabel('Queue')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📋'),
+        new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('⏹️'),
+    );
+
+    const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
             .setLabel('Shuffle')
             .setStyle(guildData?.shuffle ? ButtonStyle.Success : ButtonStyle.Secondary)
             .setEmoji('🔀'),
-    );
-
-    const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
             .setLabel('Loop')
@@ -258,13 +267,7 @@ export function buildPlayerButtonRows(player, guildData) {
             .setLabel('Vol +')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🔊'),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
-            .setLabel('Queue')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📋'),
     );
-
     return [row1, row2];
 }
 
