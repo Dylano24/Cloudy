@@ -27,6 +27,14 @@ function normalizeKey(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+// The generic system error is never restyled by a saved template (owner's
+// choice): a Builder Save of the ticket-limit reply was stored under
+// "Something went wrong" and renamed every unrelated failure (a report Delete,
+// a command error, ...) to "Ticket limit reached".
+export function isGenericSystemErrorTitle(value) {
+  return normalizeKey(value) === 'something went wrong';
+}
+
 export function isSharedRuntimeBodyTitle(value) {
   return /^(?:success|failed|error|warning|information|invalid|expired|too fast|cooldown|on cooldown|please wait|slow down)$/i
     .test(String(value || '').replace(/\s+/g, ' ').trim());
@@ -481,6 +489,7 @@ function decorateEmbedData(embed, stored, options = {}) {
 export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, options = {}) {
   try {
     const original = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
+    if (isGenericSystemErrorTitle(original.title)) return { matched: false, changed: false, embed };
     const stored = await loadMergedTemplates(guildId, channelId, {
       preferGlobal: true,
     });
@@ -515,6 +524,7 @@ export function getCachedSavedEmbedTemplateData(guildId, channelId, embedData, o
       templateOverlays.get(channelKey), templateCache.get(channelKey)]
     : [templateOverlays.get(channelKey), templateCache.get(channelKey),
       templateOverlays.get(globalKey), templateCache.get(globalKey)];
+  if (isGenericSystemErrorTitle(embedData?.title)) return { matched: false, data: embedData };
   const aliasesToFind = [options.responseIdentity || balanceResponseIdentity(embedData), metadataAlias(embedData), ...aliasKeys(embedData.title)].filter(Boolean);
   let template = null;
   for (const scope of scopes) {
