@@ -12,6 +12,14 @@ function setup({ history = [], stored = null, allow = true, channelName = 'ðŸŽ§â
     const storage = new Map();
     if (stored) storage.set('cloudy:music:guide:' + HOME, stored);
     const messages = new Collection(history.map(message => [message.id, message]));
+    for (const message of messages.values()) {
+        message.edit = async payload => {
+            edits.push(payload);
+            message.embeds = payload.embeds;
+            message.components = payload.components;
+            return message;
+        };
+    }
     const channel = {
         id: 'music-channel',
         name: channelName,
@@ -34,7 +42,12 @@ function setup({ history = [], stored = null, allow = true, channelName = 'ðŸŽ§â
                 id: 'new-guide-' + sent.length,
                 author: { id: BOT },
                 embeds: payload.embeds.map(embed => embed.toJSON()),
-                edit: async value => edits.push(value),
+                edit: async value => {
+                    edits.push(value);
+                    message.embeds = value.embeds;
+                    message.components = value.components;
+                    return message;
+                },
             };
             messages.set(message.id, message);
             return message;
@@ -63,7 +76,8 @@ test('Cloudy posts one public music guide with slash command instructions, never
     assert.deepEqual(first, { ok: true, action: 'posted', messageId: 'new-guide-1' });
     assert.equal(ctx.sent.length, 1);
     assert.equal(ctx.sent[0].embeds[0].toJSON().title, 'Cloudy music');
-    assert.match(ctx.sent[0].embeds[0].toJSON().description, /\/now playing/);
+    assert.match(ctx.sent[0].embeds[0].toJSON().description, /Click the button below/);
+    assert.equal(ctx.sent[0].components[0].toJSON().components[0].custom_id, 'dedicated_commands:music');
     assert.deepEqual(ctx.sent[0].allowedMentions, { parse: [] });
 
     const second = await reconcileMusicGuideMessage(ctx.client, HOME);
@@ -80,10 +94,12 @@ test('Cloudy reuses a previously posted music guide and preserves owner changes'
     }];
     const ctx = setup({ history });
     const result = await reconcileMusicGuideMessage(ctx.client, HOME);
-    assert.equal(result.action, 'found');
+    assert.equal(result.action, 'updated');
     assert.equal(result.messageId, 'existing-1');
     assert.equal(ctx.sent.length, 0);
-    assert.equal(ctx.edits.length, 0);
+    assert.equal(ctx.edits.length, 1, 'only missing Commands button added to existing guide');
+    assert.equal(ctx.edits[0].embeds[0].description, 'Custom owner wording');
+    assert.equal(ctx.edits[0].components[0].components[0].custom_id, 'dedicated_commands:music');
     assert.equal(ctx.storage.get('cloudy:music:guide:' + HOME).messageId, 'existing-1');
 });
 
@@ -116,5 +132,51 @@ test('the guide will not post if Discord history cannot be verified', async () =
     const ctx = setup();
     ctx.channel.messages.fetch = async () => { throw new Error('Discord temporary outage'); };
     await assert.rejects(reconcileMusicGuideMessage(ctx.client, HOME), /temporary outage/);
+    assert.equal(ctx.sent.length, 0);
+});
+
+test('old public music instructions migrate in place without changing the message ID', async () => {
+    const legacy = {
+        id: 'old-guide',
+        author: { id: BOT },
+        embeds: [{
+            title: 'Cloudy music',
+            description: 'Your music. Your queue. Your experience.\n\n**Getting started**\nUse /play',
+            color: 0xffffff,
+        }],
+        components: [],
+    };
+    const ctx = setup({
+        history: [legacy],
+        stored: { channelId: 'music-channel', messageId: 'old-guide' },
+    });
+    const updated = await reconcileMusicGuideMessage(ctx.client, HOME);
+    assert.deepEqual(updated, { ok: true, action: 'updated', messageId: 'old-guide' });
+    assert.equal(ctx.edits.length, 1);
+    assert.equal(ctx.edits[0].embeds[0].title, 'Cloudy music');
+    assert.match(ctx.edits[0].embeds[0].description, /Click the button below/);
+    assert.equal(ctx.edits[0].components[0].components[0].custom_id, 'dedicated_commands:music');
+    assert.equal(ctx.sent.length, 0, 'migration must not send a duplicate');
+    const again = await reconcileMusicGuideMessage(ctx.client, HOME);
+    assert.equal(again.action, 'preserved');
+    assert.equal(ctx.edits.length, 1);
+});
+
+test('a customized existing music guide keeps its wording when the button already exists', async () => {
+    const custom = {
+        id: 'custom-guide',
+        author: { id: BOT },
+        embeds: [{ title: 'Cloudy music', description: 'Owner-specific instructions.' }],
+        components: [{
+            type: 1,
+            components: [{ type: 2, style: 2, label: 'Commands', custom_id: 'dedicated_commands:music' }],
+        }],
+    };
+    const ctx = setup({
+        history: [custom],
+        stored: { channelId: 'music-channel', messageId: 'custom-guide' },
+    });
+    assert.equal((await reconcileMusicGuideMessage(ctx.client, HOME)).action, 'preserved');
+    assert.equal(ctx.edits.length, 0);
     assert.equal(ctx.sent.length, 0);
 });
