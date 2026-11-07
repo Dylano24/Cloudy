@@ -18,6 +18,7 @@ import {
 } from '../../services/music/musicActions.js';
 import { deferMusicCommand } from '../../services/music/prefixSupport.js';
 import { buildMusicGuideEmbed } from '../../services/music/musicEmbeds.js';
+import { buildMusicGuideComponents } from '../../services/music/musicGuidePanel.js';
 
 export default {
     category: 'Music',
@@ -114,6 +115,7 @@ export default {
             await InteractionHelper.safeDefer(interaction);
             await InteractionHelper.safeEditReply(interaction, {
                 embeds: [buildMusicGuideEmbed()],
+                components: buildMusicGuideComponents(),
             });
             return;
         }

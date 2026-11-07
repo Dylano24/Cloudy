@@ -115,3 +115,25 @@ test('Gambling title is never visibly edited after a reappeared post with custom
   assert.equal(matched, true);
   assert.equal(edits, 0);
 });
+
+test('Music Commands opens the complete slash list privately and expires after five minutes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let reply;
+  let deleted = false;
+  const interaction = {
+    reply: async payload => { reply = payload; },
+    deleteReply: async () => { deleted = true; },
+  };
+  await panels.execute(interaction, {}, ['music']);
+  assert.equal(reply.flags, MessageFlags.Ephemeral);
+  assert.equal(reply.embeds[0].toJSON().title, 'Music commands');
+  assert.match(reply.embeds[0].toJSON().description, /\/now playing/);
+  assert.match(reply.embeds[0].toJSON().description, /\/music shuffle/);
+  assert.ok(!reply.embeds[0].toJSON().description.includes('/blackjack'));
+  assert.deepEqual(reply.allowedMentions, { parse: [] });
+  t.mock.timers.tick(299_999);
+  assert.equal(deleted, false);
+  t.mock.timers.tick(1);
+  await Promise.resolve();
+  assert.equal(deleted, true);
+});
