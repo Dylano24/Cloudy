@@ -233,7 +233,11 @@ function buildPreviewVoteMessage(vote, parts) {
   } else {
     card.addTextDisplayComponents(choices);
   }
-  // Question, Choices, then the how-to (owner's choice: no description).
+  // The requested order is Question → Choices → Description (when supplied).
+  if (vote.description) {
+    card.addSeparatorComponents(sectionGap())
+      .addTextDisplayComponents(text(`**Description**\n${String(vote.description).slice(0, 500)}`));
+  }
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(howTo.join('\n')))
     .addSeparatorComponents(sectionGap())
@@ -306,6 +310,7 @@ export function buildVoteMessage(vote, now = Date.now()) {
   const parts = voteParts(vote, now);
   if (vote.layout === 'preview') return buildPreviewVoteMessage(vote, parts);
   const lines = [`**${vote.question}**`, '', ...parts.options.flatMap(option => [option.line, option.bar])];
+  if (vote.description) lines.push('', `**Description**\n${String(vote.description).slice(0, 500)}`);
   lines.push('', `**Total votes:** ${parts.total}`);
   // An empty line between the total and the end (owner's choice).
   if (parts.end.length) lines.push('', ...parts.end);
