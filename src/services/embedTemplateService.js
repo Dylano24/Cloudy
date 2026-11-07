@@ -15,6 +15,12 @@ import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentatio
 const TEMPLATE_PREFIX = 'cloudy:embed-template:';
 const GLOBAL_SCOPE = '__global__';
 const templateCache = new Map();
+// Changes whenever saved Builder changes are loaded or saved, so a cached
+// Builder list built before they were known is rebuilt.
+let savedTemplateRevision = 0;
+export function getSavedEmbedTemplateRevision() {
+  return savedTemplateRevision;
+}
 const templateLoads = new Map();
 const templateMutationQueues = new Map();
 // A Save must affect the very next bot response, even when its database write
@@ -60,6 +66,7 @@ async function loadTemplates(guildId, channelId) {
   const job = (async () => {
     const templates = cleanTemplates(await getFromDb(key, {}, { strict: true }));
     templateCache.set(key, templates);
+    savedTemplateRevision += 1;
     return templates;
   })();
   templateLoads.set(key, job);
@@ -288,6 +295,7 @@ function primeTemplateOverlay(key, prepared) {
     current[alias] = template;
   }
   templateOverlays.set(key, current);
+  savedTemplateRevision += 1;
 }
 
 function clearSavedTemplateOverlay(key, prepared) {
@@ -300,6 +308,7 @@ function clearSavedTemplateOverlay(key, prepared) {
   }
   if (Object.keys(next).length) templateOverlays.set(key, next);
   else templateOverlays.delete(key);
+  savedTemplateRevision += 1;
 }
 
 async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, options = {}) {
@@ -341,6 +350,7 @@ async function saveTemplate(guildId, scope, matchNames = [], embedData = {}, opt
       }
 
       templateCache.set(key, templates);
+      savedTemplateRevision += 1;
       clearSavedTemplateOverlay(key, prepared);
       return true;
     });
@@ -506,6 +516,12 @@ export async function decorateEmbedWithSavedTemplate(guildId, channelId, embed, 
     logger.error('Failed to decorate embed with saved template:', error);
     return { matched: false, changed: false, embed };
   }
+}
+
+/** Whether the saved Builder changes of this server (and channel) are loaded. */
+export function isSavedEmbedTemplateScopeWarm(guildId, channelId = null) {
+  return templateCache.has(templateKey(guildId, GLOBAL_SCOPE))
+    && (!channelId || templateCache.has(templateKey(guildId, channelId)));
 }
 
 export async function warmSavedEmbedTemplateScopes(guildId, channelIds = []) {

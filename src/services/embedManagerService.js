@@ -64,6 +64,7 @@ import { removeRetiredGamblingGuideCommand,
     isRetiredGamblingEmbed } from '../config/gamblingCommands.js';
 import { hydrateBuilderPreviewRecord } from './builderRuntimePreviewService.js';
 import { canUseEmbedBuilderChannel, canAccessEmbedBuilderRecord, filterEmbedBuilderRecords } from '../utils/embedBuilderAccess.js';
+import { isBuilderRecordAdmitted } from './builderCatalogAdmission.js';
 import { discoverMissingChannelEmbed,
     discoverMissingChannelEmbeds,
     discoverRecentChannelEmbeds,
@@ -1603,6 +1604,8 @@ export function isEmbedManagerVisibleRecord(record, { includeBotHistory = true }
     // responses belong to Search; only templates virtually placed into a real
     // feature channel (tickets, gambling, etc.) belong in the channel browser.
     if (source === 'system-catalog') {
+        // Builder admission (owner's choice): the same rule as Search.
+        if (!isBuilderRecordAdmitted(record)) return false;
         const logicalChannelId = String(record.channelId || '');
         const backingChannelId = String(record.backingChannelId || '');
         return Boolean(

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { primeSystemSourceDefinitionPreview } from '../src/services/systemEmbedCatalogService.js';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Collection, Embed } from 'discord.js';
@@ -284,6 +285,9 @@ test('cold and warm saved Search selections preserve the exact manual Save witho
 });
 
 test('independent runtime preview and saved-scope reads start together for one selected source', async t => {
+  // A Cloudy code template (Builder admission, owner's choice).
+  primeSystemSourceDefinitionPreview({ kind: 'embed', key: 'performance-parallel', title: 'Parallel preview example',
+    description: 'Complete source content', context: 'general/notices' });
   const record = {
     ...savedRecord('search-independent-preview-reads'), source: 'system-catalog', manualSaved: false,
     snapshot: { title: 'Parallel preview example', description: 'Complete source content',

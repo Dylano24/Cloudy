@@ -6,6 +6,7 @@ import {
   buildChannelPayload,
   buildEmbedPayload,
 } from '../src/services/embedManagerService.js';
+import { primeSystemSourceDefinitionPreview } from '../src/services/systemEmbedCatalogService.js';
 
 const channel = (id, name) => ({
   id, name, type: 0, rawPosition: 1,
@@ -41,6 +42,9 @@ test('unsaved game, ticket and system responses remain in Search but not in Disc
     catalog('104', 'builder:removed', 'embed-builder/delete', 'Removed from Builder'),
     catalog('105', 'notice:too-fast', 'general/rate-limit', 'Too fast'),
   ];
+  // The rate-limit notice is Cloudy's own code (Builder admission, owner's choice).
+  primeSystemSourceDefinitionPreview({ kind: 'embed', key: 'notice:too-fast', title: 'Too fast',
+    description: 'Original bot source template', context: 'general/rate-limit' });
   const original = structuredClone(records);
   const projected = projectCatalogTemplatesToFeatureChannels(guild, records);
   assert.deepEqual(records, original);
@@ -68,7 +72,7 @@ test('only a deliberately saved catalog entry remains attached to its original c
     ]) },
   };
   const saved = { ...catalog('7', 'saved-example', 'general/example', 'Saved notice'),
-    channelId: 'general', manualSaved: true };
+    channelId: 'general', manualSaved: true, explicitSave: true };
   const projected = projectCatalogTemplatesToFeatureChannels(guild, [
     catalog('1', 'notice:too-fast', 'general/rate-limit', 'Too fast'),
     saved,
