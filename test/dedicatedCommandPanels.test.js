@@ -129,6 +129,9 @@ test('Music Commands opens the complete slash list privately and expires after f
   assert.equal(reply.embeds[0].toJSON().title, 'Music commands');
   assert.match(reply.embeds[0].toJSON().description, /\/now playing/);
   assert.match(reply.embeds[0].toJSON().description, /\/music shuffle/);
+  for (const hidden of ['/music seek', '/music 247', '/music guide', '/nowplaying']) {
+    assert.ok(!reply.embeds[0].toJSON().description.includes(hidden));
+  }
   assert.ok(!reply.embeds[0].toJSON().description.includes('/blackjack'));
   assert.deepEqual(reply.allowedMentions, { parse: [] });
   t.mock.timers.tick(299_999);
