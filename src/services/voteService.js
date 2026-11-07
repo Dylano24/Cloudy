@@ -75,7 +75,9 @@ export function voteWinners(vote) {
   if (tied.length <= 1) return tied;
   return [tied.includes(vote.tieWinner) ? vote.tieWinner : tied[0]];
 }
-export const TIE_TEXT = 'The vote ended in a tie, so the bot randomly selected one of the tied options.';
+export const TIE_TEXT = 'The result was randomly selected from the most-voted responses due to a tie.';
+// Above "The vote has ended!" in the result (owner's choice, literally).
+export const TIE_RULE_TEXT = 'In the event of a tie, the outcome will be determined by a random selection among the winning responses.';
 
 /** The picture an option's Preview button shows, or null. */
 export function votePicture(vote, index) {
@@ -182,9 +184,9 @@ function voteParts(vote, now) {
 // votes are a card (white side line, Cloudy logo and footer) instead of an embed.
 // A little more room between sections (owner's choice): an empty separator.
 const sectionGap = () => new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small);
-// The titles (owner's choice): "The vote has started" and "The vote has ended".
-const startedTitle = vote => vote.title || 'The vote has started';
-const endedTitle = vote => (vote.title ? `${vote.title} ended` : 'The vote has ended');
+// The titles (owner's choice): "The vote has started!" and "The vote has ended!".
+const startedTitle = vote => vote.title || 'The vote has started!';
+const endedTitle = vote => (vote.title ? `${vote.title} ended` : 'The vote has ended!');
 // The title and the question with the Cloudy logo beside them (owner's choice),
 // on "Vote started" and "Vote ended" alike.
 const titleWithLogo = (title, question) => new SectionBuilder()
@@ -254,7 +256,7 @@ function buildPreviewVoteMessage(vote, parts) {
 }
 
 /** The result of a card vote, sent under it when it ends (owner's choice: like a classic map poll result). */
-export function buildVoteResultMessage(vote, pictureNames = []) {
+export function buildVoteResultMessage(vote, pictureNames = [], { withTag = true } = {}) {
   const text = content => new TextDisplayBuilder().setContent(content);
   const counts = voteCounts(vote);
   const total = counts.reduce((sum, count) => sum + count, 0);
@@ -263,6 +265,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   const order = vote.options.map((_, index) => index).sort((a, b) => counts[b] - counts[a] || a - b);
   const card = new ContainerBuilder()
     .setAccentColor(0xFFFFFF)
+    .addTextDisplayComponents(text(TIE_RULE_TEXT))
     .addSectionComponents(titleWithLogo(endedTitle(vote), vote.question));
   // Cloudy style (owner's choice): own number emoji, the option in bold, count and share.
   const line = index => `${numberIcon(index)} **${vote.options[index]}** · ${votes(counts[index])} · ${Math.round(total ? counts[index] / total * 100 : 0)}%`;
@@ -273,7 +276,8 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   card.addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(['**Results**', ...order.map(line)].join('\n')))
     .addSeparatorComponents(sectionGap())
-    .addTextDisplayComponents(text(['**Most votes**', ...(winners.length ? winners.map(line) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
+    // On a tie the heading is "Random selection result" (owner's choice).
+    .addTextDisplayComponents(text([tie ? '**Random selection result**' : '**Most votes**', ...(winners.length ? winners.map(line) : ['No votes']), ...(tie ? [TIE_TEXT] : [])].join('\n')));
   if (pictureNames.length) {
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(...pictureNames.map(name => new MediaGalleryItemBuilder()
       .setURL(`attachment://${name}`))));
@@ -286,11 +290,13 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
   card.addSeparatorComponents(sectionGap())
     .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
   // The role tagged on the vote is tagged on its result too (owner's choice).
-  const tag = voteTag(vote);
+  // closeVoteMessage sends that tag as its own message above the result, like
+  // the start (owner's choice: no highlight around the whole result).
+  const tag = withTag ? voteTag(vote) : null;
   return {
     flags: MessageFlags.IsComponentsV2,
     components: [...(tag ? [text(tag)] : []), card],
-    allowedMentions: voteMentions(vote),
+    allowedMentions: tag ? voteMentions(vote) : { parse: [] },
   };
 }
 
@@ -437,9 +443,22 @@ async function closeVoteMessage(client, guild, vote) {
     await saveVote(client, guild.id, vote).catch(() => {});
   }
   const files = await resultPictureFiles(client, vote).catch(() => []);
-  const result = await message.reply({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
+  // The tag is its own message (a reply to the vote) right above the result,
+  // exactly like the start (owner's choice): only that line is highlighted,
+  // not the whole result.
+  const tag = voteTag(vote);
+  const tagMessage = tag
+    ? await message.reply({ content: tag, allowedMentions: { ...voteMentions(vote), repliedUser: false } })
+      .catch(error => { logger.warn('Could not post the vote result tag:', error); return null; })
+    : null;
+  const payload = { ...buildVoteResultMessage(vote, files.map(file => file.name), { withTag: !tagMessage }), ...(files.length ? { files } : {}) };
+  const result = await (tagMessage ? channel.send(payload) : message.reply(payload))
     .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
-  if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
+  if (!result) {
+    await tagMessage?.delete?.().catch(() => {});
+    return;
+  }
+  await saveVote(client, guild.id, { ...vote, resultMessageId: result.id, ...(tagMessage ? { resultTagMessageId: tagMessage.id } : {}) }).catch(() => {});
 }
 
 /** Whether a vote is still open (not ended and its time not passed). */
@@ -486,7 +505,7 @@ export async function deleteVote(client, guild, messageId, { deletedBy = null } 
   });
   if (!vote) return null;
   const channel = guild.channels?.cache?.get?.(vote.channelId);
-  for (const id of [vote.messageId, vote.resultMessageId, vote.tagMessageId].filter(Boolean)) {
+  for (const id of [vote.messageId, vote.resultMessageId, vote.resultTagMessageId, vote.tagMessageId].filter(Boolean)) {
     const message = await channel?.messages?.fetch?.(id).catch(() => null);
     if (!message?.delete) continue;
     // The staff member who confirmed Delete is named in the logs.
