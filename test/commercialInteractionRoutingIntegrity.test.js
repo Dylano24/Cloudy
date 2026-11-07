@@ -55,7 +55,7 @@ test('reserved assistant custom IDs have one literal owner and cannot collide wi
     const literalReaders = files
       .filter(file => fs.readFileSync(file, 'utf8').includes(`'${customId}'`)
         || fs.readFileSync(file, 'utf8').includes(`"${customId}"`))
-      .map(file => file.replaceAll('\\\\', '/'));
+      .map(file => file.split(path.sep).join('/');
 
     assert.ok(literalReaders.includes([...allowedReaders][0]), `missing canonical owner for ${customId}`);
     assert.deepEqual(
