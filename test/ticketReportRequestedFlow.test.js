@@ -82,9 +82,9 @@ test('new ticket panel is accepted after a separate process changes the stored I
   const handler = buttons.find(button => button.name === 'create_ticket');
   f.interaction.message = {id: 'new-shield-panel'};
   const pending = handler.execute(f.interaction, f.client);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
   t.mock.timers.tick(TICKET_CREATION_LIMIT_PRECHECK_MS);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
   await pending;
   assert.equal(f.replies.at(-1).custom_id, 'create_ticket_modal', 'new panel opens modal');
 
