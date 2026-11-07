@@ -11,6 +11,7 @@ const CHANNELS = Object.freeze({
   rustPatch: { legacyId: '1533886914459861103', aliases: ['rust', 'patch-notes', 'rust-patch-notes'] },
   nitradoPatch: { legacyId: '1539397467647377530', aliases: ['nitrado', 'nitrado-patch-notes', 'nitrado-updates'] },
   faq: { legacyId: '1534654577385672917', aliases: ['faq'] },
+  supportAssistant: { legacyId: '1534654577385672917', aliases: ['support-assistant'] },
   zorp: { legacyId: '1533212973034770462', aliases: ['zorp-off-raid-protection'] },
   fixGuide: { legacyId: '1546229542027534478', aliases: ['staff-assistant', 'fix-guide'] },
   botlog: { legacyId: '1543802746866770000', aliases: ['botlog-commands', 'botlog', 'bot-logs'] },

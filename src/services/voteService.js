@@ -15,13 +15,40 @@ import { votePreviewFile } from './votePreviewService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-// The card of a vote with pictures has no real footer: small text is always
-// grey there. White and small (owner's choice) is a thin picture of the footer
-// (assets/vote-footer-small.png, 450 px wide so it is not stretched on PC), on a fixed link like the logo, so every edit keeps
-// the same picture and nothing loads again.
-export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@40fe0e6b8d22ad7ba8750cbc137fd25ab8b96eaa/assets/vote-footer-small.png';
+// Card votes use native Discord subtext for their footer. Gallery images
+// stretch to the card width on desktop, regardless of their source width.
+const voteFooter = () => new TextDisplayBuilder().setContent(`-# ${CLOUDY_FOOTER}`);
+const LEGACY_VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@40fe0e6b8d22ad7ba8750cbc137fd25ab8b96eaa/assets/vote-footer-small.png';
+
+// Explicitly selected existing messages only. Never run during startup/history
+// discovery: a footer repair must not reconstruct vote state or winning media.
+export async function compactExistingVoteFooter(client, message, {apply = false} = {}) {
+  if (!client.user?.id || message?.author?.id !== client.user.id) throw new Error('Select a Cloudy vote message');
+  const current = (message.components || []).map(row => row.toJSON?.() || row);
+  let replacements = 0;
+  let isVote = false;
+  function compact(component) {
+    const data = structuredClone(component);
+    if (data.type === 10 && /^\*\*Vote ended\*\*\n/.test(data.content || '')) isVote = true;
+    if (data.type === 12 && data.items?.length === 1 && data.items[0].media?.url === LEGACY_VOTE_FOOTER_URL) {
+      replacements++;
+      return {...voteFooter().toJSON(), ...(data.id == null ? {} : {id: data.id})};
+    }
+    if (data.components) data.components = data.components.map(compact);
+    return data;
+  }
+  const components = current.map(compact);
+  // A standalone maintenance client cannot share the live bot's vote lock.
+  // Only finished result messages are stable enough for a footer-only repair.
+  if (!isVote || replacements > 1) throw new Error('Select a finished Cloudy vote result card');
+  const plan = {applied: false, guildId: message.guildId, channelId: message.channelId,
+    messageId: message.id, replacements, components};
+  if (!apply || !replacements) return plan;
+  await message.edit({components});
+  return {...plan, applied: true};
+}
 // The card's progress bar is a thin picture (owner's choice: white, rounded),
-// like the footer: Discord's app loads custom emoji again every time it
+// Discord's app loads custom emoji again every time it
 // redraws the vote (each vote and each button press), which made emoji bars
 // and digits flicker; a picture with the same link stays put. 21 pictures,
 // 0 to 100% in steps of 5 (assets/vote-bars on a fixed jsDelivr link).
@@ -240,8 +267,7 @@ function buildPreviewVoteMessage(vote, parts) {
     // This heading literally (owner's choice), at the bottom.
     .addTextDisplayComponents(text(`**Vote ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
-  card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
-    .setURL(VOTE_FOOTER_URL)));
+  card.addTextDisplayComponents(voteFooter());
   const rows = [];
   if (!parts.ended) {
     const buttons = parts.options.map((option, index) => new ButtonBuilder()
@@ -292,7 +318,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Vote ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
   card.addSeparatorComponents(sectionGap())
-    .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
+    .addTextDisplayComponents(voteFooter());
   // The role tag is its own message above the result (owner's choice, as on
   // the start), so Discord highlights only the tag and not the result.
   return {
