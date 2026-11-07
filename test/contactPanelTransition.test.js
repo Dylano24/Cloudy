@@ -71,15 +71,15 @@ test('automatic panel presentation cannot replace the shield embed after control
   assert.equal(w.target.edits.length, 0);
 });
 
-test('contact controls keep Start chat and FAQ with a question mark and the corrected channel', t => {
+test('contact controls keep Start chat and link Support assistant with the white bot icon', t => {
   const w = world(t);
   assert.equal(typeof panels.buildTicketPanelComponents, 'function');
   const rows = panels.buildTicketPanelComponents(w.client, w.guildId, {}, w.old.components).map(row => row.toJSON());
   assert.equal(rows[0].components[0].custom_id, 'create_ticket');
   assert.equal(rows[0].components[0].label, 'Start chat');
   assert.equal(rows[0].components[0].emoji.name, '💬');
-  assert.equal(rows[0].components[1].label, 'FAQ');
-  assert.equal(rows[0].components[1].emoji.name, '❔');
+  assert.equal(rows[0].components[1].label, 'Support assistant');
+  assert.equal(rows[0].components[1].emoji.id, '1800000000000000099');
   assert.equal(rows[0].components[1].url, `https://discord.com/channels/${w.guildId}/1554538586001645679`);
   assert.equal(rows[0].components.length, 2);
 });
@@ -113,7 +113,8 @@ test('explicit transfer keeps the message and full embed intact and records its 
   assert.ok(record, 'the replacement stays editable in the existing Builder');
   assert.deepEqual(record.snapshot.description, before.description);
   assert.equal(record.components[0].components[0].custom_id, 'create_ticket');
-  assert.equal(record.components[0].components[1].label, 'FAQ');
+  assert.equal(record.components[0].components[1].label, 'Support assistant');
+  assert.equal(record.components[0].components[1].emoji.id, '1800000000000000099');
   assert.equal(record.components[0].components.length, 2);
   const editCount = w.target.edits.length;
   await transfer(w.client, {source: w.old, target: w.target}, {apply: true});
@@ -139,5 +140,36 @@ test('a foreign target or unrelated source is rejected without touching either m
   w.target.author = w.client.user;
   w.old.components = [];
   await assert.rejects(transfer(w.client, {source: w.old, target: w.target}, {apply: true}));
+  assert.equal(w.target.edits.length, 0);
+});
+
+
+test('upgrades only the known FAQ link on the existing shield message without touching its embed', async t => {
+  const w = world(t);
+  const before = w.target.embeds[0].toJSON();
+  w.target.components = [{type: 1, components: [
+    {type: 2, custom_id: 'create_ticket', label: 'Start chat', style: 2, emoji: {name: '💬'}},
+    {type: 2, label: 'FAQ', style: 5, emoji: {name: '❔'},
+      url: `https://discord.com/channels/${w.guildId}/1554538586001645679`},
+  ]}];
+  const result = await transfer(w.client, {source: w.old, target: w.target}, {apply: true});
+  assert.equal(result.applied, true);
+  assert.equal(w.target.edits.length, 1);
+  assert.deepEqual(w.target.embeds[0].toJSON(), before);
+  assert.equal(w.target.components[0].components[0].custom_id, 'create_ticket');
+  assert.equal(w.target.components[0].components[1].label, 'Support assistant');
+  assert.equal(w.target.components[0].components[1].emoji.id, '1800000000000000099');
+  const second = await transfer(w.client, {source: w.old, target: w.target}, {apply: true});
+  assert.equal(second.applied, false);
+  assert.equal(w.target.edits.length, 1, 'an already upgraded panel is never edited twice');
+});
+
+test('does not replace unrelated controls on an already customized shield message', async t => {
+  const w = world(t);
+  w.target.components = [{type: 1, components: [
+    {type: 2, custom_id: 'different_action', style: 2, label: 'My action'},
+  ]}];
+  await assert.rejects(transfer(w.client, {source: w.old, target: w.target}, {apply: true}),
+    /already has different controls/);
   assert.equal(w.target.edits.length, 0);
 });
