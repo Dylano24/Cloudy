@@ -49,6 +49,18 @@ function bumpSearchCatalogRevision(guildId) {
 // virtual response from Search must not delete its source or its botlog message.
 const hiddenBuilderCatalogByGuild = new Map();
 const hiddenBuilderCatalogLoads = new Map();
+// Search lists only what is really used (owner's choice): a bot reply found in
+// Cloudy's code appears once Cloudy has really sent it in the server (or after
+// a Builder Save). The keys of sent replies are remembered per server.
+const USED_BUILDER_CATALOG_PREFIX = 'cloudy:embed-builder-used-catalog:';
+const usedBuilderCatalogByGuild = new Map();
+const usedBuilderCatalogLoads = new Map();
+const usedBuilderCatalogEarly = new Map();
+const usedBuilderCatalogPersistTimers = new Map();
+const USED_BUILDER_CATALOG_PERSIST_MS = 5_000;
+// Keys of the bot replies found in Cloudy's code (not the fixed notifications,
+// ticket templates or Builder notices, which always stay in Search).
+const codeDiscoveredCatalogKeys = new Set();
 const hiddenBuilderCatalogWrites = new Map();
 const HIDDEN_BUILDER_CATALOG_PREFIX = 'cloudy:embed-builder-hidden-catalog:';
 
@@ -600,6 +612,8 @@ export function isSystemCatalogHiddenFromBuilder(record) {
 export async function ensureHiddenBuilderCatalogLoaded(guildId) {
   const id = String(guildId || '');
   if (!id) return new Set();
+  // Search waits for this; it also needs to know which replies were sent.
+  await ensureUsedBuilderCatalogLoaded(id).catch(() => null);
   if (hiddenBuilderCatalogByGuild.has(id)) return hiddenBuilderCatalogByGuild.get(id);
   if (hiddenBuilderCatalogLoads.has(id)) return hiddenBuilderCatalogLoads.get(id);
   const pending = getFromDb(HIDDEN_BUILDER_CATALOG_PREFIX + id, [])
@@ -610,6 +624,111 @@ export async function ensureHiddenBuilderCatalogLoaded(guildId) {
     }).finally(() => hiddenBuilderCatalogLoads.delete(id));
   hiddenBuilderCatalogLoads.set(id, pending);
   return pending;
+}
+
+export async function ensureUsedBuilderCatalogLoaded(guildId) {
+  const id = String(guildId || '');
+  if (!id) return new Set();
+  if (usedBuilderCatalogByGuild.has(id)) return usedBuilderCatalogByGuild.get(id);
+  if (usedBuilderCatalogLoads.has(id)) return usedBuilderCatalogLoads.get(id);
+  // Strict: a database error must never look like "nothing was used yet".
+  // Until the list is known, Search simply shows everything.
+  const pending = getFromDb(USED_BUILDER_CATALOG_PREFIX + id, [], { strict: true })
+    .then(value => {
+      const used = new Set(Array.isArray(value) ? value.filter(item => typeof item === 'string') : []);
+      const early = usedBuilderCatalogEarly.get(id);
+      usedBuilderCatalogEarly.delete(id);
+      let added = false;
+      for (const key of early || []) {
+        if (!used.has(key)) {
+          used.add(key);
+          added = true;
+        }
+      }
+      usedBuilderCatalogByGuild.set(id, used);
+      bumpSearchCatalogRevision(id);
+      if (added) scheduleUsedBuilderCatalogPersist(id);
+      return used;
+    }).finally(() => usedBuilderCatalogLoads.delete(id));
+  usedBuilderCatalogLoads.set(id, pending);
+  return pending;
+}
+
+function scheduleUsedBuilderCatalogPersist(id) {
+  if (usedBuilderCatalogPersistTimers.has(id)) return;
+  const timer = setTimeout(() => {
+    usedBuilderCatalogPersistTimers.delete(id);
+    void persistUsedBuilderCatalog(id).catch(error =>
+      logger.warn(`[EMBED_SEARCH] Could not store the sent replies: ${error?.message || error}`));
+  }, USED_BUILDER_CATALOG_PERSIST_MS);
+  timer.unref?.();
+  usedBuilderCatalogPersistTimers.set(id, timer);
+}
+
+async function persistUsedBuilderCatalog(id) {
+  const used = usedBuilderCatalogByGuild.get(id);
+  if (!used) return;
+  // Merge with the stored list first, so nothing that was stored is lost.
+  const stored = await getFromDb(USED_BUILDER_CATALOG_PREFIX + id, [], { strict: true });
+  for (const key of Array.isArray(stored) ? stored : []) {
+    if (typeof key === 'string') used.add(key);
+  }
+  await setInDb(USED_BUILDER_CATALOG_PREFIX + id, [...used]);
+}
+
+/** Remembers that Cloudy really sent this reply in the server. */
+export function markBuilderCatalogUsed(guildId, key) {
+  const id = String(guildId || '');
+  const normalizedKey = normalize(key);
+  if (!id || !normalizedKey) return false;
+  const used = usedBuilderCatalogByGuild.get(id);
+  if (!used) {
+    const early = usedBuilderCatalogEarly.get(id) || new Set();
+    early.add(normalizedKey);
+    usedBuilderCatalogEarly.set(id, early);
+    void ensureUsedBuilderCatalogLoaded(id).catch(() => null);
+    return true;
+  }
+  if (used.has(normalizedKey)) return false;
+  used.add(normalizedKey);
+  bumpSearchCatalogRevision(id);
+  scheduleUsedBuilderCatalogPersist(id);
+  return true;
+}
+
+// Fixed notifications, ticket templates and the Builder's own notices always
+// stay in Search; only the replies found in Cloudy's code are filtered.
+function isAlwaysListedCatalogContext(context) {
+  const value = normalize(context);
+  return isTicketContext(value) || /^ticket-(?:logs|transcripts)(?:\/|$)/.test(value)
+    || /embed-?builder|embed-manager/.test(value);
+}
+
+export function rememberCodeDiscoveredCatalogKeys(definitions = []) {
+  const fixed = new Set([...DEFAULT_TEMPLATES, TICKET_MAIN_CATALOG_TEMPLATE, ...TICKET_LOG_CATALOG_TEMPLATES]
+    .map(entry => normalize(definitionToCatalog(entry).key)));
+  codeDiscoveredCatalogKeys.clear();
+  for (const definition of definitions) {
+    if (normalize(definition?.kind) === 'content' || isAlwaysListedCatalogContext(definition?.context)) continue;
+    const key = normalize(definitionToCatalog(definition).key);
+    if (key && !fixed.has(key)) codeDiscoveredCatalogKeys.add(key);
+  }
+  return codeDiscoveredCatalogKeys.size;
+}
+
+/**
+ * True for a Search catalog entry that only comes from Cloudy's code and was
+ * never sent in this server (owner's choice: Search lists what is used).
+ * Unknown (not loaded yet) means false: then Search shows everything.
+ */
+export function isUnusedBuilderCatalogRecord(record) {
+  if (String(record?.source || '').toLowerCase() !== 'system-catalog' || record?.manualSaved === true) return false;
+  const used = usedBuilderCatalogByGuild.get(String(record.guildId || ''));
+  if (!used || !codeDiscoveredCatalogKeys.size) return false;
+  const metadata = parseTemplateMetadata(record.snapshot || record.sourceRecord?.snapshot || {});
+  if (!metadata.key || !codeDiscoveredCatalogKeys.has(metadata.key)) return false;
+  if (isAlwaysListedCatalogContext(metadata.context)) return false;
+  return !used.has(metadata.key);
 }
 
 // Delete in the Builder removes a searchable *response type*, not merely one
@@ -1599,6 +1718,8 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
   if (isInternalTemplate(data)) return false;
   const key = resolveEmbedSourceAlias(context, data.title)
     || getSystemEmbedTemplateKey('embed', data.title, data.description, context);
+  // Cloudy really sent this reply: from now on it is listed in Search.
+  if (key && guildId) markBuilderCatalogUsed(guildId, key);
   if (!key || !isEditableSystemCatalogTemplate(key, context)) return false;
 
   const reusableData = cloneData(data);
@@ -1813,6 +1934,7 @@ async function buildSystemEmbedCatalogs(client) {
   }
   const definitions = discoveredDefinitions.filter(definition =>
     !isCuratedCasinoContext(definition.context));
+  rememberCodeDiscoveredCatalogKeys(definitions);
 
   sourceDefinitionCache.clear();
   sourceDefinitionKeyCache.clear();
