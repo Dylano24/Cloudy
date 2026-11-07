@@ -134,10 +134,10 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
   assert.equal(head.accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo (owner\'s choice)');
   assert.deepEqual(card.components.slice(1, 5).map(part => part.type === 10 ? part.content : part.type),
     [14, '**Choices**\n1️⃣ **Procedural**\n2️⃣ **Barren**', 14,
-      '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote.'],
+      '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote.\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses.'],
     'choices tight under their heading, like Results; then the how-to (owner\'s choice: where the description was)');
   const text = textOf(posted);
-  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote\.\n\*\*Vote ends\*\*\n<t:\d+:f>$/);
+  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote\.\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses\.\n\*\*Vote ends\*\*\n<t:\d+:f>$/);
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
   assert.equal(card.components.some(part => part.type === 9 && part.accessory?.type === 2), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
@@ -275,7 +275,7 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.equal(card.accent_color, 0xFFFFFF, 'white side line');
   assert.equal(card.components[0].type, 9, 'the title and the question beside the logo');
   assert.equal(card.components[0].components[0].content, '### The vote has started!');
-  assert.ok(card.components.some(part => part.content === '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press **Preview** to see the pictures.'),
+  assert.ok(card.components.some(part => part.content === '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press **Preview** to see the pictures.\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses.'),
     'the how-to with the Preview line, under the choices');
   assert.equal(card.components[0].components[1].content, '**Question**\nChoose your map');
   assert.equal(card.components[0].accessory.media.url, CLOUDY_LOGO, 'the Cloudy logo (owner\'s choice)');
