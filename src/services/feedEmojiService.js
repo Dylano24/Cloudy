@@ -18,8 +18,10 @@ const BASE_EMOJIS = {
   // Login and Logout (owner's choice): the owner's own on and off emoji, found
   // among the application's emojis by name (the id is not needed), whichever
   // name it has now. Until it is found the old arrows are shown.
-  login: { name: 'cloudy_on', alsoNamed: ['cloudy_zorp_on'], fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
-  logout: { name: 'cloudy_off', alsoNamed: ['cloudy_zorp_off'], fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
+  login: { name: 'cloudy_on', alsoNamed: ['cloudy_zorp_on'], byNameOnly: true, fallbackKey: 'login_arrow', fallback: '' },
+  logout: { name: 'cloudy_off', alsoNamed: ['cloudy_zorp_off'], byNameOnly: true, fallbackKey: 'logout_arrow', fallback: '' },
+  login_arrow: { name: 'cloudy_arrow_green_v3', crop: '52:72:38:24', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
+  logout_arrow: { name: 'cloudy_arrow_red_v3', crop: '52:72:38:24', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
   killer: { name: 'killer_suit', id: '1567873111204958292', fallback: '<:killer_suit:1567873111204958292>' },
   victim: { name: 'victim_suit', id: '1567873113428070411', fallback: '<:victim_suit:1567873113428070411>' },
@@ -115,7 +117,8 @@ export function weaponEmoji(text) {
 }
 
 export function feedEmoji(key) {
-  return resolved.get(key) || FEED_EMOJIS[key]?.fallback || '';
+  const emoji = FEED_EMOJIS[key];
+  return resolved.get(key) || (emoji?.fallbackKey ? feedEmoji(emoji.fallbackKey) : '') || emoji?.fallback || '';
 }
 
 const markup = emoji => `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`;
@@ -205,11 +208,16 @@ export async function ensureFeedEmojis(client) {
   // One emoji that fails never stops the others; the result is logged once.
   const created = [];
   const failed = [];
+  const missing = [];
   for (const [key, emoji] of Object.entries(FEED_EMOJIS)) {
     try {
       const accessible = client.emojis?.cache?.get?.(emoji.id);
       if (accessible && !emoji.shrink && !emoji.crop && !emoji.unwhite) { resolved.set(key, markup(accessible)); continue; }
-      let own = [...existing.values()].find(item => item.name === emoji.name || emoji.alsoNamed?.includes(item.name));
+      const names = [emoji.name, ...(emoji.alsoNamed || [])];
+      let own = [...existing.values()].find(item => names.includes(item.name));
+      // An emoji known only by name may also live in a server Cloudy is in.
+      if (!own && emoji.byNameOnly) own = [...(client.emojis?.cache?.values?.() || [])].find(item => names.includes(item.name));
+      if (!own && emoji.byNameOnly) { missing.push(emoji.name); continue; }
       if (!own) {
         let image = emoji.file
           ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
@@ -228,6 +236,7 @@ export async function ensureFeedEmojis(client) {
   }
   const summary = `[FEED_EMOJIS] ${resolved.size}/${Object.keys(FEED_EMOJIS).length} ready`
     + (created.length ? `; uploaded ${created.join(', ')}` : '')
+    + (missing.length ? `; not found by name ${missing.join(', ')}` : '')
     + (failed.length ? `; failed ${failed.join('; ')}` : '');
   if (failed.length) logger.warn(summary);
   else logger.info(summary);
