@@ -526,8 +526,15 @@ export async function leaveVoiceChannel(client, interaction) {
 
 export async function replyMusicSuccess(interaction, embed) {
     if (interaction.deferred || interaction.replied) {
-        await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+        await InteractionHelper.safeEditReply(interaction, {
+            embeds: [embed],
+            allowedMentions: { parse: [] },
+        });
     } else {
-        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+            embeds: [embed],
+            flags: MessageFlags.Ephemeral,
+            allowedMentions: { parse: [] },
+        });
     }
 }
