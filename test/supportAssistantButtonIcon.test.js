@@ -64,7 +64,7 @@ test('a failed assistant icon edit never creates a duplicate assistant panel', a
 });
 
 
-test('the Ask Cloudy modal example omits free kits, support and the extra comma', () => {
+test('the Ask Cloudy modal example removes free kits and the extra comma but keeps support', () => {
   const modal = buildFaqQuestionModal().toJSON();
   const input = modal.components[0].components[0];
   assert.equal(input.placeholder, 'Ask about Cloudy, purchases, rules, commands, server information or support.');
