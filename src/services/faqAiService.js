@@ -47,7 +47,7 @@ function buildPanelPayload(client) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(FAQ_AI_BUTTON_ID)
-      .setLabel('Assistant')
+      .setLabel('Cloudy assistant')
       .setEmoji(supportBotEmoji(client))
       .setStyle(ButtonStyle.Secondary)
   );
@@ -108,7 +108,7 @@ async function repairFaqPanelComponents(message, payload, clientUserId) {
     const previousLabel = String(button.label || data.label || 'Assistant')
       .replace(/^[❔❓?]\s*/, '');
     const updated = new ButtonBuilder({...data, custom_id: FAQ_AI_BUTTON_ID})
-      .setLabel(['Ask a question', 'Cloudy assistant'].includes(previousLabel) ? 'Assistant' : previousLabel)
+      .setLabel(['Assistant', 'Ask a question', 'Cloudy assistant'].includes(previousLabel) ? 'Cloudy assistant' : previousLabel)
       .setEmoji(payload.components[0].components[0].data.emoji);
     payload = {components: [new ActionRowBuilder().addComponents(updated)]};
   }
