@@ -142,7 +142,7 @@ export function buildGameFeedEmbed(event) {
       ], event);
     case 'player':
       if (event.action === 'kit') {
-        return classicEmbed('Kit claimed', CLOUDY_NEUTRAL_COLOR, [
+        return classicEmbed(`${feedEmoji('kit')} Kit claimed`, CLOUDY_NEUTRAL_COLOR, [
           line('Player', name(event.player)), line('Kit', event.kit), server,
         ], event);
       }
