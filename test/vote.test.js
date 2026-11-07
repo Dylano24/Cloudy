@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
 import vote, { submitVoteForm } from '../src/commands/Tools/vote.js';
+// /vote manage (owner's choice, was /votemanage).
+const votemanage = { execute: interaction => vote.execute(Object.assign(interaction, { options: { getSubcommand: () => 'manage' } })) };
 import voteButton from '../src/interactions/buttons/vote/vote.js';
 import votePreview from '../src/interactions/buttons/vote/voteMedia.js';
 import votePick from '../src/interactions/selectMenus/vote/votePick.js';
-import votemanage from '../src/commands/Tools/votemanage.js';
 import voteManageSelects from '../src/interactions/selectMenus/vote/voteManage.js';
 import voteManageButtons from '../src/interactions/buttons/vote/voteManage.js';
 import voteMessageDelete from '../src/events/voteMessageDelete.js';
@@ -117,7 +118,9 @@ async function create(w, values, { files = {}, deps = {} } = {}) {
 test('/poll is now /vote, with buttons, live counts and an optional end time', async () => {
   const data = vote.data.toJSON();
   assert.equal(data.name, 'vote');
-  assert.deepEqual(data.options.map(option => [option.name, Boolean(option.required)]),
+  // /vote create and /vote manage (owner's choice, like /giveaway manage).
+  assert.deepEqual(data.options.map(option => option.name), ['create', 'manage']);
+  assert.deepEqual(data.options[0].options.map(option => [option.name, Boolean(option.required)]),
     [['question', true], ['option1', true], ['option2', true], ['option3', false], ['duration', false], ['role', false]],
     'question, choices, description, duration and a role to tag; no media next to the options');
   assert.equal(isPlayerCommand('vote'), true);
@@ -774,8 +777,6 @@ test('/votemanage: choose Active or Ended, then a vote; End closes it, Delete re
       editReply: async payload => { interaction.answer = payload; }, deleteReply: async () => {}, ...extra };
     return interaction;
   };
-  const data = votemanage.data.toJSON();
-  assert.equal(data.default_member_permissions, '32', 'staff only (Manage Server)');
   // End the old one first, so there is one of each status.
   const first = click();
   await votemanage.execute(first);
