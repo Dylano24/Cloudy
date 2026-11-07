@@ -168,8 +168,24 @@ export function endedGiveawayWinnerMessage(winners = []) {
         : '**The winners have been announced and tagged!**';
 }
 
+// Existing giveaways may store expiry as milliseconds, ISO strings or Dates.
+// Invalid dates must not expire a giveaway or render a bogus 1970 countdown.
+export function parseGiveawayTimestamp(value) {
+    if (value == null || value === '') return 0;
+    if (value instanceof Date) {
+        const date = value.getTime();
+        return Number.isFinite(date) && date > 0 ? date : 0;
+    }
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    if (typeof value !== 'string') return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 export function giveawayEndTime(giveaway) {
-    return Number(giveaway?.endsAt || giveaway?.endTime) || 0;
+    return parseGiveawayTimestamp(giveaway?.endsAt)
+        || parseGiveawayTimestamp(giveaway?.endTime);
 }
 
 export function giveawayParticipants(giveaway) {
