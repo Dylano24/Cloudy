@@ -12,6 +12,7 @@ const BASE_EMOJIS = {
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
   dot: { name: 'W87205667glowingdotwhite', id: '1543291335036108830', fallback: '<:W87205667glowingdotwhite:1543291335036108830>' },
   ban: { name: 'ban', id: '1567878137059082414', fallback: '<a:ban:1567878137059082414>' },
+  kit: { name: 'cloudy_kit', id: '1568298883682009109', fallback: '<a:cloudy_kit:1568298883682009109>' },
   unban: { name: 'unban', id: '1567878123259830384', fallback: '<a:unban:1567878123259830384>' },
   server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
