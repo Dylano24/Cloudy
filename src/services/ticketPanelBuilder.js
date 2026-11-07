@@ -4,6 +4,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
+import { supportBotEmoji } from './supportBotEmojiService.js';
 import {
   CLOUDY_TICKET_FOOTER,
   forceCloudyTicketFooter,
@@ -33,24 +34,25 @@ export function buildTicketPanelComponents(client, guildId, config = {}, sourceR
   }) : [{type: 1, components: [new ButtonBuilder()
     .setCustomId('create_ticket').setLabel(config.ticketButtonLabel || DEFAULT_TICKET_BUTTON_LABEL)
     .setStyle(ButtonStyle.Secondary).setEmoji('💬').toJSON()]}];
-  const isFaqLink = button => /faq|support assistant/i.test(String(button.label || ''));
+  const isFaqLink = button => Number(button.style) === ButtonStyle.Link
+    && /faq|support assistant/i.test(String(button.label || ''));
   // The former FAQ link led to the AI assistant. The owner explicitly moved
   // FAQ to this channel; preserve any different, deliberately configured ID.
   const configured = String(config.ticketFaqChannelId || '');
   const faqChannelId = configured && configured !== '1534654577385672917' ? configured : TICKET_FAQ_CHANNEL_ID;
-  const faq = () => new ButtonBuilder().setLabel('FAQ')
+  const support = () => new ButtonBuilder().setLabel('Support assistant')
     .setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${resolvedGuildId}/${faqChannelId}`)
-    .setEmoji('❔');
+    .setEmoji(supportBotEmoji(client));
   let found = false;
   const result = rows.map(row => new ActionRowBuilder().addComponents(row.components.map(button => {
     if (!isFaqLink(button)) return new ButtonBuilder(button);
     found = true;
-    return faq();
+    return support();
   })));
   if (!found) {
     const last = result.at(-1);
-    if (last?.components.length < 5) last.addComponents(faq());
-    else result.push(new ActionRowBuilder().addComponents(faq()));
+    if (last?.components.length < 5) last.addComponents(support());
+    else result.push(new ActionRowBuilder().addComponents(support()));
   }
   if (result.length > 5) throw new Error('Too many ticket control rows');
   return result;

@@ -49,7 +49,8 @@ export async function checkRateLimit(key, maxAttempts = 5, windowMs = 60000) {
     return false;
   } catch (error) {
     logger.error('Error checking rate limit:', error);
-    return true;
+    // A limiter failure must not silently grant additional requests.
+    return false;
   }
 }
 
