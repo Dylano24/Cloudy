@@ -713,17 +713,25 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   const w = world();
   const role = { id: '303030303030303030', mentionable: true };
   await create(w, { question: 'Map?', option1: 'West', option2: 'East', role });
-  const posted = w.sent[0];
-  assert.equal(json(posted.components[0]).content, '<@&303030303030303030>', 'the tag above the vote');
-  assert.deepEqual(posted.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'only that role is pinged');
-  const card = json(posted.components[1]);
+  // The tag is its own message right above the vote, never edited (owner's choice).
+  const tagMessage = w.sent[0];
+  assert.equal(tagMessage.content, '<@&303030303030303030>', 'the tag above the vote');
+  assert.deepEqual(tagMessage.allowedMentions, { parse: [], roles: ['303030303030303030'] }, 'only that role is pinged');
+  const posted = w.sent[1];
+  assert.deepEqual(posted.allowedMentions, { parse: [] }, 'the vote itself pings nobody');
+  assert.equal(json(posted.components[0]).type, 17, 'the vote has no tag inside it');
+  const card = json(posted.components[0]);
   assert.deepEqual(card.components.flatMap(part => (part.type === 9 ? part.components : part.type === 10 ? [part] : []))
     .map(part => part.content.split('\n')[0]),
     ['### The vote has started', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**'],
     'Question, Choices, then the how-to (owner\'s choice: where the description was)');
   assert.doesNotMatch(JSON.stringify(card), /Description/);
   const stored = await loadVote(w.client, GUILD, posted.id);
-  assert.equal(json(buildVoteMessage({ ...stored, ended: true }).components[0]).content, '<@&303030303030303030>', 'the tag stays on the vote');
+  assert.equal(stored.tagMessageId, tagMessage.id);
+  assert.equal(json(buildVoteMessage({ ...stored, ended: true }).components[0]).type, 17, 'a redraw never touches the tag');
+  // Older votes (tag inside the vote) keep it there.
+  const { tagMessageId, ...older } = stored;
+  assert.equal(json(buildVoteMessage(older).components[0]).content, '<@&303030303030303030>');
   // The result under the vote tags the same role when the vote ends.
   await endVoteNow(w.client, w.client.guilds.cache.get(GUILD), posted.id);
   const result = w.sent.at(-1);
@@ -747,7 +755,7 @@ test('tagging @everyone or a role that cannot be mentioned needs Mention Everyon
   await vote.execute(allowed);
   assert.ok(allowed.modal, 'staff may tag everyone');
   await submitVoteForm(w.form(allowed), allowed.id, { shrink: keepAsIs });
-  assert.equal(json(w.sent[0].components[0]).content, '@everyone');
+  assert.equal(w.sent[0].content, '@everyone');
   assert.deepEqual(w.sent[0].allowedMentions, { parse: ['everyone'] });
 });
 
@@ -890,4 +898,17 @@ test('2 seconds after posting the vote is redrawn once with its current counts, 
   assert.equal(posted.edits.length, 1, 'redrawn once');
   assert.deepEqual(countsOf(posted.edits[0]), ['0', '1'], 'with the vote cast in the meantime');
   t.mock.timers.reset();
+});
+
+test('a tie: Cloudy picks one tied option at random and says so under Most votes', async () => {
+  const { buildVoteResultMessage: result, voteWinners, TIE_TEXT } = await import('../src/services/voteService.js');
+  const vote = { guildId: GUILD, question: 'Map?', options: ['Map 1', 'Map 2', 'Map 3'], votes: { a: 0, b: 1 }, layout: 'preview', tieWinner: 1 };
+  assert.deepEqual(voteWinners(vote), [1], 'only the picked option');
+  const text = JSON.stringify(json(result(vote).components[0]));
+  assert.match(text, /\*\*Most votes\*\*\\n[^"]*Map 2[^"]*\\nThe vote ended in a tie, so the bot randomly selected one of the tied options\./);
+  assert.equal(TIE_TEXT, 'The vote ended in a tie, so the bot randomly selected one of the tied options.');
+  // No tie: the one winner and no sentence.
+  const clear = { ...vote, votes: { a: 0, b: 0, c: 1 }, tieWinner: undefined };
+  assert.deepEqual(voteWinners(clear), [0]);
+  assert.doesNotMatch(JSON.stringify(json(result(clear).components[0])), /tie/);
 });
