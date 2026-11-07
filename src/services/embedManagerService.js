@@ -1140,40 +1140,55 @@ export function loadRecordSnapshotIntoState(
         ...(sourcePreviewData || {}),
         ...(sourceData || {}),
     };
+    // A real Discord message shows exactly its own content (owner's choice):
+    // Cloudy's code copy ({dynamic} placeholders, \u200b, the code's own field
+    // names) and other messages of the same family only fill in a bot template
+    // without a real message. Otherwise a Save wrote them into the real post.
+    const physicalRecord = !record.detached
+        && !['system-catalog', 'runtime-preview'].includes(String(record.source || '').toLowerCase());
+    const sameMessage = candidate => Boolean(candidate)
+        && String(candidate.messageId || '') === String(record.messageId || '')
+        && String(candidate.backingChannelId || candidate.channelId || '')
+            === String(record.backingChannelId || record.channelId || '')
+        && Number(candidate.embedIndex || 0) === Number(record.embedIndex || 0);
+    const shownPreview = physicalRecord && !sameMessage(previewRecord) ? null : previewData;
+    const shownSource = physicalRecord ? null : sourceData;
+    const shownCodeCopy = physicalRecord ? null : sourcePreviewData;
 
     // A live/history peer can exist but still be sparse. Merge each visible
     // piece independently so one title-only peer can never hide the complete
     // source definition from the Builder preview.
-    let displayTitle = previewData?.title
-        || sourceData?.title
+    let displayTitle = shownPreview?.title
+        || shownSource?.title
         || data.title
-        || sourcePreviewData?.title;
-    let displayDescription = previewData?.description
-        || sourceData?.description
+        || shownCodeCopy?.title;
+    let displayDescription = shownPreview?.description
+        || shownSource?.description
         || data.description
-        || sourcePreviewData?.description;
-    let displayFields = Array.isArray(previewData?.fields) && previewData.fields.length
-        ? previewData.fields
-        : (Array.isArray(sourcePreviewData?.fields) && sourcePreviewData.fields.length
-            ? sourcePreviewData.fields
-            : (Array.isArray(sourceData?.fields) && sourceData.fields.length
-                ? sourceData.fields
+        || shownCodeCopy?.description;
+    let displayFields = Array.isArray(shownPreview?.fields) && shownPreview.fields.length
+        ? shownPreview.fields
+        : (Array.isArray(shownCodeCopy?.fields) && shownCodeCopy.fields.length
+            ? shownCodeCopy.fields
+            : (Array.isArray(shownSource?.fields) && shownSource.fields.length
+                ? shownSource.fields
                 : data.fields));
-    let displayFooter = previewData?.footer
-        || sourcePreviewData?.footer
-        || sourceData?.footer
+    let displayFooter = shownPreview?.footer
+        || shownCodeCopy?.footer
+        || shownSource?.footer
         || data.footer;
-    let displayImage = previewData?.image
-        || sourcePreviewData?.image
-        || sourceData?.image
+    let displayImage = shownPreview?.image
+        || shownCodeCopy?.image
+        || shownSource?.image
         || data.image;
-    let displayThumbnail = previewData?.thumbnail
-        || sourcePreviewData?.thumbnail
-        || sourceData?.thumbnail
+    let displayThumbnail = shownPreview?.thumbnail
+        || shownCodeCopy?.thumbnail
+        || shownSource?.thumbnail
         || data.thumbnail;
     const displaySourceData = {
-        ...(sourcePreviewData || {}),
-        ...(previewData || {}),
+        ...(physicalRecord ? data : {}),
+        ...(shownCodeCopy || {}),
+        ...(shownPreview || {}),
         ...(displayTitle ? { title: displayTitle } : {}),
         ...(displayDescription != null ? { description: displayDescription } : {}),
         ...(Array.isArray(displayFields) ? { fields: displayFields } : {}),
@@ -1243,12 +1258,12 @@ export function loadRecordSnapshotIntoState(
         : [];
     state.sideColor = savedDisplay.matched && Number.isInteger(savedDisplay.data.color)
         ? savedDisplay.data.color
-        : Number.isInteger(previewData?.color)
-        ? previewData.color
-        : (Number.isInteger(sourcePreviewData?.color)
-            ? sourcePreviewData.color
-            : (Number.isInteger(sourceData?.color)
-                ? sourceData.color
+        : Number.isInteger(shownPreview?.color)
+        ? shownPreview.color
+        : (Number.isInteger(shownCodeCopy?.color)
+            ? shownCodeCopy.color
+            : (Number.isInteger(shownSource?.color)
+                ? shownSource.color
                 : (Number.isInteger(data.color) ? data.color : 0xFFFFFF)));
     // A manually saved Builder embed owns its thumbnail choice. Never restore
     // a logo from a preview peer or a similarly named template behind its back.
