@@ -15,8 +15,11 @@ const BASE_EMOJIS = {
   unban: { name: 'unban', id: '1567878123259830384', fallback: '<a:unban:1567878123259830384>' },
   server: { name: 'server_router', id: '1567766741889585203', fallback: '<a:server_router:1567766741889585203>' },
   headshot: { name: 'headshot', id: '1567810194564583454', fallback: '<:headshot:1567810194564583454>' },
-  login: { name: 'cloudy_arrow_green_v3', crop: '52:72:38:24', id: '1567869645875191871', fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
-  logout: { name: 'cloudy_arrow_red_v3', crop: '52:72:38:24', id: '1567869661347840040', fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
+  // Login and Logout (owner's choice): the owner's own on and off emoji, found
+  // among the application's emojis by name (the id is not needed), whichever
+  // name it has now. Until it is found the old arrows are shown.
+  login: { name: 'cloudy_on', alsoNamed: ['cloudy_zorp_on'], fallback: '<a:cloudy_arrow_green:1567869645875191871>' },
+  logout: { name: 'cloudy_off', alsoNamed: ['cloudy_zorp_off'], fallback: '<a:cloudy_arrow_red:1567869661347840040>' },
   weapon: { name: 'X83rust4ar', id: '1543286149630656592', fallback: '<:X83rust4ar:1543286149630656592>' },
   killer: { name: 'killer_suit', id: '1567873111204958292', fallback: '<:killer_suit:1567873111204958292>' },
   victim: { name: 'victim_suit', id: '1567873113428070411', fallback: '<:victim_suit:1567873113428070411>' },
@@ -206,7 +209,7 @@ export async function ensureFeedEmojis(client) {
     try {
       const accessible = client.emojis?.cache?.get?.(emoji.id);
       if (accessible && !emoji.shrink && !emoji.crop && !emoji.unwhite) { resolved.set(key, markup(accessible)); continue; }
-      let own = [...existing.values()].find(item => item.name === emoji.name);
+      let own = [...existing.values()].find(item => item.name === emoji.name || emoji.alsoNamed?.includes(item.name));
       if (!own) {
         let image = emoji.file
           ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
