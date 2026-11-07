@@ -20,7 +20,7 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
         return;
     }
 
-    const payload = { embeds: [embed], components };
+    const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
 
     if (guildData.playerMessageId) {
         try {
