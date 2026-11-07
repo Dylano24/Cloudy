@@ -37,7 +37,7 @@ test.afterEach(() => clearGameFeedQueues());
 test('classic feed embeds with names in code, big logo, footer with small logo and Time', () => {
   const embeds = SAMPLE_GAME_FEED_EVENTS.map(event => buildGameFeedEmbed({ ...normalizeGameFeedEvent(event), streak: event.streak, protectedFor: event.protectedFor }));
   assert.deepEqual(embeds.map(embed => embed.title.replace(/^<a?:\w+:\d+> /, '')), [
-    'Kill feed', 'LOGIN', 'LOGOUT', 'Kit claimed',
+    'Kill feed', 'Login', 'Logout', 'Kit claimed',
     'ZORP', 'ZORP', 'Raid alert', 'BAN', 'UNBAN', 'Server wiped',
   ]);
   // Player killed (owner's choice): the skull before "Kill feed", labelled lines with the owner's icons; no headshot, distance or streak.
