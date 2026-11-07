@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { primeSystemSourceDefinitionPreview } from '../src/services/systemEmbedCatalogService.js';
 import { performance } from 'node:perf_hooks';
 import fs from 'node:fs';
 
@@ -174,6 +175,9 @@ test('an acknowledged guild Builder keeps its preview, dashboard and owner-only 
 
 
 test('clicking an offered catalog result uses its complete preview while unrelated storage is stalled', async t => {
+  // A Cloudy code template (Builder admission, owner's choice).
+  primeSystemSourceDefinitionPreview({ kind: 'embed', key: 'source:rare-preview', title: 'Rare fast preview example',
+    description: 'This complete catalog body must be visible on the first paint.', context: 'general/rare-preview' });
   const guildId = 'offered-search-fast-preview';
   const channelId = '111111111111111177';
   const messageId = '222222222222222277';

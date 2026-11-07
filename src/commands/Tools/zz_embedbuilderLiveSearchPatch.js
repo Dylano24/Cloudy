@@ -24,8 +24,9 @@ import {
 } from '../../services/embedRegistryService.js';
 import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
 import { refreshManualBuilderSearchRecord } from '../../services/embedBuilderPhysicalSearchService.js';
-import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
+import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData, getSavedEmbedTemplateRevision } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
+import { collectBuilderOwnerFlags, isBuilderRecordAdmitted } from '../../services/builderCatalogAdmission.js';
 import { FAQ_AI_BUTTON_ID } from '../../services/faqAiService.js';
 import { FIX_GUIDE_ASK_BUTTON_ID } from '../../events/cloudyOwnerAssistantReady.js';
 import {
@@ -33,7 +34,6 @@ import {
     ensureHiddenBuilderCatalogLoaded,
     isSystemCatalogHiddenFromBuilder,
     isBuilderSearchTitleHiddenFromBuilder,
-    isUnusedBuilderCatalogRecord,
     getSearchableSystemCatalogRecords,
     getSearchableSystemCatalogRevision,
     getSystemSourceDefinitionPreview,
@@ -782,7 +782,8 @@ function scheduleAutocompleteSearchRefresh(interaction) {
 export async function loadFastEmbedBuilderSearchRecords(interaction, { unfiltered = false } = {}) {
     const guildId = String(interaction.guildId || '');
     const generation = getEmbedRegistryGeneration(guildId);
-    const catalogRevision = getSearchableSystemCatalogRevision(guildId);
+    // Builder admission also depends on the owner's saved changes being loaded.
+    const catalogRevision = `${getSearchableSystemCatalogRevision(guildId)}:${getSavedEmbedTemplateRevision()}`;
     const cached = fastSearchCache.get(guildId);
 
     // First reuse the indexed source list: do not clone 3,000+ registry rows or
@@ -870,36 +871,13 @@ function mergeSearchRecords(guildId, registryRecords) {
             unique.set(key, record);
         }
     }
-    const merged = [...unique.values()];
-    const postedTitles = new Set(merged.filter(isPostedSearchRecord)
-        .map(record => searchUsageTitle(record.snapshot?.title || record.title)).filter(Boolean));
-    return merged.filter(record => !isUnusedBuilderSearchRecord(record, postedTitles));
-}
-
-// Search lists only what is really used (owner's choice): a bot reply found in
-// Cloudy's code appears once Cloudy has sent it in this server, once it was
-// saved in the Builder, or when a real message of it is posted in the server.
-// Real posts, fixed notifications, ticket templates and the Builder's own
-// notices always stay.
-function isPostedSearchRecord(record) {
-    const source = String(record?.source || '').toLowerCase();
-    return Boolean(record) && !record.detached && !['system-catalog', 'runtime-preview'].includes(source)
-        && Boolean(record.messageId) && !String(record.messageId).startsWith('draft-');
-}
-
-// Generic status titles say nothing about which reply was sent.
-const GENERIC_USAGE_TITLES = /^(?:success|error|warning|information|info|invalid|invalid input|failed|expired|done|saved|updated|not enough)$/;
-function searchUsageTitle(value) {
-    const title = normalize(value);
-    return title && !GENERIC_USAGE_TITLES.test(title) ? title : '';
-}
-
-function isUnusedBuilderSearchRecord(record, postedTitles = new Set()) {
-    if (!isUnusedBuilderCatalogRecord(record)) return false;
-    if (isPostedSearchRecord(record.previewRecord)) return false;
-    const title = searchUsageTitle(record.snapshot?.title || record.title);
-    if (title && postedTitles.has(title)) return false;
-    return !savedSearchSnapshot(record).matched;
+    // Builder admission (owner's choice, builderCatalogPolicy.js): one rule for
+    // every Search path. The owner flags of every stored copy count, because
+    // the in-memory catalog copy of an embed does not carry them.
+    const ownerFlags = collectBuilderOwnerFlags(combined);
+    return [...unique.values()].filter(record => isBuilderRecordAdmitted(record, {
+        ownerFlags: ownerFlags.get(`${String(record?.guildId || '')}:${String(record?.messageId || '')}:${Math.max(0, Number(record?.embedIndex) || 0)}`),
+    }));
 }
 
 function isInternalSearchRecord(record) {
@@ -1942,6 +1920,8 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     }
     if (isSearchDeleteHidden(record)) return null;
+    // An offered or cached choice still follows the current Builder admission.
+    if (!isBuilderRecordAdmitted(record)) return null;
     if (record.source === 'embed-builder' && record.manualSaved === true
         && !record.detached && interaction.guild) {
         // Every Save/Post/Reappear move commits its exact snapshot to the

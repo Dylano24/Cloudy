@@ -10,6 +10,22 @@ import { migrateCloudyLogoEmbedData } from './cloudyLogoService.js';
 import { stripBlackjackCardsRemaining } from '../utils/blackjackEmbedPresentation.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import {
+  BUILDER_CATALOG_POLICY_VERSION,
+  classifyBuilderRecord,
+  isBuilderDecisionVisible,
+  templateMetadata,
+  templateTextSignature,
+} from './builderCatalogPolicy.js';
+import {
+  RETIRED_TEMPLATE_CONTEXTS,
+  RETIRED_TEMPLATE_FAMILIES,
+  UPSTREAM_TEMPLATE_SIGNATURES,
+  definitionSourcePath,
+  isApprovedFeatureContext,
+  isApprovedUpstreamSourcePath,
+  isRetiredSourcePath,
+} from '../config/builderCatalogManifest.js';
+import {
   CLOUDY_RED_COLOR,
   CLOUDY_GREEN_COLOR,
   CLOUDY_YELLOW_COLOR,
@@ -49,18 +65,16 @@ function bumpSearchCatalogRevision(guildId) {
 // virtual response from Search must not delete its source or its botlog message.
 const hiddenBuilderCatalogByGuild = new Map();
 const hiddenBuilderCatalogLoads = new Map();
-// Search lists only what is really used (owner's choice): a bot reply found in
-// Cloudy's code appears once Cloudy has really sent it in the server (or after
-// a Builder Save). The keys of sent replies are remembered per server.
-const USED_BUILDER_CATALOG_PREFIX = 'cloudy:embed-builder-used-catalog:';
-const usedBuilderCatalogByGuild = new Map();
-const usedBuilderCatalogLoads = new Map();
-const usedBuilderCatalogEarly = new Map();
-const usedBuilderCatalogPersistTimers = new Map();
-const USED_BUILDER_CATALOG_PERSIST_MS = 5_000;
-// Keys of the bot replies found in Cloudy's code (not the fixed notifications,
-// ticket templates or Builder notices, which always stay in Search).
-const codeDiscoveredCatalogKeys = new Set();
+// Builder admission (owner's choice, builderCatalogPolicy.js): what the code
+// says about each template family, and the decisions recorded per server so an
+// archived example stays archived after its source file is renamed or removed.
+const BUILDER_DECISIONS_PREFIX = 'cloudy:embed-builder-catalog-policy:';
+const builderDecisionsByGuild = new Map();
+const builderDecisionLoads = new Map();
+const familySourceEvidence = new Map();
+const contextSourceEvidence = new Map();
+let sourceEvidenceReady = false;
+let fixedBuilderCatalogKeys = null;
 const hiddenBuilderCatalogWrites = new Map();
 const HIDDEN_BUILDER_CATALOG_PREFIX = 'cloudy:embed-builder-hidden-catalog:';
 
@@ -612,8 +626,8 @@ export function isSystemCatalogHiddenFromBuilder(record) {
 export async function ensureHiddenBuilderCatalogLoaded(guildId) {
   const id = String(guildId || '');
   if (!id) return new Set();
-  // Search waits for this; it also needs to know which replies were sent.
-  await ensureUsedBuilderCatalogLoaded(id).catch(() => null);
+  // Search waits for this; it also needs the recorded Builder decisions.
+  await ensureBuilderCatalogDecisionsLoaded(id).catch(() => null);
   if (hiddenBuilderCatalogByGuild.has(id)) return hiddenBuilderCatalogByGuild.get(id);
   if (hiddenBuilderCatalogLoads.has(id)) return hiddenBuilderCatalogLoads.get(id);
   const pending = getFromDb(HIDDEN_BUILDER_CATALOG_PREFIX + id, [])
@@ -626,109 +640,243 @@ export async function ensureHiddenBuilderCatalogLoaded(guildId) {
   return pending;
 }
 
-export async function ensureUsedBuilderCatalogLoaded(guildId) {
+export async function ensureBuilderCatalogDecisionsLoaded(guildId) {
   const id = String(guildId || '');
-  if (!id) return new Set();
-  if (usedBuilderCatalogByGuild.has(id)) return usedBuilderCatalogByGuild.get(id);
-  if (usedBuilderCatalogLoads.has(id)) return usedBuilderCatalogLoads.get(id);
-  // Strict: a database error must never look like "nothing was used yet".
-  // Until the list is known, Search simply shows everything.
-  const pending = getFromDb(USED_BUILDER_CATALOG_PREFIX + id, [], { strict: true })
+  if (!id) return null;
+  if (builderDecisionsByGuild.has(id)) return builderDecisionsByGuild.get(id);
+  if (builderDecisionLoads.has(id)) return builderDecisionLoads.get(id);
+  // Strict: a database error must never look like "no decisions". Until they
+  // are known, the Builder lists only proven own work and approved templates.
+  const pending = getFromDb(BUILDER_DECISIONS_PREFIX + id, null, { strict: true })
     .then(value => {
-      const used = new Set(Array.isArray(value) ? value.filter(item => typeof item === 'string') : []);
-      const early = usedBuilderCatalogEarly.get(id);
-      usedBuilderCatalogEarly.delete(id);
-      let added = false;
-      for (const key of early || []) {
-        if (!used.has(key)) {
-          used.add(key);
-          added = true;
-        }
-      }
-      usedBuilderCatalogByGuild.set(id, used);
+      const decisions = new Map(Object.entries(value?.decisions || {})
+        .filter(([, item]) => item?.decision === 'show' || item?.decision === 'archive'));
+      builderDecisionsByGuild.set(id, decisions);
       bumpSearchCatalogRevision(id);
-      if (added) scheduleUsedBuilderCatalogPersist(id);
-      return used;
-    }).finally(() => usedBuilderCatalogLoads.delete(id));
-  usedBuilderCatalogLoads.set(id, pending);
+      return decisions;
+    }).finally(() => builderDecisionLoads.delete(id));
+  builderDecisionLoads.set(id, pending);
   return pending;
 }
 
-function scheduleUsedBuilderCatalogPersist(id) {
-  if (usedBuilderCatalogPersistTimers.has(id)) return;
-  const timer = setTimeout(() => {
-    usedBuilderCatalogPersistTimers.delete(id);
-    void persistUsedBuilderCatalog(id).catch(error =>
-      logger.warn(`[EMBED_SEARCH] Could not store the sent replies: ${error?.message || error}`));
-  }, USED_BUILDER_CATALOG_PERSIST_MS);
-  timer.unref?.();
-  usedBuilderCatalogPersistTimers.set(id, timer);
-}
-
-async function persistUsedBuilderCatalog(id) {
-  const used = usedBuilderCatalogByGuild.get(id);
-  if (!used) return;
-  // Merge with the stored list first, so nothing that was stored is lost.
-  const stored = await getFromDb(USED_BUILDER_CATALOG_PREFIX + id, [], { strict: true });
-  for (const key of Array.isArray(stored) ? stored : []) {
-    if (typeof key === 'string') used.add(key);
+function fixedBuilderKeys() {
+  if (!fixedBuilderCatalogKeys) {
+    fixedBuilderCatalogKeys = new Set(
+      [...DEFAULT_TEMPLATES, TICKET_MAIN_CATALOG_TEMPLATE, ...TICKET_LOG_CATALOG_TEMPLATES]
+        .map(entry => normalize(definitionToCatalog(entry).key)).filter(Boolean),
+    );
+    fixedBuilderCatalogKeys.add(normalize(BALANCE_RESPONSE_KEY));
   }
-  await setInDb(USED_BUILDER_CATALOG_PREFIX + id, [...used]);
+  return fixedBuilderCatalogKeys;
 }
 
-/** Remembers that Cloudy really sent this reply in the server. */
-export function markBuilderCatalogUsed(guildId, key) {
-  const id = String(guildId || '');
-  const normalizedKey = normalize(key);
-  if (!id || !normalizedKey) return false;
-  const used = usedBuilderCatalogByGuild.get(id);
-  if (!used) {
-    const early = usedBuilderCatalogEarly.get(id) || new Set();
-    early.add(normalizedKey);
-    usedBuilderCatalogEarly.set(id, early);
-    void ensureUsedBuilderCatalogLoaded(id).catch(() => null);
-    return true;
-  }
-  if (used.has(normalizedKey)) return false;
-  used.add(normalizedKey);
-  bumpSearchCatalogRevision(id);
-  scheduleUsedBuilderCatalogPersist(id);
-  return true;
+// Cloudy's fixed notifications, ticket and casino templates and the Builder's
+// own notices: always listed.
+function isFixedBuilderCatalogFamily(key, context) {
+  const k = normalize(key);
+  const c = normalize(context);
+  return fixedBuilderKeys().has(k)
+    || k === 'ticket-main' || /^(?:game:|ticket-log:|source:ticket:|builder:)/.test(k)
+    || isTicketContext(c) || /^ticket-(?:logs|transcripts)(?:\/|$)/.test(c)
+    || /embed-?builder|embed-manager/.test(c);
 }
 
-// Fixed notifications, ticket templates and the Builder's own notices always
-// stay in Search; only the replies found in Cloudy's code are filtered.
-function isAlwaysListedCatalogContext(context) {
-  const value = normalize(context);
-  return isTicketContext(value) || /^ticket-(?:logs|transcripts)(?:\/|$)/.test(value)
-    || /embed-?builder|embed-manager/.test(value);
-}
-
-export function rememberCodeDiscoveredCatalogKeys(definitions = []) {
-  const fixed = new Set([...DEFAULT_TEMPLATES, TICKET_MAIN_CATALOG_TEMPLATE, ...TICKET_LOG_CATALOG_TEMPLATES]
-    .map(entry => normalize(definitionToCatalog(entry).key)));
-  codeDiscoveredCatalogKeys.clear();
-  for (const definition of definitions) {
-    if (normalize(definition?.kind) === 'content' || isAlwaysListedCatalogContext(definition?.context)) continue;
-    const key = normalize(definitionToCatalog(definition).key);
-    if (key && !fixed.has(key)) codeDiscoveredCatalogKeys.add(key);
-  }
-  return codeDiscoveredCatalogKeys.size;
+function sourceCatalogEntry(definition) {
+  return definitionToCatalog(isTicketContext(definition.context)
+    ? { ...definition, key: `source:ticket:${shortHash(`${definition.context}|${canonicalSystemEmbedResponseTitle(definition.title)}`)}` }
+    : definition);
 }
 
 /**
- * True for a Search catalog entry that only comes from Cloudy's code and was
- * never sent in this server (owner's choice: Search lists what is used).
- * Unknown (not loaded yet) means false: then Search shows everything.
+ * What the code says about every template family: made or reworded for
+ * Cloudy, an unchanged TitanBot example, approved or retired. Built from the
+ * discovered definitions before Cloudy adjusts their footers.
  */
-export function isUnusedBuilderCatalogRecord(record) {
-  if (String(record?.source || '').toLowerCase() !== 'system-catalog' || record?.manualSaved === true) return false;
-  const used = usedBuilderCatalogByGuild.get(String(record.guildId || ''));
-  if (!used || !codeDiscoveredCatalogKeys.size) return false;
-  const metadata = parseTemplateMetadata(record.snapshot || record.sourceRecord?.snapshot || {});
-  if (!metadata.key || !codeDiscoveredCatalogKeys.has(metadata.key)) return false;
-  if (isAlwaysListedCatalogContext(metadata.context)) return false;
-  return !used.has(metadata.key);
+function combineSourceEvidence(map, id, item) {
+  const current = map.get(id);
+  map.set(id, current ? {
+    known: true,
+    // Archived only when every definition of the family is archived.
+    retired: current.retired && item.retired,
+    upstreamOriginal: current.upstreamOriginal && item.upstreamOriginal,
+    approved: current.approved || item.approved,
+    paths: [...new Set([...current.paths, ...item.paths])],
+  } : item);
+}
+
+function addCatalogSourceEvidence(definition, upstreamSignatures = UPSTREAM_TEMPLATE_SIGNATURES) {
+  const entry = sourceCatalogEntry(definition);
+  if (!entry?.key) return false;
+  const file = definitionSourcePath(definition);
+  const signature = templateTextSignature(definition);
+  const item = {
+    known: true,
+    retired: isRetiredSourcePath(file),
+    upstreamOriginal: Boolean(signature) && upstreamSignatures.has(signature),
+    approved: isApprovedUpstreamSourcePath(file),
+    paths: file ? [file] : [],
+  };
+  combineSourceEvidence(familySourceEvidence, `${normalize(entry.context)}|${normalize(entry.key)}`, item);
+  combineSourceEvidence(contextSourceEvidence, normalize(entry.context), item);
+  sourceEvidenceReady = true;
+  return true;
+}
+
+export function rememberCatalogSourceEvidence(definitions = [], {
+  upstreamSignatures = UPSTREAM_TEMPLATE_SIGNATURES,
+  retiredFamilies = RETIRED_TEMPLATE_FAMILIES,
+} = {}) {
+  familySourceEvidence.clear();
+  contextSourceEvidence.clear();
+  for (const definition of definitions) addCatalogSourceEvidence(definition, upstreamSignatures);
+  for (const family of retiredFamilies) {
+    if (!familySourceEvidence.has(family)) {
+      familySourceEvidence.set(family, { known: true, retired: true, upstreamOriginal: true, approved: false, paths: [] });
+    }
+  }
+  sourceEvidenceReady = true;
+  for (const guildId of new Set([...searchableCatalogRevisionByGuild.keys(), ...builderDecisionsByGuild.keys()])) {
+    bumpSearchCatalogRevision(guildId);
+  }
+  return familySourceEvidence.size;
+}
+
+const RETIRED_EVIDENCE = Object.freeze({ known: true, retired: true, upstreamOriginal: true, approved: false, paths: [] });
+const APPROVED_CONTEXT_EVIDENCE = Object.freeze({ known: true, retired: false, upstreamOriginal: true, approved: true, paths: [] });
+
+function catalogFamilySourceEvidence(context, keys) {
+  const c = normalize(context);
+  // Retired command templates stay archived, also before the code is scanned
+  // and after their files are removed.
+  if (keys.some(key => RETIRED_TEMPLATE_FAMILIES.has(`${c}|${normalize(key)}`))) return RETIRED_EVIDENCE;
+  if (sourceEvidenceReady) {
+    for (const key of keys) {
+      const family = familySourceEvidence.get(`${c}|${normalize(key)}`);
+      if (family) return family;
+    }
+    // A family Cloudy learned from a real reply: judge it by its feature's code.
+    const byContext = contextSourceEvidence.get(c);
+    if (byContext) return byContext;
+  }
+  if (RETIRED_TEMPLATE_CONTEXTS.has(c)) return RETIRED_EVIDENCE;
+  if (isApprovedFeatureContext(c)) return APPROVED_CONTEXT_EVIDENCE;
+  return null;
+}
+
+function catalogFamilyKeys(metadata, snapshot) {
+  const keys = [metadata.key];
+  try {
+    const canonical = normalize(semanticCatalogKey(metadata, snapshot));
+    if (canonical && canonical !== metadata.key) keys.push(canonical);
+  } catch {
+    // An unreadable legacy row keeps its stored key only.
+  }
+  return keys;
+}
+
+const TICKET_LOG_TITLE = /^(?:ticket (?:created|closed|deleted|claimed|unclaimed|pinned|unpinned|reopened)|priority updated|transcript generated|feedback received)$/;
+
+// An old catalog row without template metadata can only be recognised by its
+// title: Cloudy's ticket log and casino templates.
+function isTitleOnlyFixedFamily(title) {
+  const visible = normalize(String(title || '').replace(/<a?:[^:>]+:\d+>/g, ' ').replace(/[^\p{L}\p{N}\s$:—-]/gu, ' '));
+  if (!visible) return false;
+  if (TICKET_LOG_TITLE.test(visible)) return true;
+  return ['gambling/blackjack', 'gambling/baccarat', 'gambling/roulette']
+    .some(context => /^game:/.test(getSystemEmbedTemplateKey('embed', String(title || ''), '', context)));
+}
+
+/** The Builder decision for one catalog record (owner flags and overlay evidence come from the caller). */
+export function classifyBuilderCatalogRecord(record, { ownerFlags = null, savedOverlay = false } = {}) {
+  const snapshot = record?.snapshot || record?.sourceRecord?.snapshot || {};
+  const metadata = templateMetadata(snapshot);
+  const keys = metadata.key ? catalogFamilyKeys(metadata, snapshot) : [];
+  const fixedTemplate = keys.length
+    ? keys.some(key => isFixedBuilderCatalogFamily(key, metadata.context))
+    : isTitleOnlyFixedFamily(snapshot.title || record?.title || record?.name);
+  const source = keys.length ? catalogFamilySourceEvidence(metadata.context, keys) : null;
+  const decisions = builderDecisionsByGuild.get(String(record?.guildId || ''));
+  const durableDecision = keys.map(key => decisions?.get(`${metadata.context}|${key}`)?.decision).find(Boolean) || null;
+  return classifyBuilderRecord(record, { ownerFlags, savedOverlay, fixedTemplate, source, durableDecision });
+}
+
+/** Reliable once the code evidence is built and this server's decisions are loaded. */
+export function isBuilderCatalogStateReliable(guildId) {
+  return sourceEvidenceReady && builderDecisionsByGuild.has(String(guildId || ''));
+}
+
+/** Whether the Builder lists this record (only catalog templates can be left out). */
+export function isBuilderCatalogRecordVisible(record, { reliable = true, ...evidence } = {}) {
+  if (String(record?.source || '').toLowerCase() !== 'system-catalog') return true;
+  if (isSystemCatalogHiddenFromBuilder(record)) return false;
+  return isBuilderDecisionVisible(classifyBuilderCatalogRecord(record, evidence), {
+    reliable: reliable && isBuilderCatalogStateReliable(record.guildId),
+  });
+}
+
+// What the code alone decides for a family that is not (yet) in the catalog.
+function staticCatalogDecision(key, context) {
+  if (isFixedBuilderCatalogFamily(key, context)) return 'show';
+  const source = catalogFamilySourceEvidence(context, [key]);
+  if (!source) return 'review';
+  const metadataOnly = {
+    source: 'system-catalog',
+    snapshot: { author: { name: `${TEMPLATE_KEY_PREFIX} ${key}${TEMPLATE_CONTEXT_SEPARATOR} ${context}` } },
+  };
+  return classifyBuilderRecord(metadataOnly, { source }).decision;
+}
+
+/**
+ * Only templates the Builder lists are created in the catalog: an archived
+ * example of the old code is never (re)created by a restart or a reply.
+ */
+function mayCreateCatalogEntry(entry) {
+  if (!entry?.key) return false;
+  return staticCatalogDecision(entry.key, entry.context) === 'show';
+}
+
+/**
+ * Records the code's decision for every family in this server's catalog, so
+ * it stays in force after the source file is renamed or removed. Never writes
+ * without the stored list (strict read), and merges with what is stored.
+ */
+async function recordBuilderCatalogDecisions(guildId) {
+  const id = String(guildId || '');
+  if (!id || !sourceEvidenceReady) return false;
+  const decisions = await ensureBuilderCatalogDecisionsLoaded(id).catch(() => null);
+  if (!decisions) return false;
+  const updates = new Map();
+  for (const record of searchableCatalogRecords.values()) {
+    if (String(record.guildId) !== id) continue;
+    const metadata = templateMetadata(record.snapshot);
+    if (!metadata.key) continue;
+    const keys = catalogFamilyKeys(metadata, record.snapshot);
+    if (keys.some(key => isFixedBuilderCatalogFamily(key, metadata.context))) continue;
+    const source = catalogFamilySourceEvidence(metadata.context, keys);
+    if (!source) continue;
+    const decision = classifyBuilderRecord({ source: 'system-catalog', snapshot: record.snapshot }, { source });
+    if (decision.decision !== 'show' && decision.decision !== 'archive') continue;
+    const family = `${metadata.context}|${metadata.key}`;
+    if (decisions.get(family)?.decision === decision.decision) continue;
+    updates.set(family, {
+      decision: decision.decision,
+      reasons: decision.reasons,
+      policyVersion: BUILDER_CATALOG_POLICY_VERSION,
+      decidedAt: new Date().toISOString(),
+    });
+  }
+  if (!updates.size) return true;
+  const stored = await getFromDb(BUILDER_DECISIONS_PREFIX + id, null, { strict: true });
+  const merged = { ...(stored?.decisions || {}) };
+  for (const [family, item] of updates) merged[family] = item;
+  const saved = await setInDb(BUILDER_DECISIONS_PREFIX + id, {
+    version: BUILDER_CATALOG_POLICY_VERSION,
+    decisions: merged,
+  });
+  if (saved === false) return false;
+  for (const [family, item] of updates) decisions.set(family, item);
+  bumpSearchCatalogRevision(id);
+  return true;
 }
 
 // Delete in the Builder removes a searchable *response type*, not merely one
@@ -945,6 +1093,8 @@ export function primeSystemSourceDefinitionPreview(definition = {}) {
   const beforeTitle = sourceDefinitionCache.size;
   const beforeKey = sourceDefinitionKeyCache.size;
   rememberSourceDefinition(definition);
+  // A primed definition is a code definition: it counts as code evidence too.
+  addCatalogSourceEvidence(definition);
   return sourceDefinitionCache.size > beforeTitle
     || sourceDefinitionKeyCache.size > beforeKey
     || Boolean(getSystemSourceDefinitionPreviewForEmbed(definitionToCatalog(definition).data));
@@ -1074,10 +1224,13 @@ export function getBuiltInSystemCatalogCoverage(guildId) {
   };
 }
 
+// The returned list carries `complete`: false when Discord could not be read to
+// the end. Then nothing may be forgotten (saved IDs) or added twice.
 async function loadCatalogMessages(context) {
-  const storedIds = await getFromDb(storageKey(context.guild.id), []);
-  const ids = Array.isArray(storedIds) ? storedIds.map(String).filter(Boolean) : [];
-  if (!ids.length) return [];
+  const storedIds = await getFromDb(storageKey(context.guild.id), [], { strict: true }).catch(() => null);
+  if (!Array.isArray(storedIds)) return Object.assign([], { complete: false });
+  const ids = storedIds.map(String).filter(Boolean);
+  if (!ids.length) return Object.assign([], { complete: true });
 
   const wanted = new Set(ids);
   const found = new Map();
@@ -1092,12 +1245,17 @@ async function loadCatalogMessages(context) {
     oldestWanted = null;
   }
 
+  let complete = true;
   while (wanted.size) {
     const batch = await context.channel.messages.fetch({
       limit: 100,
       ...(before ? { before } : {}),
     }).catch(() => null);
-    if (!batch?.size) break;
+    if (!batch) {
+      complete = false;
+      break;
+    }
+    if (!batch.size) break;
 
     for (const message of batch.values()) {
       const id = String(message.id);
@@ -1119,7 +1277,7 @@ async function loadCatalogMessages(context) {
     }
   }
 
-  return ids.map(id => found.get(id)).filter(Boolean);
+  return Object.assign(ids.map(id => found.get(id)).filter(Boolean), { complete });
 }
 
 async function saveCatalogIds(guildId, messages) {
@@ -1355,7 +1513,7 @@ async function editCatalogLocation(location, data) {
   return location.message.edit({ content: CATALOG_CONTENT, embeds }).catch(() => null);
 }
 
-async function syncSourceDefinitionEntries(context, messages, sourceDefinitions = []) {
+async function syncSourceDefinitionEntries(context, messages, sourceDefinitions = [], { allowCreate = true } = {}) {
   if (!sourceDefinitions.length) return 0;
   const baselineKey = sourceBaselineStorageKey(context.guild.id);
   const previousBaseline = await getFromDb(baselineKey, {});
@@ -1378,7 +1536,9 @@ async function syncSourceDefinitionEntries(context, messages, sourceDefinitions 
     }
 
     if (!location) {
-      if (await appendCatalogEntry(context, entry, messages)) changedCount += 1;
+      if (await appendCatalogEntry(context, entry, messages, {
+        allowCreate: allowCreate && mayCreateCatalogEntry(entry),
+      })) changedCount += 1;
       nextBaseline[entry.key] = { variantId: normalizedDefinition.variantId, data: cloneData(entry.data) };
       continue;
     }
@@ -1429,7 +1589,7 @@ async function syncSourceDefinitionEntries(context, messages, sourceDefinitions 
   return changedCount;
 }
 
-async function appendCatalogEntry(context, entry, messages) {
+async function appendCatalogEntry(context, entry, messages, { allowCreate = true } = {}) {
   if (!entry?.key || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
   const identity = `${String(context.guild.id)}::${entryIdentity(entry)}`;
   const existingLocation = findCatalogEntry(messages, entry);
@@ -1472,6 +1632,8 @@ async function appendCatalogEntry(context, entry, messages) {
     return true;
   }
 
+  // Builder admission: only templates the Builder lists are created.
+  if (!allowCreate) return false;
   let target = messages.at(-1) || null;
   let embeds = target ? target.embeds.map(embed => embed.toJSON()) : [];
   const entryData = cloneData(entry.data);
@@ -1671,6 +1833,8 @@ function scheduleFlush() {
 
 function queueRuntimeEntry(entry) {
   if (!entry?.key || !isEditableSystemCatalogTemplate(entry.key, entry.context)) return false;
+  // Builder admission: a reply only teaches the catalog a template the Builder lists.
+  if (!mayCreateCatalogEntry(entry)) return false;
   const identity = cacheIdentity(entry.key, entry.context, entry.guildId);
   const pending = pendingTemplates.get(identity);
   if (pending) {
@@ -1718,8 +1882,6 @@ export function captureSystemEmbedData(embedData, contextSource = null) {
   if (isInternalTemplate(data)) return false;
   const key = resolveEmbedSourceAlias(context, data.title)
     || getSystemEmbedTemplateKey('embed', data.title, data.description, context);
-  // Cloudy really sent this reply: from now on it is listed in Search.
-  if (key && guildId) markBuilderCatalogUsed(guildId, key);
   if (!key || !isEditableSystemCatalogTemplate(key, context)) return false;
 
   const reusableData = cloneData(data);
@@ -1912,7 +2074,12 @@ export function applyPlainResponseTemplate(payload, contextSource = null) {
 }
 
 async function buildSystemEmbedCatalogs(client) {
-  const discoveredDefinitions = (await discoverStaticTemplates()).map(normalizeDiscoveredDefinition);
+  // Copies: the footers are adjusted below, and the cached discovery must stay
+  // as the code wrote it (a second build would otherwise see changed text).
+  const discoveredDefinitions = (await discoverStaticTemplates())
+    .map(definition => normalizeDiscoveredDefinition(structuredClone(definition)));
+  // Builder admission: read the code's evidence before the footers are adjusted below.
+  rememberCatalogSourceEvidence(discoveredDefinitions);
   plainSourceAliases.clear();
   embedSourceAliases.clear();
   embedLegacyKeyAliases.clear();
@@ -1934,7 +2101,6 @@ async function buildSystemEmbedCatalogs(client) {
   }
   const definitions = discoveredDefinitions.filter(definition =>
     !isCuratedCasinoContext(definition.context));
-  rememberCodeDiscoveredCatalogKeys(definitions);
 
   sourceDefinitionCache.clear();
   sourceDefinitionKeyCache.clear();
@@ -1962,11 +2128,15 @@ async function buildSystemEmbedCatalogs(client) {
     const context = { guild, channel };
     contexts.set(guild.id, context);
     const messages = await loadCatalogMessages(context);
+    const catalogComplete = messages.complete !== false;
+    if (!catalogComplete) {
+      logger.warn(`[EMBED_BUILDER] Response catalog of guild ${guild.id} could not be read completely; nothing is added or forgotten this time.`);
+    }
     await cleanupSystemCatalogEntries(messages);
     for (const message of messages) rememberCatalogMessage(message);
 
     const sourceDefinitions = definitions.filter(definition => normalize(definition.kind) === 'content');
-    totalAdded += await syncSourceDefinitionEntries(context, messages, sourceDefinitions);
+    totalAdded += await syncSourceDefinitionEntries(context, messages, sourceDefinitions, { allowCreate: catalogComplete });
 
     const entries = [
       ...DEFAULT_TEMPLATES.map(definitionToCatalog),
@@ -1977,11 +2147,15 @@ async function buildSystemEmbedCatalogs(client) {
     ];
 
     for (const entry of entries) {
-      if (await appendCatalogEntry(context, entry, messages)) totalAdded += 1;
+      if (await appendCatalogEntry(context, entry, messages, {
+        allowCreate: catalogComplete && mayCreateCatalogEntry(entry),
+      })) totalAdded += 1;
     }
 
-    await saveCatalogIds(guild.id, messages);
+    if (catalogComplete) await saveCatalogIds(guild.id, messages);
     await registerCatalogMessages(messages).catch(error => logger.warn(`Failed to register response catalog messages: ${error.message}`));
+    await recordBuilderCatalogDecisions(guild.id).catch(error =>
+      logger.warn(`[EMBED_BUILDER] Builder decisions not recorded for guild ${guild.id}: ${error?.message || error}`));
 
     const coverage = getBuiltInSystemCatalogCoverage(guild.id);
     if (!coverage.complete) {
@@ -2003,6 +2177,16 @@ async function buildSystemEmbedCatalogs(client) {
   await flushPendingTemplates();
   logger.warn(`[EMBED_BUILDER] Response catalog ready: ${definitions.length} source definitions, ${totalAdded} newly indexed or enriched.`);
   return { definitions: definitions.length, added: totalAdded };
+}
+
+/**
+ * Lets the next ensureSystemEmbedCatalogs run the full startup build again,
+ * as after a restart (tests and recovery). With forgetBuilderDecisions the
+ * in-memory Builder decisions are dropped too, so they are read back from storage.
+ */
+export function resetSystemEmbedCatalogInitialization({ forgetBuilderDecisions = false } = {}) {
+  catalogEnsurePromise = null;
+  if (forgetBuilderDecisions) builderDecisionsByGuild.clear();
 }
 
 export function ensureSystemEmbedCatalogs(client) {
@@ -2064,14 +2248,18 @@ async function flushPendingTemplates() {
 
   for (const context of contexts.values()) {
     const messages = await loadCatalogMessages(context);
+    const complete = messages.complete !== false;
     await cleanupSystemCatalogEntries(messages);
     for (const message of messages) rememberCatalogMessage(message);
     for (const entry of queued) {
       if (entry.guildId && String(entry.guildId) !== String(context.guild.id)) continue;
-      await appendCatalogEntry(context, entry, messages).catch(error => {
+      // A reply teaches the catalog only a template the Builder lists.
+      await appendCatalogEntry(context, entry, messages, {
+        allowCreate: complete && mayCreateCatalogEntry(entry),
+      }).catch(error => {
         logger.warn(`Failed to append or enrich runtime response template: ${error.message}`);
       });
     }
-    await saveCatalogIds(context.guild.id, messages);
+    if (complete) await saveCatalogIds(context.guild.id, messages);
   }
 }
