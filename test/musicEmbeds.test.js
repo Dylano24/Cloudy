@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChannelType, Collection } from 'discord.js';
-import { buildNowPlayingEmbed, buildQueueEmbed } from '../src/services/music/musicEmbeds.js';
+import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
+import { InteractionHelper } from '../src/utils/interactionHelper.js';
+import playCommand from '../src/commands/Music/play.js';
+import nowCommand from '../src/commands/Music/now.js';
+import nowplayingCommand from '../src/commands/Music/nowplaying.js';
+import queueCommand from '../src/commands/Music/queue.js';
+import musicCommand from '../src/commands/Music/music.js';
 import { refreshPlayerMessage } from '../src/services/music/playerHandler.js';
 import { deleteGuildMusicData, getGuildMusicData } from '../src/services/music/playerStore.js';
 
@@ -16,7 +22,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
   assert.deepEqual(embed.fields.map(field => [field.name, field.value]), [
-    ['Artist', 'Artist'], ['Requested by', 'Dawg'], ['Progress', '1:00 / 3:00'], ['Status', 'Paused'],
+    ['Artist', 'Artist'], ['Requested by', 'Dawg'], ['Progress', '▰▰▰▰▱▱▱▱▱▱▱▱\n1:00 / 3:00'], ['Status', 'Paused'],
     ['Volume', '80%'], ['Loop', 'Off'], ['Queue', '1 track'],
   ]);
 });
@@ -49,4 +55,93 @@ test('a new player panel goes to #music; an existing panel keeps its message', a
   assert.deepEqual(sent.map(entry => entry.channel), ['🎧│music']);
   assert.equal(data.playerChannelId, music.id);
   deleteGuildMusicData(guildId);
+});
+
+test('public song announcement includes verified artwork, artist, album and queue position', () => {
+  const song = { info: { ...track.info, albumName: 'Example album', requester: { username: 'Test user' } } };
+  const queued = buildMusicRequestEmbed(song, { queuePosition: 2 }).toJSON();
+  assert.equal(queued.title, 'Added to queue');
+  assert.equal(queued.image.url, song.info.artworkUrl);
+  assert.match(queued.description, /\*\*Song\*\*\nArtist/);
+  assert.ok(queued.fields.some(field => field.name === 'Album' && field.value === 'Example album'));
+  assert.ok(queued.fields.some(field => field.name === 'Queue position' && field.value === '#2'));
+  assert.equal(buildMusicRequestEmbed(song, { playNow: true }).toJSON().title, 'Now playing');
+  assert.equal(formatMusicProgress(0, 180_000), '▱'.repeat(12));
+  assert.equal(formatMusicProgress(180_000, 180_000), '▰'.repeat(12));
+  assert.equal(formatMusicProgress(0, 0), null);
+});
+
+test('music guide documents the real slash commands and keeps Cloudy branding', () => {
+  const guide = buildMusicGuideEmbed().toJSON();
+  assert.equal(guide.title, 'Cloudy music');
+  assert.match(guide.description, /\/now playing/);
+  assert.match(guide.description, /\/play/);
+  assert.equal(guide.footer.text, FOOTER);
+  assert.match(guide.thumbnail.url, /cloudy-c-logo/);
+  assert.ok(musicCommand.data.toJSON().options.some(o => o.name === 'guide'));
+  const now = nowCommand.data.toJSON();
+  assert.equal(now.name, 'now');
+  assert.ok(now.options.some(o => o.name === 'playing'));
+});
+
+test('play slash reply is public and includes song cover instead of hiding it', async t => {
+  let deferOptions = 'not-called';
+  let publicReply = null;
+  t.mock.method(InteractionHelper, 'safeDefer', async (_interaction, options) => {
+    deferOptions = options;
+    return true;
+  });
+  t.mock.method(InteractionHelper, 'safeEditReply', async (_interaction, payload) => {
+    publicReply = payload;
+    return true;
+  });
+  const currentTrack = { info: { ...track.info, albumName: 'Example album' } };
+  const queue = [];
+  queue.add = entry => queue.push(entry);
+  const player = {
+    current: null, playing: false, paused: false, queue, voiceChannel: 'voice-channel',
+    setVolume() {}, play() { this.playing = true; },
+  };
+  const client = {
+    riffy: {
+      players: new Map([['test-music-server', player]]),
+      resolve: async () => ({ loadType: 'track', tracks: [currentTrack] }),
+    },
+  };
+  const interaction = {
+    guild: { id: 'test-music-server' },
+    channel: { id: 'music-channel' },
+    member: { voice: { channel: { id: 'voice-channel' } } },
+    user: { id: 'test-user', username: 'Test user' },
+    options: { getString: () => 'Song' },
+  };
+  await playCommand.execute(interaction, {}, client);
+  assert.equal(deferOptions, undefined, 'slash response is visible to everyone');
+  assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
+  assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
+  assert.equal(queue.length, 1);
+});
+
+test('now playing and queue commands publicly show the live track', async t => {
+  const deferred = [];
+  const edits = [];
+  t.mock.method(InteractionHelper, 'safeDefer', async (_interaction, options) => {
+    deferred.push(options);
+    return true;
+  });
+  t.mock.method(InteractionHelper, 'safeEditReply', async (_interaction, payload) => {
+    edits.push(payload);
+    return true;
+  });
+  const player = { current: track, position: 30_000, queue: [], paused: false };
+  const client = { riffy: { players: new Map([['test-music-server-2', player]]) } };
+  const interaction = {
+    guild: { id: 'test-music-server-2' },
+    options: { getInteger: () => 1 },
+  };
+  await nowplayingCommand.execute(interaction, {}, client);
+  await nowCommand.execute(interaction, {}, client);
+  await queueCommand.execute(interaction, {}, client);
+  assert.deepEqual(deferred, [undefined, undefined, undefined]);
+  assert.deepEqual(edits.map(payload => payload.embeds[0].toJSON().title), ['Now playing', 'Now playing', 'Music queue']);
 });
