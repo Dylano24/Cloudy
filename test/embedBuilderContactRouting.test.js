@@ -105,3 +105,27 @@ test('contact panel templates stay in contact-us while real ticket logs stay in 
   assert.equal(transcriptRecord?.channelId, ticketLogs.id);
   assert.notEqual(contactRecord?.channelId, ticketLogs.id);
 });
+
+
+test('a Staff team catalog template mentioning contact us is never placed in #contact-us', async () => {
+  installTestStorage();
+  const contactUs = textChannel('200000000000000301', 'contact-us', 1);
+  const staffTeam = textChannel('200000000000000302', 'staff-team', 2);
+  const botlog = textChannel('200000000000000303', 'botlog', 3);
+  const catalog = textChannel('299999999999999998', 'system-embed-catalog', 4);
+  const guild = { id: '100000000000000301', channels: { cache: new Map(
+    [contactUs, staffTeam, botlog, catalog].map(channel => [channel.id, channel])
+  ) } };
+  const staffEmbed = {
+    title: 'Staff team',
+    description: 'If you need help, contact us using the button below.',
+    author: { name: 'Cloudy template key: staff:ready || Cloudy context: botlog/staff-team-ready || Cloudy kind: embed' },
+  };
+  const messageId = '300000000000000301';
+  await registerCloudyEmbedMessage(catalogMessage({ guild, id: messageId, embed: staffEmbed }));
+  const records = await getEmbedRegistry(guild.id);
+  const record = records.find(item => item.messageId === messageId);
+  assert.ok(record, 'catalog staff template remains discoverable');
+  assert.notEqual(record.channelId, contactUs.id, 'mentioning contact us must not hijack routing');
+  assert.equal(record.channelId, botlog.id, 'staff system template stays in botlog context');
+});
