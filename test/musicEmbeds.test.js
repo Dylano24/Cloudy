@@ -87,8 +87,9 @@ test('music guide documents the real slash commands and keeps Cloudy branding', 
 test('play slash reply is public and includes song cover instead of hiding it', async t => {
   let deferOptions = 'not-called';
   let publicReply = null;
-  t.mock.method(InteractionHelper, 'safeDefer', async (_interaction, options) => {
+  t.mock.method(InteractionHelper, 'safeDefer', async (targetInteraction, options) => {
     deferOptions = options;
+    targetInteraction.deferred = true;
     return true;
   });
   t.mock.method(InteractionHelper, 'safeEditReply', async (_interaction, payload) => {
