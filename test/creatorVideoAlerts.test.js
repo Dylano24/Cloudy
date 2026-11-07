@@ -42,12 +42,12 @@ function sourceMock() {
   const feed = () => {
     const videos = generation === 0 ? ['abcdefghi12'] : ['abcdefghi34', 'abcdefghi12'];
     return '<?xml version="1.0"?><feed>' + videos.map((id, i) =>
-      `<entry><yt:videoId>${id}</yt:videoId><published>2026-11-0${generation === 0 ? 6 : 7}T0${i}:00:00+00:00</published></entry>`).join('') + '</feed>';
+      `<entry><yt:videoId>${id}</yt:videoId><published>2026-11-0${i === 0 && generation === 1 ? 7 : 6}T0${i}:00:00+00:00</published></entry>`).join('') + '</feed>';
   };
   const twitch = () => ({
     data: (generation === 0 ? ['900'] : ['901', '900']).map((id, i) => ({
       id, url: 'https://www.twitch.tv/videos/' + id,
-      created_at: `2026-11-0${generation === 0 ? 6 : 7}T0${i}:00:00Z`,
+      created_at: `2026-11-0${i === 0 && generation === 1 ? 7 : 6}T0${i}:00:00Z`,
     })),
   });
   const tiktok = () => ({
