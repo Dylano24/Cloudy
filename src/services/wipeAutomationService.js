@@ -257,6 +257,18 @@ export async function changeAutoWipeEntry(client, guildId, id, userId, enter, no
   });
 }
 
+export async function refreshAutoWipeEntryMessage(client, guildId, id, message) {
+  if (!message?.id) return false;
+  // The interaction and the scheduler share the same session lock. Never let
+  // an older click overwrite a later participant count or an ended card.
+  return Mutex.runExclusive(sessionKey(guildId, id), async () => {
+    const session = await getSession(client, guildId, id);
+    if (!session || session.messageId !== message.id) return false;
+    await message.edit(autoWipeGiveawayPayload(session));
+    return true;
+  });
+}
+
 async function finishWipeGiveaway(client, guild, id, now) {
   await Mutex.runExclusive(sessionKey(guild.id, id), async () => {
     let session = await getSession(client, guild.id, id);
