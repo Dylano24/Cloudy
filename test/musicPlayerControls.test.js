@@ -124,7 +124,7 @@ test('Add cannot be opened from an outdated player or different voice channel', 
   const replies = [];
   const interaction = {
     guild: { id: guildId }, member: f.member, user: f.user,
-    id: `button-denial-${num}`, createdTimestamp: Date.now(),
+    id: 'music-add-button-denial', createdTimestamp: Date.now(),
     message: { id: 'old-message' },
     customId: MUSIC_BUTTON_IDS.ADD,
     showModal: async () => { opens++; },
