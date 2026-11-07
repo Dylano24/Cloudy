@@ -4,7 +4,7 @@ import { Collection } from 'discord.js';
 import {
   autoWipeGiveawayPayload, changeAutoWipeEntry, configureWipeAutomation,
   expirePreviousWipeRoles, getWipeAutomationConfig, observeWipeEvent,
-  runWipeAutomationTick, setWipeAutomationState, syncWipePrize, wipeSessionId,
+  refreshAutoWipeEntryMessage, runWipeAutomationTick, setWipeAutomationState, syncWipePrize, wipeSessionId,
 } from '../src/services/wipeAutomationService.js';
 import automationCommand from '../src/commands/Giveaway/automation.js';
 import wipeCommand from '../src/commands/Giveaway/wipe.js';
@@ -162,6 +162,22 @@ test('a wipe kit giveaway is entered without claims/rerolls, ends once and syncs
   await expirePreviousWipeRoles(f.client,f.guild,SERVER,futureWipe+8*24*60*MINUTE);
   assert.equal(f.roles.has(ROLE),false,'next wipe removes role');
   assert.equal((await syncWipePrize(f.client,f.member)).status,'not-winner','prize cannot sync after next wipe');
+});
+
+test('participant clicks refresh only the current giveaway message, not a duplicate or stale count', async () => {
+  const f=fixture();
+  await configureWipeAutomation(f.client,GUILD,'giveaway',kitCfg);
+  await setWipeAutomationState(f.client,GUILD,'giveaway','running');
+  await observeWipeEvent(f.client,f.guild,{type:'status',server:SERVER,nextWipe:futureWipe});
+  const id=wipeSessionId(GUILD,SERVER,futureWipe),message=f.giveaways.posts[0];
+  assert.equal((await changeAutoWipeEntry(f.client,GUILD,id,USER,true)).status,'entered');
+  const changed=await refreshAutoWipeEntryMessage(f.client,GUILD,id,message);
+  assert.equal(changed,true);
+  assert.equal(f.edits.length,1);
+  assert.match(message.embeds[0].description, /\*\*Participants\*\*\n1/);
+  assert.equal(f.giveaways.posts.length,1,'no duplicate post');
+  assert.equal(await refreshAutoWipeEntryMessage(f.client,GUILD,id,{id:'old',edit:async()=>{}}),false);
+  assert.equal(f.edits.length,1,'never update a stale message');
 });
 
 test('bad configuration, unknown role, invalid session and wrong guild never trigger actions', async () => {
