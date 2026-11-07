@@ -22,7 +22,6 @@ const sessionKey = (guildId, id) => `guild:${guildId}:wipe-automation:giveaway:$
 const sentKey = (guildId, kind, id) => `guild:${guildId}:wipe-automation:sent:${kind}:${id}`;
 const nameKey = name => String(name || '').trim().toLowerCase();
 const validGuild = guild => guild?.id === AUTO_WIPE_GUILD_ID;
-const missing = value => value == null || value === '';
 
 export function wipeSessionId(guildId, server, wipeAt) {
   return createHash('sha256').update(`${guildId}:${nameKey(server)}:${wipeAt}`).digest('hex').slice(0, 20);
@@ -305,14 +304,13 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
   }
 }
 
-export async function syncWipePrize(client, member, now = Date.now()) {
+export async function syncWipePrize(client, member) {
   const guild = member?.guild;
   if (!validGuild(guild)) return { status: 'unavailable' };
   for (const id of await getHistory(client, guild.id)) {
     const result = await Mutex.runExclusive(sessionKey(guild.id, id), async () => {
       const session = await getSession(client, guild.id, id);
-      if (!session || session.status !== 'ended' || !session.winners.includes(member.id)
-        || session.wipeAt + 45 * 24 * 60 * MINUTE < now) return null;
+      if (!session || session.status !== 'ended' || !session.winners.includes(member.id)) return null;
       if (session.synced.includes(member.id)) return { status: 'already', session };
       const role = guild.roles?.cache?.get(session.roleId)
         || await guild.roles?.fetch?.(session.roleId).catch(() => null);
