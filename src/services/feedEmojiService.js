@@ -105,6 +105,10 @@ for (const [key, file, fallback] of [
 }
 // The link icon is the owner's own animated `cloudy_link` (owner's choice).
 BASE_EMOJIS.ban_link = { name: 'cloudy_link', id: '1568299107930341608', fallback: '<a:cloudy_link:1568299107930341608>' };
+// The reason signs a little smaller (owner's choice): the same picture with
+// more empty room around it, uploaded under a new name.
+BASE_EMOJIS.ban_reason = { ...BASE_EMOJIS.ban_reason, name: 'ban_reason_small', file: '../../assets/feed-emojis/ban_reason_small.gif' };
+BASE_EMOJIS.ban_reason_green = { ...BASE_EMOJIS.ban_reason_green, name: 'ban_reason_green_small', file: '../../assets/feed-emojis/ban_reason_green_small.gif' };
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
