@@ -38,6 +38,8 @@ const BASE_EMOJIS = {
   // ZORP on/off (owner's choice): the owner's own cloudy_zorp_on / cloudy_zorp_off.
   on: { name: 'cloudy_zorp_on', id: '1568458840775729264', fallbackKey: 'on_swipe', fallback: '<a:cloudy_zorp_on:1568458840775729264>' },
   off: { name: 'cloudy_zorp_off', id: '1568458812761833632', fallbackKey: 'off_swipe', fallback: '<a:cloudy_zorp_off:1568458812761833632>' },
+  // Raid alert (owner's choice): the owner's red warning sign, uploaded by Cloudy.
+  raid: { name: 'cloudy_alert', file: '../../assets/feed-emojis/cloudy_alert.gif', fallback: '⚠️' },
   on_swipe: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
   off_swipe: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
 };

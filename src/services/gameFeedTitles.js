@@ -12,6 +12,6 @@ const FEED_FOOTER = /^© Cloudy Inc\. • .+ • (?:kill|player|zorp|raid|ban|wi
 export function isGameFeedEmbed(embed) {
   const data = embed?.toJSON ? embed.toJSON() : embed;
   if (FEED_FOOTER.test(String(data?.footer?.text || ''))) return true;
-  return TITLES.has(String(data?.title || '').replace(/<a?:\w+:\d+>/g, '').trim().toLowerCase())
+  return TITLES.has(String(data?.title || '').replace(/<a?:\w+:\d+>|⚠️?/g, '').trim().toLowerCase())
     && String(data?.footer?.text || '').startsWith('© Cloudy Inc.');
 }
