@@ -37,6 +37,12 @@ export function createContentCreatorGuideManager() {
     loadState: channel => channel.client.db.get(key(channel)),
     saveState: (channel, state) => channel.client.db.set(key(channel), state),
     isGuide,
+    async onPublished(message) {
+      // New sticky/reposted physical IDs must appear in Builder Search, too.
+      const { registerCloudyEmbedMessage } = await import('./embedRegistryService.js');
+      const saved = await registerCloudyEmbedMessage(message, 'content-creators');
+      if (!saved) throw new Error('Could not register newly posted creator guide');
+    },
     async prepareExisting(message) {
       if (message.guildId && message.channelId) {
         const { registerCloudyEmbedMessage } = await import('./embedRegistryService.js');

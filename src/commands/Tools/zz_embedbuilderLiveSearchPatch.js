@@ -22,7 +22,10 @@ import {
     peekEmbedRegistry,
     resolveEmbedRegistryRecord,
 } from '../../services/embedRegistryService.js';
-import { canonicalBuilderResponseTitle, getCanonicalBuilderRecords } from '../../services/embedManagerService.js';
+import {
+    canonicalBuilderResponseTitle, getCanonicalBuilderRecords,
+    contentCreatorGuideRecordIdentity,
+} from '../../services/embedManagerService.js';
 import { refreshManualBuilderSearchRecord } from '../../services/embedBuilderPhysicalSearchService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
 import { hydrateBuilderPreviewRecord } from '../../services/builderRuntimePreviewService.js';
@@ -284,9 +287,10 @@ function savedSearchSnapshot(record) {
     const remembered = record && autocompleteSnapshots?.get(record);
     if (remembered) return remembered;
     const raw = record?.snapshot || getEmbedRegistrySnapshot(record) || {};
-    // An explicitly saved manual Builder post owns its exact title. Do not
-    // let a similarly named global bot response overlay rename it in Search.
-    if (record?.manualSaved && String(record.source || '') === 'embed-builder') {
+    // The content creator guides are separate per-channel physical messages.
+    // Neither a global same-title overlay nor a manual post can rename another.
+    if (contentCreatorGuideRecordIdentity(record)
+        || (record?.manualSaved && String(record.source || '') === 'embed-builder')) {
         const result = { matched: false, data: raw };
         autocompleteSnapshots?.set(record, result);
         return result;
@@ -435,6 +439,10 @@ function automatedTicketLogFamily(record) {
 }
 
 export function recordTitle(record) {
+    if (contentCreatorGuideRecordIdentity(record)) {
+        const data = savedSearchSnapshot(record).data;
+        return clean(data?.title || record?.title || record?.name || 'Content creators', 100);
+    }
     // Automatic ticket instances share one event type in Search, including
     // legacy bot registrations marked manualSaved. Explicit owner template
     // overrides and manually posted Builder messages remain untouched.
@@ -1141,6 +1149,8 @@ function exactAutomatedSearchIdentity(record, document = null) {
 }
 
 function computeExactAutomatedSearchIdentity(record, document = null) {
+    const creatorId = contentCreatorGuideRecordIdentity(record);
+    if (creatorId) return creatorId;
     const source = String(record?.source || '').toLowerCase();
     if (source === 'embed-builder') return manualSearchIdentity(record);
     const ticketLog = automatedTicketLogFamily(record);
@@ -1202,6 +1212,9 @@ function searchRecordCompleteness(record) {
 }
 
 function compatibleSearchShape(leftRecord, rightRecord, leftDocument, rightDocument) {
+    // The channel itself owns each creator guide; same titles are not peers.
+    if (contentCreatorGuideRecordIdentity(leftRecord)
+        || contentCreatorGuideRecordIdentity(rightRecord)) return false;
     if (normalize(leftDocument?.title) !== normalize(rightDocument?.title)) return false;
 
     const leftSource = String(leftRecord?.source || '').toLowerCase();
@@ -1688,9 +1701,20 @@ export function buildSearchChoices(matches) {
         // Discord's native autocomplete menu must show the embed title ONLY.
         // No description, member, ticket, channel or preview body is part of
         // the choice label; all those details remain in the live preview.
-        const title = explicitTitle
-            ? humanSearchChoiceTitle(document?.title || 'Embed')
-            : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
+        const creatorId = contentCreatorGuideRecordIdentity(record);
+        const creatorChannel = creatorId
+            ? String(record.channelName || document?.channel?.name || '').split('│').at(-1)
+                .trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+            : '';
+        // Discord autocompletes cannot render custom emoji markup as images.
+        // Show the real embed title plus its channel to make each guide unique.
+        const creatorTitle = String(document?.title || 'Content creators')
+            .replace(/<a?:[^:>]+:\d+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const title = creatorId
+            ? clean(`${creatorTitle || 'Content creators'} — ${creatorChannel.charAt(0).toUpperCase() + creatorChannel.slice(1)}`, 100)
+            : explicitTitle
+                ? humanSearchChoiceTitle(document?.title || 'Embed')
+                : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
         const key = normalize(title);
         if (!key) continue;
         const value = selectionValue(record);
