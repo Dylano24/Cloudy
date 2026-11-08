@@ -6,7 +6,10 @@ import { amsterdamParts, parseAmsterdamStart } from '../src/services/automationS
 import {
   openAutomationDashboard, handleAutomationBuilderInteraction,
 } from '../src/services/automationBuilderService.js';
-import { getWipeAutomationConfig, runWipeAutomationTick } from '../src/services/wipeAutomationService.js';
+import {
+  getWipeAutomationConfig, runWipeAutomationTick,
+  configureWipeAutomation, setWipeAutomationState,
+} from '../src/services/wipeAutomationService.js';
 
 const GUILD = '1532882647838228723';
 const CHANNEL = '1569000000000000999';
@@ -57,7 +60,7 @@ function fixture() {
   let view = null, modal = null;
   const base = { guildId: GUILD, guild, client, user, memberPermissions };
 
-  async function open(kind) {
+  async function open(kind, { showList = false } = {}) {
     const interaction = {
       ...base,
       options: { getSubcommand: () => kind },
@@ -65,8 +68,10 @@ function fixture() {
     };
     await autoCommand.execute(interaction, {}, client);
     assert.equal(view.flags, MessageFlags.Ephemeral);
-    const firstButton = view.components[0].toJSON().components[0];
+    const firstButton = view.components.flatMap(row => row.toJSON().components)
+      .find(component => component.type === 2);
     const id = firstButton.custom_id.split(':').at(-1);
+    if (kind === 'vote') await action(id, showList ? 'manage' : 'new');
     return id;
   }
 
@@ -113,8 +118,10 @@ test('new /auto giveaway and /auto vote are real subcommands beside existing fee
 test('vote builder has one private dashboard, channel chooser, modal inputs and scheduled control actions', async () => {
   const f = fixture();
   const id = await f.open('vote');
-  assert.equal(f.view.components.length, 4);
+  assert.equal(f.view.components.length, 5);
   assert.equal(f.view.components[2].toJSON().components[0].type, 8);
+  assert.deepEqual(f.view.components[4].toJSON().components.map(item => item.label),
+    ['Back', 'Delete vote']);
   assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
     ['Edit details', 'Schedule', 'Randomize: off']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
@@ -127,7 +134,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.match(f.view.embeds[0].toJSON().description, new RegExp(CHANNEL));
   await f.action(id, 'details');
   assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
-    ['question', 'option1', 'option2', 'option3']);
+    ['name', 'question', 'option1', 'option2', 'option3']);
   await f.submit(id, 'details', {
     question: 'Best map?', option1: 'First', option2: 'Second', option3: 'Third',
   });
@@ -142,7 +149,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   await f.action(id, 'random');
   assert.match(f.view.embeds[0].toJSON().description, /Randomize:\*\* On/);
   await f.action(id, 'save');
-  let saved = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  let saved = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
   assert.equal(saved.state, 'stopped');
   assert.equal(saved.channelId, CHANNEL);
   assert.equal(saved.repeatMinutes, 15);
@@ -153,8 +160,8 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
     'start becomes available only after saving');
 
   await f.action(id, 'start');
-  saved = (await getWipeAutomationConfig(f.client, GUILD)).vote;
-  assert.equal(saved.state, 'running');
+  saved = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
+  assert.equal(saved.state, 'running', f.view.embeds[0].toJSON().description);
   await runWipeAutomationTick(f.client, saved.nextRunAt + 10);
   assert.equal(f.posts.length, 1);
   assert.equal(f.view.components[1].toJSON().components[1].disabled, true,
@@ -162,12 +169,12 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(f.view.components[1].toJSON().components[2].disabled, false,
     'pause is enabled while running');
   await f.action(id, 'pause');
-  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'paused');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'paused');
   assert.equal(f.view.components[1].toJSON().components[1].label, 'Resume');
   await f.action(id, 'start');
-  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'running');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running');
   await f.action(id, 'stop');
-  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'stopped');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'stopped');
 });
 
 test('giveaway builder supports prizes, role choice, and safe repeated scheduling', async () => {
@@ -209,7 +216,7 @@ test('dashboard rejects foreign users and cannot start without a posting channel
   await f.submit(id, 'details', { question: 'Test?', option1: 'A', option2: 'B' });
   const result = await f.action(id, 'save');
   assert.match(result.view.embeds[0].toJSON().description, /Select a posting channel first/i);
-  assert.equal(result.view.components.length, 4, 'validation must not close the dashboard');
+  assert.equal(result.view.components.length, 5, 'validation must not close the dashboard');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote, null);
 });
 
@@ -304,12 +311,12 @@ test('Save does not stop a running vote and Start never implicitly saves edits',
   await f.submit(id, 'details', { question: 'Your map?', option1: 'A', option2: 'B' });
   await f.action(id, 'save');
   await f.action(id, 'start');
-  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'running');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running');
   await f.action(id, 'random');
   const buttons = f.view.components[1].toJSON().components;
   assert.equal(buttons[1].disabled, true, 'Start cannot silently save pending edits');
   await f.action(id, 'save');
-  const updated = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  const updated = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
   assert.equal(updated.state, 'running', 'saving an active configuration must not stop it');
   assert.equal(updated.randomize, true);
 });
@@ -336,12 +343,16 @@ test('both dashboards accept an actual Netherlands calendar date and 1d duration
     assert.match(f.view.embeds[0].toJSON().description,
       new RegExp(`Start date:\\*\\* <t:${Math.floor(expected / 1000)}:F>`));
     await f.action(id, 'save');
-    let config = (await getWipeAutomationConfig(f.client, GUILD))[kind];
+    let config = kind === 'vote'
+      ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
     assert.equal(config.schedule, 'once');
     assert.equal(config.startAt, expected);
     assert.equal(config.durationMinutes, 1440);
     await f.action(id, 'start');
-    config = (await getWipeAutomationConfig(f.client, GUILD))[kind];
+    config = kind === 'vote'
+      ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
     assert.equal(config.nextRunAt, expected);
     assert.equal(config.state, 'running');
   }
@@ -376,4 +387,140 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     assert.deepEqual(f.modal.components.map(row => row.components[0].label),
       ['Connected Rust server name', 'Before wipe', 'Duration']);
   }
+});
+
+test('/auto vote opens a Feed-style flow and can create, select, edit, and delete votes', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  assert.equal(f.view.embeds[0].toJSON().title, 'Auto vote');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', {
+    name: 'Daily map vote', question: 'First vote question', option1: 'One', option2: 'Two',
+  });
+  await f.action(id, 'save');
+  const first = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
+  await f.action(id, 'list');
+  assert.match(f.view.embeds[0].toJSON().description, /Daily map vote/);
+  assert.match(f.view.embeds[0].toJSON().description, new RegExp(CHANNEL));
+  assert.match(f.view.embeds[0].toJSON().description, /stopped/);
+  assert.equal(f.view.components[0].toJSON().components[0].options[0].value, first.id);
+
+  await f.action(id, 'back');
+  assert.deepEqual(f.view.components[0].toJSON().components.map(x => x.label),
+    ['Add vote', 'Manage vote']);
+  await f.action(id, 'new');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { question: 'Second vote question', option1: 'A', option2: 'B' });
+  await f.action(id, 'save');
+  await f.action(id, 'list');
+  assert.match(f.view.embeds[0].toJSON().description, /Select the vote you want to manage/);
+  assert.equal(f.view.components[0].toJSON().components[0].options.length, 2);
+
+  await f.action(id, 'select', [first.id]);
+  assert.match(f.view.embeds[0].toJSON().description, /First vote question/);
+  await f.submit(id, 'details', {
+    name: 'Daily map vote', question: 'First vote updated', option1: 'Yes', option2: 'No',
+  });
+  await f.action(id, 'save');
+  const votes = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs;
+  assert.deepEqual(votes.map(v => v.question), ['First vote updated', 'Second vote question']);
+  assert.deepEqual(votes.map(v => v.name), ['Daily map vote', '']);
+  assert.equal(votes[0].id, first.id);
+  await f.action(id, 'delete');
+  assert.match(f.view.embeds[0].toJSON().description, /Confirm delete/);
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs.length, 2);
+  await f.action(id, 'delete');
+  assert.equal(f.view.embeds[0].toJSON().title, 'Auto vote');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs.length, 1);
+  assert.match(f.view.embeds[0].toJSON().description, /Second vote question/);
+});
+
+test('existing legacy vote is visible in the list and its schedule stays intact', async () => {
+  const f = fixture();
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'Previously saved vote', maps: ['Map A', 'Map B'], channelId: CHANNEL,
+  });
+  await setWipeAutomationState(f.client, GUILD, 'vote', 'running');
+  const original = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  const id = await f.open('vote', { showList: true });
+  assert.match(f.view.embeds[0].toJSON().description, /Previously saved vote/);
+  assert.match(f.view.embeds[0].toJSON().description, /running/);
+  assert.equal(f.view.components[0].toJSON().components[0].options[0].value, 'legacy');
+  await f.action(id, 'select', ['legacy']);
+  assert.match(f.view.embeds[0].toJSON().description, /Previously saved vote/);
+  assert.equal(f.view.components[1].toJSON().components[2].disabled, false);
+  await f.action(id, 'list');
+  const current = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(current.question, original.question);
+  assert.equal(current.nextRunAt, original.nextRunAt);
+  assert.equal(current.state, 'running');
+});
+
+test('auto vote list can be reopened and reflects saved statuses without needing a second bot message', async () => {
+  const f = fixture();
+  const originalId = await f.open('vote');
+  await f.action(originalId, 'channel', [CHANNEL]);
+  await f.submit(originalId, 'details', {
+    question: 'Recurring question', option1: 'Red', option2: 'Blue',
+  });
+  await f.action(originalId, 'save');
+  await f.action(originalId, 'start');
+  const id = await f.open('vote', { showList: true });
+  const description = f.view.embeds[0].toJSON().description;
+  assert.match(description, /Recurring question/);
+  assert.match(description, /running/);
+  assert.match(description, /Next:/);
+  assert.equal(f.view.embeds[0].toJSON().color, 0xFFFFFF);
+  await f.action(id, 'refresh');
+  assert.match(f.view.embeds[0].toJSON().description, /Recurring question/);
+});
+
+test('older Rust-wipe auto votes without an explicit schedule are listed accurately', async () => {
+  const f = fixture();
+  await f.db.set(`guild:${GUILD}:wipe-automations:v1`, {
+    vote: {
+      server: 'Cloudy Rust', question: 'Original Rust wipe vote',
+      maps: ['Map A', 'Map B'], beforeMinutes: 45, durationMinutes: 5,
+      state: 'running',
+    },
+    wipes: {},
+  });
+  const id = await f.open('vote', { showList: true });
+  assert.match(f.view.embeds[0].toJSON().description, /Original Rust wipe vote/);
+  assert.match(f.view.embeds[0].toJSON().description, /Rust wipe/);
+  await f.action(id, 'select', ['legacy']);
+  assert.match(f.view.embeds[0].toJSON().description, /45 minutes before the.*Rust.*wipe/i);
+  const choices = f.view.components[3].toJSON().components[0].options;
+  assert.equal(choices.find(x => x.value === 'wipe').default, true);
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.schedule, undefined);
+});
+
+test('auto vote landing page matches the Cloudy feed Add/Manage flow', async () => {
+  const f = fixture();
+  const initial = await openAutomationDashboard({
+    ...f.base, async reply(payload) { return payload; },
+  }, 'vote');
+  const embed = initial.embeds[0].toJSON();
+  assert.equal(embed.title, 'Auto vote');
+  assert.equal(embed.color, 0xFFFFFF);
+  assert.equal(initial.flags, MessageFlags.Ephemeral);
+  assert.deepEqual(initial.components[0].toJSON().components.map(button => button.label),
+    ['Add vote', 'Manage vote']);
+  assert.equal(initial.components[0].toJSON().components[1].disabled, true,
+    'cannot manage votes when none are saved');
+
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'Existing map vote', maps: ['Map A', 'Map B'],
+  });
+  const id = await f.open('vote', { showList: true });
+  assert.deepEqual(f.view.components.map(row => row.toJSON().components.map(x => x.type)),
+    [[3], [2]], 'manage shows a select and a Back row just like Auto feed');
+  await f.action(id, 'back');
+  assert.deepEqual(f.view.components[0].toJSON().components.map(button => button.label),
+    ['Add vote', 'Manage vote']);
+  assert.equal(f.view.components[0].toJSON().components[1].disabled, false);
+  await f.action(id, 'manage');
+  assert.match(f.view.embeds[0].toJSON().description, /Existing map vote/);
 });
