@@ -13,8 +13,14 @@ const TARGETS = Object.freeze([
   },
   {
     channelId: '1554538607233073182',
-    messageId: '1568741702309646388',
+    messageId: '1568769178540707934',
     buttons: { Instructions: { id: '1543287391131803749', name: 'Y98boosterdiscordnitro', animated: true } },
+  },
+  {
+    channelId: '1554538586001645679',
+    messageId: '1568514711941816442',
+    buttons: {},
+    rename: { Assistant: 'Cloudy assistant' },
   },
   {
     channelId: '1554538650761691260',
@@ -37,8 +43,13 @@ export async function reconcileRequestedButtonEmojis(client) {
     let dirty = false;
     for (const row of components) {
       for (const button of row.components || []) {
+        if (button.type !== 2) continue;
+        if (target.rename?.[button.label] && button.custom_id === 'faq_ai_question') {
+          button.label = target.rename[button.label];
+          dirty = true;
+        }
         const emoji = target.buttons[button.label];
-        if (!emoji || button.type !== 2) continue;
+        if (!emoji) continue;
         // Respect any already-chosen custom emoji. Only replace absent or
         // generic chat bubble; never reword or move an existing button.
         if (button.emoji?.id || (button.emoji && button.emoji.name !== '💬')) continue;
