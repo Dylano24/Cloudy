@@ -43,7 +43,7 @@ function addChannel(client, guild, id, extras = {}) {
   return channel;
 }
 
-test('panel replaces Services with Other, with rating initially disabled', () => {
+test('panel replaces Services with Other and keeps both public dropdowns available', () => {
   assert.deepEqual(Object.values(SERVICE_REVIEW_TYPES), [
     'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Other',
   ]);
@@ -52,7 +52,7 @@ test('panel replaces Services with Other, with rating initially disabled', () =>
   assert.equal(rows[0].components[0].custom_id, SERVICE_REVIEW_SELECT_ID);
   assert.deepEqual(rows[0].components[0].options.map(option => option.label), Object.values(SERVICE_REVIEW_TYPES));
   assert.equal(rows[1].components[0].custom_id, SERVICE_REVIEW_RATING_ID);
-  assert.equal(rows[1].components[0].disabled, true);
+  assert.equal(rows[1].components[0].disabled, false);
   assert.deepEqual(rows[1].components[0].options.map(option => option.label),
     ['★', '★★', '★★★', '★★★★', '★★★★★']);
   assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 5);
@@ -61,7 +61,7 @@ test('panel replaces Services with Other, with rating initially disabled', () =>
   assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Bot development'));
   assert.equal(serviceReviewModal('development', 5).toJSON().custom_id, 'service_review_modal:development:5');
   assert.throws(() => serviceReviewModal('servers', 5), /Invalid review details/);
-  assert.equal(serviceReviewRatingRow().toJSON().components[0].disabled, true);
+  assert.equal(serviceReviewRatingRow().toJSON().components[0].disabled, false);
   assert.equal(serviceReviewRatingRow('other', true).toJSON().components[0].custom_id,
     'service_review_rating:other');
   const chosen = serviceReviewPanelRows('bot').map(row => row.toJSON());
@@ -98,7 +98,7 @@ test('reconciliation migrates existing embed to two menus in-place, without dupl
   assert.equal(message.id, '1568560974548697170');
   assert.equal(message.embeds[0], originalEmbed);
   assert.equal(message.components.length, 2);
-  assert.equal(message.components[1].toJSON().components[0].disabled, true);
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
   assert.equal(edits, 1);
   const again = await reconcileServiceReviewsPanel(client);
   assert.equal(again.action, 'preserved');
@@ -125,29 +125,27 @@ test('reviewers choose categories and ratings privately without changing the sha
       this.edits += 1;
     },
   };
-  const prompts = [];
+  const acknowledged = [];
   const choose = {
     customId: SERVICE_REVIEW_SELECT_ID, channelId: REVIEWS, guildId: GUILD_ID,
     isStringSelectMenu: () => true, values: ['bot'],
     user, guild, client, message: publicMessage,
-    reply: async payload => { prompts.push(payload); },
+    deferUpdate: async () => { acknowledged.push('ack'); },
+    reply: async () => { throw new Error('No private rating message should be sent'); },
   };
   await serviceReviewInteraction.execute(choose);
   await serviceReviewInteraction.execute({
     ...choose, user: anotherUser, values: ['other'],
   });
-  assert.equal(prompts.length, 2);
-  assert.ok(prompts.every(prompt => prompt.flags === MessageFlags.Ephemeral));
-  assert.deepEqual(prompts.map(prompt => prompt.components[0].toJSON().components[0].custom_id), [
-    'service_review_rating:bot', 'service_review_rating:other',
-  ]);
+  assert.equal(acknowledged.length, 2);
+  assert.equal(publicMessage.components[1].toJSON().components[0].disabled, false);
   assert.equal(publicMessage.edits, 0, 'no person may change the public selectors');
   assert.deepEqual(publicMessage.components.map(row => row.toJSON()),
     serviceReviewPanelRows().map(row => row.toJSON()));
 
   let shown;
   await serviceReviewInteraction.execute({
-    ...choose, customId: 'service_review_rating:bot', values: ['4'],
+    ...choose, customId: SERVICE_REVIEW_RATING_ID, values: ['4'],
     showModal: async modal => { shown = modal.toJSON(); },
   });
   assert.equal(shown.custom_id, 'service_review_modal:bot:4');
@@ -155,7 +153,7 @@ test('reviewers choose categories and ratings privately without changing the sha
 
   let otherModal;
   await serviceReviewInteraction.execute({
-    ...choose, user: anotherUser, customId: 'service_review_rating:other', values: ['5'],
+    ...choose, user: anotherUser, customId: SERVICE_REVIEW_RATING_ID, values: ['5'],
     showModal: async modal => { otherModal = modal.toJSON(); },
   });
   assert.equal(otherModal.custom_id, 'service_review_modal:other:5');

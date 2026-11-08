@@ -1,15 +1,12 @@
 import {
-  ActionRowBuilder,
   Events,
   MessageFlags,
-  StringSelectMenuBuilder,
 } from 'discord.js';
 import {
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
-  buildRatingPrompt,
   buildStaffReviewModal,
   ensureStaffReviewStarEmoji,
   isOwnerReviewTarget,
@@ -49,46 +46,6 @@ function clearSelectedOwner(interaction) {
   selectedOwners.delete(selectionKey(interaction));
 }
 
-function buildResetReviewRows(interaction) {
-  const existingMemberMenu = interaction.message?.components?.[0]?.components?.[0];
-  const existingRatingMenu = interaction.message?.components?.[1]?.components?.[0];
-  if (!existingMemberMenu || !existingRatingMenu) return null;
-
-  const memberData = typeof existingMemberMenu.toJSON === 'function'
-    ? existingMemberMenu.toJSON()
-    : existingMemberMenu;
-  const ratingData = typeof existingRatingMenu.toJSON === 'function'
-    ? existingRatingMenu.toJSON()
-    : existingRatingMenu;
-
-  const memberMenu = new StringSelectMenuBuilder({
-    ...memberData,
-    custom_id: STAFF_REVIEW_MEMBER_ID,
-    placeholder: 'Choose the staff member',
-    disabled: false,
-    options: (memberData.options || []).map(option => ({
-      ...option,
-      default: false,
-    })),
-  });
-
-  const ratingMenu = new StringSelectMenuBuilder({
-    ...ratingData,
-    custom_id: STAFF_REVIEW_RATING_ID,
-    placeholder: 'Choose your rating',
-    disabled: true,
-    options: (ratingData.options || []).map(option => ({
-      ...option,
-      default: false,
-    })),
-  });
-
-  return [
-    new ActionRowBuilder().addComponents(memberMenu),
-    new ActionRowBuilder().addComponents(ratingMenu),
-  ];
-}
-
 function resolveModalContext(interaction) {
   const modalPrefix = `${STAFF_REVIEW_MODAL_ID}:`;
   if (!interaction.customId.startsWith(modalPrefix)) return null;
@@ -115,14 +72,11 @@ export default {
       const memberId = interaction.values?.[0];
       if (!memberId || memberId === 'none') return;
 
-      // Never modify the shared review panel: everyone's selection and rating
-      // must stay in their own private interaction, even while reviews overlap.
+      // Keep the original two dropdowns. Acknowledge without a public
+      // edit or a second private rating panel. The choice belongs to this user.
       rememberSelectedOwner(interaction, memberId);
       try {
-        await interaction.reply({
-          ...buildRatingPrompt(memberId),
-          flags: MessageFlags.Ephemeral,
-        });
+        await interaction.deferUpdate();
       } catch {
         clearSelectedOwner(interaction);
       }
@@ -159,17 +113,11 @@ export default {
         return;
       }
 
-      const resetRows = buildResetReviewRows(interaction);
-      clearSelectedOwner(interaction);
-
       try {
         await interaction.showModal(buildStaffReviewModal(memberId, rating));
+        clearSelectedOwner(interaction);
       } catch {
         return;
-      }
-
-      if (resetRows && interaction.message?.edit) {
-        await interaction.message.edit({ components: resetRows }).catch(() => {});
       }
       return;
     }

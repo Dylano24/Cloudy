@@ -5,7 +5,7 @@ import {
   SERVICE_REVIEWS_CHANNEL_ID, SERVICE_REVIEW_MODAL_ID,
   SERVICE_REVIEW_RATING_ID, SERVICE_REVIEW_SELECT_ID,
   SERVICE_REVIEW_TYPES, buildPublishedServiceReview,
-  serviceReviewModal, serviceReviewPanelRows, serviceReviewRatingRow,
+  serviceReviewModal,
 } from '../services/serviceReviewsService.js';
 import { logger } from '../utils/logger.js';
 
@@ -57,18 +57,14 @@ export default {
       const type = interaction.values?.[0];
       if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) return;
 
-      // Keep the public panel unchanged; only the reviewer sees the rating menu.
-      // Embed the chosen type in the private menu to avoid cross-user races.
+      // Selecting the public dropdown must never edit the shared message or
+      // create a second private dropdown. Each user has their own selection.
       rememberSelection(interaction, type);
       try {
-        await interaction.reply({
-          content: `Choose your rating for **${SERVICE_REVIEW_TYPES[type]}**.`,
-          components: [serviceReviewRatingRow(type, true)],
-          flags: MessageFlags.Ephemeral,
-        });
+        await interaction.deferUpdate();
       } catch (error) {
         clearSelection(interaction);
-        logger.warn('[SERVICE_REVIEWS] Could not show private rating menu:', error);
+        logger.warn('[SERVICE_REVIEWS] Could not acknowledge review selection:', error);
       }
       return;
     }
@@ -95,12 +91,6 @@ export default {
         return;
       }
       clearSelection(interaction);
-      // Immediately reset the same public panel for the next review.
-      if (customId === SERVICE_REVIEW_RATING_ID && interaction.message?.edit) {
-        await interaction.message.edit({ components: serviceReviewPanelRows() }).catch(error => {
-          logger.warn('[SERVICE_REVIEWS] Could not reset rating menu:', error);
-        });
-      }
       return;
     }
 

@@ -154,7 +154,7 @@ export function buildStaffReviewsPanel(ownerMembers = [], communityReviewsChanne
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)),
-      new ActionRowBuilder().addComponents(buildRatingMenu(true)),
+      new ActionRowBuilder().addComponents(buildRatingMenu(false)),
     ],
   };
 }
