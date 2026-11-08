@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collapseDisplayRecords, contentCreatorGuideRecordIdentity, buildEmbedPayload, getCanonicalBuilderRecords } from '../src/services/embedManagerService.js';
+import { collapseDisplayRecords, contentCreatorGuideRecordIdentity, contentCreatorGuidePlatform, buildEmbedPayload, getCanonicalBuilderRecords } from '../src/services/embedManagerService.js';
 import {
   buildSearchChoices, buildMatches, buildAutocompleteMatches, isRetiredCreatorGuideSearchAlias,
 } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
@@ -77,15 +77,20 @@ test('renamed physical creator guide stays in its own channel when Subscribe but
   }), null);
 });
 
-test('a retired raw TikTok emoji creator entry does not duplicate three live Search choices', () => {
+test('real TikTok ID survives a legacy raw-emoji title and hides the external duplicate', () => {
   const names = ['youtube', 'twitch', 'tiktok'];
+  const channelIds = [
+    '1554538629102309416', '1554538630129778702', '1554538632323272755',
+  ];
   const records = names.map((platform, index) => ({
     guildId: 'creator-no-dupes',
-    channelId: String(1554538629102309416n + BigInt(index) * 101n),
+    channelId: channelIds[index],
     channelName: `🔗 │ ${platform}`,
     messageId: String(1568880000000000000n + BigInt(index)),
     embedIndex: 0, source: 'content-creators',
-    snapshot: {title: 'Content creators', description: 'Same body for now'},
+    snapshot: {title: index === 2
+      ? '<:Z94tiktok:1543280394508701857>Content creators'
+      : 'Content creators', description: 'Same body for now'},
   }));
   const retired = {
     guildId: 'creator-no-dupes', channelId: '1554538600000000000',
@@ -97,7 +102,12 @@ test('a retired raw TikTok emoji creator entry does not duplicate three live Sea
     },
   };
   assert.equal(isRetiredCreatorGuideSearchAlias(retired), true);
-  assert.equal(isRetiredCreatorGuideSearchAlias(records[2]), false);
+  assert.equal(isRetiredCreatorGuideSearchAlias(records[2]), false,
+    'do not filter the live TikTok message just because its title has that emoji');
+  assert.equal(contentCreatorGuideRecordIdentity(records[2]),
+    'content-creators:1554538632323272755');
+  assert.equal(contentCreatorGuidePlatform({ ...records[2], channelName: '' }), 'tiktok',
+    'the known channel ID remains enough even when channelName is absent');
   const guild = {channels: {cache:new Map()}};
   const matches = buildMatches(guild, [...records, retired], 'content');
   const choices = buildSearchChoices(matches);
@@ -108,6 +118,15 @@ test('a retired raw TikTok emoji creator entry does not duplicate three live Sea
     'Content creators — TikTok', 'Content creators — Twitch', 'Content creators — YouTube',
   ]);
   assert.equal(buildSearchChoices(buildAutocompleteMatches(guild, [...records, retired], 'con')).length, 3);
+  // The obsolete entry can also appear as a title/name overlay with an older
+  // saved snapshot title. Search must remove that alias, not the real channel.
+  const staleOverlay = { ...retired,
+    messageId: '1567700000000000001',
+    snapshot: {title:'Content creators', description:'Old copy'},
+    name: '<:Z94tiktok:1543280394508701857>Content creators',
+  };
+  assert.equal(isRetiredCreatorGuideSearchAlias(staleOverlay), true);
+  assert.equal(buildSearchChoices(buildMatches(guild, [...records, retired, staleOverlay], 'con')).length, 3);
   assert.equal(isRetiredCreatorGuideSearchAlias({
     snapshot: {title:'<:Z94tiktok:1543280394508701857>Some other embed'}
   }), false, 'do not hide unrelated custom emoji embeds');

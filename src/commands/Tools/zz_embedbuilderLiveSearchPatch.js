@@ -24,7 +24,7 @@ import {
 } from '../../services/embedRegistryService.js';
 import {
     canonicalBuilderResponseTitle, getCanonicalBuilderRecords,
-    contentCreatorGuideRecordIdentity,
+    contentCreatorGuideRecordIdentity, contentCreatorGuidePlatform,
 } from '../../services/embedManagerService.js';
 import { refreshManualBuilderSearchRecord } from '../../services/embedBuilderPhysicalSearchService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
@@ -978,12 +978,20 @@ function isBuilderSearchFamilyHidden(record) {
         }) || isPendingSearchResponseNameHidden(guildId, title));
 }
 
-// A retired search-only copy of the creator guide was indexed with the
-// TikTok emoji markup as literal text. Keep the physical message and all
-// user-created embeds unchanged; hide only this exact old autocomplete alias.
+// The old TikTok template was indexed outside the real creator channels with
+// the emoji markup in its title. The previous title-only filter mistakenly
+// hid TikTok's LIVE guide. Identify the physical channel first, and hide only
+// the orphan search alias; never delete a Discord message or stored record.
 export function isRetiredCreatorGuideSearchAlias(record) {
-    const title = String(record?.snapshot?.title || record?.title || '').trim();
-    return /^<a?:Z94tiktok:1543280394508701857>\s*Content creators$/i.test(title);
+    if (contentCreatorGuideRecordIdentity(record)) return false;
+    const legacyTitle = /^<a?:Z94tiktok:1543280394508701857>\s*Content creators$/i;
+    const titles = [
+        record?.snapshot?.title, record?.title, record?.name,
+        record?.sourceRecord?.snapshot?.title,
+        record?.previewRecord?.snapshot?.title,
+        recordTitle(record),
+    ];
+    return titles.some(value => legacyTitle.test(String(value || '').trim()));
 }
 
 function builderSearchDisplayRecords(records) {
@@ -1712,8 +1720,7 @@ export function buildSearchChoices(matches) {
         // the choice label; all those details remain in the live preview.
         const creatorId = contentCreatorGuideRecordIdentity(record);
         const creatorChannel = creatorId
-            ? String(record.channelName || document?.channel?.name || '').split('│').at(-1)
-                .trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+            ? (contentCreatorGuidePlatform(record) || '')
             : '';
         // Discord autocompletes cannot render custom emoji markup as images.
         // Show the real embed title plus its channel to make each guide unique.
