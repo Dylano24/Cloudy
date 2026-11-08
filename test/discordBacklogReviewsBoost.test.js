@@ -176,7 +176,7 @@ test('reviewers choose categories and ratings privately without changing the sha
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   const embed = sent[0].embeds[0].toJSON();
-  assert.ok(embed.description.startsWith('**Cloudy bot**\\n\\n'));
+  assert.ok(embed.description.startsWith('**Cloudy bot**\n\n'));
   assert.ok(!embed.description.includes('Product or service'));
   assert.equal(embed.timestamp, undefined, 'review footer cannot include a timestamp');
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
