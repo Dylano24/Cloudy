@@ -11,6 +11,7 @@ import {
   setAutomaticVoteJobState, deleteAutomaticVoteJob, MAX_AUTO_VOTE_MEDIA,
 } from './wipeAutomationService.js';
 import { storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
+import { Mutex } from '../utils/mutex.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
@@ -203,7 +204,7 @@ export function formatAutomaticVoteMediaLibrary(session) {
   session.mediaPage = Math.min(Math.max(0, session.mediaPage || 0), pages - 1);
   const offset = session.mediaPage * 12;
   const entries = pool.slice(offset, offset + 12).map((media, index) =>
-    `**${offset + index + 1}.** [View media](${media.url}) — ${media.name.replace(/[*_\[\]]/g, '')}`);
+    `**${offset + index + 1}.** [View media](${media.url}) — ${media.name.replaceAll('*', '').replaceAll('_', '').replaceAll('[', '').replaceAll(']', '')}`);
   const embed = new EmbedBuilder().setTitle('Auto vote media')
     .setColor(session.validationError ? 0xE53935 : 0xFFFFFF)
     .setThumbnail(CLOUDY_LOGO_URL)
@@ -351,6 +352,7 @@ function field(interaction, id) {
 }
 
 export async function addAutoVoteMedia(session, interaction, store = storeExistingDiscordEmbedMedia) {
+  return Mutex.runExclusive('auto-vote-media:' + session.id, async () => {
   if (session.kind !== 'vote') throw new RangeError('Media are only available for auto votes.');
   const uploads = Array.from({ length: 5 }, (_, index) => {
     try { return interaction.fields.getUploadedFiles(`media${index + 1}`)?.first?.() || null; }
@@ -376,9 +378,10 @@ export async function addAutoVoteMedia(session, interaction, store = storeExisti
     existing.add(item.url); return true;
   });
   if (!additions.length) throw new RangeError('These media are already in the library.');
-  session.draft.mediaPool = [...pool, ...additions];
-  session.dirty = true;
-  session.notice = `${additions.length} media added. ${session.draft.mediaPool.length} stored in total.`;
+  Object.assign(session.draft, { mediaPool: [...pool, ...additions] });
+  Object.assign(session, { dirty: true,
+    notice: `${additions.length} media added. ${session.draft.mediaPool.length} stored in total.` });
+  });
 }
 
 function applyModal(session, interaction, action) {
