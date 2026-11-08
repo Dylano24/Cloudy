@@ -183,6 +183,11 @@ function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt 
       beforeMinutes, durationMinutes, state: 'stopped' };
   } else {
     const name = String(configuration?.name || '').trim();
+    // Historical giveaway automations with a wipe schedule are Rust wipe jobs.
+    const giveawayType = schedule === 'wipe' ? 'wipe' : 'standard';
+    if (configuration?.giveawayType && configuration.giveawayType !== giveawayType) {
+      throw new RangeError('Giveaway type does not match the schedule.');
+    }
     const kit = String(configuration?.kit || '').trim();
     const prizes = (Array.isArray(configuration?.prizes) ? configuration.prizes : [kit])
       .map(prize => String(prize).trim()).filter(Boolean);
@@ -202,8 +207,9 @@ function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt 
       || (pingType === 'role' && !/^\d{17,20}$/.test(pingRoleId))) {
       throw new RangeError('Choose a valid giveaway tag.');
     }
-    const codeType = Object.hasOwn(GIVEAWAY_CODE_TYPES, configuration?.codeType || '')
-      ? configuration.codeType : 'none';
+    const codeType = giveawayType === 'wipe' ? 'none'
+      : Object.hasOwn(GIVEAWAY_CODE_TYPES, configuration?.codeType || '')
+        ? configuration.codeType : 'none';
     const codeDiscount = codeType === 'discount' ? validDiscount(configuration.codeDiscount) : null;
     if (codeType === 'discount' && !codeDiscount) {
       throw new RangeError('Choose a discount between 1 and 100.');
@@ -226,7 +232,7 @@ function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt 
     }));
     const hostId = String(configuration?.hostId || '');
     if (hostId && !/^\d{17,20}$/.test(hostId)) throw new RangeError('Invalid giveaway host.');
-    configured = { server, name, kit: prizes[0], prizes, winnerRoleId, winnerCount, hostId,
+    configured = { server, name, kit: prizes[0], prizes, giveawayType, winnerRoleId, winnerCount, hostId,
       description, beforeMinutes, durationMinutes, state: 'stopped',
       ping: { type: pingType, roleId: pingRoleId }, codeType, codeDiscount,
       addedCodes: codeType === 'added' ? withAddedCodes({}, plainAddedCodes) : [],
@@ -404,9 +410,6 @@ export async function listAutomaticGiveaways(client, guildId) {
 
 export async function saveAutomaticGiveawayJob(client, guildId, draft, jobId = null) {
   if (guildId !== AUTO_WIPE_GUILD_ID) throw new RangeError('Invalid automation guild');
-  if (!['repeat', 'once'].includes(draft?.schedule)) {
-    throw new RangeError('Choose Repeat or Once for automatic giveaways.');
-  }
   if (jobId === 'legacy') throw new RangeError('Legacy giveaways are managed through the existing config');
   return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
     const config = await getWipeAutomationConfig(client, guildId);
@@ -535,18 +538,23 @@ export function autoWipeGiveawayPayload(session) {
   const giveaway = {
     prize: session.kit,
     hostId: session.hostId,
-    introTitle: DEFAULT_GIVEAWAY_INTRO,
+    introTitle: session.introTitle || DEFAULT_GIVEAWAY_INTRO,
     description: session.description || DEFAULT_GIVEAWAY_DESCRIPTION,
-    closingText: DEFAULT_GIVEAWAY_CLOSING,
-    requirements: 'None',
+    closingText: session.closingText || DEFAULT_GIVEAWAY_CLOSING,
+    requirements: session.requirements || 'None',
     winnerCount: session.winnerCount,
     participants: session.participants,
     endsAt: session.endsAt,
     endedAt: session.endedAt,
     winnerIds: session.winners,
   };
+  const embed = createGiveawayEmbed(giveaway,
+    session.status === 'ended' || session.status === 'expired' ? 'ended' : 'active', session.winners);
+  if (session.status !== 'active' && session.winners?.length) {
+    embed.setDescription(`${embed.data.description}\n\n**Winner sync**\nUse \`/wipe sync\` to activate your temporary wipe role.`);
+  }
   return {
-    embeds: [createGiveawayEmbed(giveaway, session.status === 'ended' || session.status === 'expired' ? 'ended' : 'active', session.winners)],
+    embeds: [embed],
     components: giveawayButtons(session.id, session.status !== 'active'),
     allowedMentions: { parse: [] },
   };
@@ -676,6 +684,8 @@ async function createAutomaticGiveaway(client, guild, config, id, wipeAt) {
           ? config.prizes[randomInt(config.prizes.length)] : config.kit,
         roleId: config.winnerRoleId,
         winnerCount: config.winnerCount, description: config.description || '',
+        introTitle: config.introTitle, requirements: config.requirements,
+        closingText: config.closingText, ping: config.ping,
         wipeAt,
         endsAt: Date.now() + config.durationMinutes * MINUTE,
         hostId: client.user.id, channelId: channel.id,
@@ -685,7 +695,15 @@ async function createAutomaticGiveaway(client, guild, config, id, wipeAt) {
       await saveSession(client, guild.id, session);
       await rememberSession(client, guild.id, id);
     }
-    const message = lookup?.message || await channel.send(autoWipeGiveawayPayload(session));
+    const payload = autoWipeGiveawayPayload(session);
+    if (session.ping?.type === 'everyone') {
+      payload.content = '@everyone';
+      payload.allowedMentions = { parse: ['everyone'] };
+    } else if (session.ping?.type === 'role' && session.ping.roleId) {
+      payload.content = `<@&${session.ping.roleId}>`;
+      payload.allowedMentions = { parse: [], roles: [session.ping.roleId] };
+    }
+    const message = lookup?.message || await channel.send(payload);
     session.messageId = message.id;
     await saveSession(client, guild.id, session);
   });
