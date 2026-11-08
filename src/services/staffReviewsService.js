@@ -154,9 +154,37 @@ export function buildStaffReviewsPanel(ownerMembers = [], communityReviewsChanne
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)),
-      new ActionRowBuilder().addComponents(buildRatingMenu(false)),
+      new ActionRowBuilder().addComponents(buildRatingMenu(true)),
     ],
   };
+}
+
+// Update only the existing public dropdowns. Never expose a reviewer's
+// selected staff member as a default option on the shared message.
+export function staffReviewPanelRows(message, { ratingEnabled = false } = {}) {
+  const originalRows = message?.components;
+  if (!Array.isArray(originalRows) || originalRows.length < 2) return null;
+  const rows = originalRows.map(row => structuredClone(row.toJSON?.() || row));
+  let foundMember = false;
+  let foundRating = false;
+  for (const row of rows) {
+    for (const component of row.components || []) {
+      if (component.custom_id === STAFF_REVIEW_MEMBER_ID) {
+        foundMember = true;
+        component.disabled = false;
+        component.placeholder = 'Choose the staff member';
+        component.options = (component.options || []).map(option => ({ ...option, default: false }));
+      } else if (component.custom_id === STAFF_REVIEW_RATING_ID
+        || String(component.custom_id || '').startsWith(`${STAFF_REVIEW_RATING_ID}:`)) {
+        foundRating = true;
+        component.custom_id = STAFF_REVIEW_RATING_ID;
+        component.disabled = !ratingEnabled;
+        component.placeholder = 'Choose your rating';
+        component.options = (component.options || []).map(option => ({ ...option, default: false }));
+      }
+    }
+  }
+  return foundMember && foundRating ? rows : null;
 }
 
 export function buildRatingPrompt(memberId) {

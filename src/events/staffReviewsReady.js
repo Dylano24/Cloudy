@@ -4,6 +4,7 @@ import {
   STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_RATING_ID,
   buildStaffReviewsPanel,
+  staffReviewPanelRows,
   getOwnerMembers,
 } from '../services/staffReviewsService.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
@@ -16,21 +17,18 @@ const PANEL_REFRESH_MS = 5 * 60 * 1000;
 function isStaffReviewsPanel(message, client) {
   return Boolean(
     message?.author?.id === client.user?.id
-    && message.components?.some(row => row.components?.some(component =>
-      component.customId === STAFF_REVIEW_MEMBER_ID
-      || component.customId === STAFF_REVIEW_RATING_ID
-      || component.customId?.startsWith(`${STAFF_REVIEW_RATING_ID}:`),
-    )),
+    && message.components?.some(row => row.components?.some(component => {
+      const id = component.customId || component.custom_id;
+      return id === STAFF_REVIEW_MEMBER_ID || id === STAFF_REVIEW_RATING_ID
+        || id?.startsWith(`${STAFF_REVIEW_RATING_ID}:`);
+    })),
   );
 }
 
 /** Find the durable pinned panel, migrating a recent legacy panel if needed. */
 async function findStaffReviewsPanel(channel, client) {
-  const pins = await channel.messages.fetchPins().catch(() => null);
-  if (!pins) return { lookupSucceeded: false, message: null };
-
-  const pinnedPanel = pins.items
-    .map(pin => pin.message)
+  const pins = await channel.messages.fetchPins?.().catch(() => null);
+  const pinnedPanel = pins?.items?.map(pin => pin.message)
     .find(message => isStaffReviewsPanel(message, client));
   if (pinnedPanel) return { lookupSucceeded: true, message: pinnedPanel };
 
@@ -76,6 +74,20 @@ async function refreshStaffReviewsPanel(client) {
   if (sent) {
     await channel.messages.pin(sent, 'Cloudy staff reviews panel').catch(() => {});
   }
+}
+
+// Restore the same owner-authored panel after a review is successfully
+// published. Never repost or modify its embed, title, footer, or logo.
+export async function resetStaffReviewPanel(client, { guild = null } = {}) {
+  const channel = await resolveCloudyChannel(client, 'staffReviews', { guild, textOnly: true });
+  if (!channel?.messages) return false;
+  const lookup = await findStaffReviewsPanel(channel, client);
+  const message = lookup.message;
+  if (!message) return false;
+  const components = staffReviewPanelRows(message, { ratingEnabled: false });
+  if (!components) return false;
+  await message.edit({ components });
+  return true;
 }
 
 export default {
