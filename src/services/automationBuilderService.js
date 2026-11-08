@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ChannelSelectMenuBuilder, ChannelType, EmbedBuilder,
+  ChannelSelectMenuBuilder, ChannelType, EmbedBuilder, FileUploadBuilder,
   LabelBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
@@ -11,6 +11,7 @@ import {
   setAutomaticVoteJobState, deleteAutomaticVoteJob,
 } from './wipeAutomationService.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
+import { uploadVotePictures } from './voteMediaService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
 import { amsterdamParts, parseAmsterdamStart, parseAutomationDuration, shortAutomationDuration } from './automationSchedule.js';
@@ -33,7 +34,8 @@ function baseDraft(kind, saved) {
   return {
     schedule: 'repeat', server: 'Cloudy', channelId: '',
     repeatMinutes: 1440, beforeMinutes: 120, durationMinutes: 60,
-    randomize: false, state: 'stopped',
+    randomize: false, state: 'stopped', weeklyMin: 2, weeklyMax: 3,
+    mediaLibrary: [],
     ...(kind === 'vote'
       ? { question: '', maps: [] }
       : { kit: '', prizes: [], winnerCount: 1, winnerRoleId: '', description: '' }),
@@ -58,8 +60,10 @@ export function formatAutomationDashboard(session) {
   const content = isVote
     ? `**Name:** ${draft.name || draft.question || 'New vote'}\n**Question:** ${draft.question || 'Not configured'}\n**Options:** ${draft.maps?.join(' / ') || 'Not configured'}`
     : `**Prizes:** ${draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Winner role:** ${draft.winnerRoleId ? `<@&${draft.winnerRoleId}>` : 'None (optional for repeats)'}`;
-  const schedule = draft.schedule === 'repeat'
-    ? `Every ${shortAutomationDuration(draft.repeatMinutes || 1440)}`
+  const schedule = draft.schedule === 'random_weekly'
+    ? `Random ${draft.weeklyMin || 2}–${draft.weeklyMax || 3} times per week`
+    : draft.schedule === 'repeat'
+      ? `Every ${shortAutomationDuration(draft.repeatMinutes || 1440)}`
     : draft.schedule === 'once'
       ? 'Once (selected date)'
       : `${draft.beforeMinutes || 120} minutes before the **${draft.server || 'Rust'}** wipe`;
@@ -73,8 +77,8 @@ export function formatAutomationDashboard(session) {
     .setColor(session.validationError ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
     .setTitle(label)
     .setThumbnail(CLOUDY_LOGO_URL)
-    .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}\n**Randomize:** ${draft.randomize
-      ? (isVote ? 'On — shuffle voting options' : 'On — choose a random prize')
+    .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}\n**Randomize:** ${draft.randomize
+      ? (isVote ? 'On — shuffle voting options and media' : 'On — choose a random prize')
       : 'Off'}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
@@ -83,6 +87,8 @@ export function formatAutomationDashboard(session) {
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
+    ...(isVote ? [button(id, 'media', 'Add media'),
+      button(id, 'clear_media', session.confirmClearMedia ? 'Confirm clear' : 'Clear media', ButtonStyle.Secondary, !draft.mediaLibrary?.length)] : []),
   );
   const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
     ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished));
@@ -126,6 +132,7 @@ export function formatAutomationDashboard(session) {
       { label: 'Repeat from a date', value: 'repeat', default: draft.schedule === 'repeat' },
       { label: 'Once on a date', value: 'once', default: draft.schedule === 'once' },
       { label: 'Before a Rust wipe', value: 'wipe', default: draft.schedule === 'wipe' },
+      ...(isVote ? [{ label: 'Random 2–3 weekly', value: 'random_weekly', default: draft.schedule === 'random_weekly' }] : []),
     );
   rows.push(new ActionRowBuilder().addComponents(mode));
   if (isVote) {
@@ -203,8 +210,10 @@ function input(id, label, value, {
   if (id === 'duration' || id === 'before') {
     field.setPlaceholder('1m, 1h, 1d, 1w');
   }
-  if (id === 'date') field.setPlaceholder('10-11-2026 or 10112026');
-  if (id === 'time') field.setPlaceholder('18:00 or 1800');
+  if (id === 'date') field.setPlaceholder('DD-MM-YYYY (e.g. 10-11-2027)');
+  if (id === 'time') field.setPlaceholder('HH:MM (e.g. 18:00)');
+  if (id === 'weeklyMin') field.setPlaceholder('2');
+  if (id === 'weeklyMax') field.setPlaceholder('3');
   if (value !== undefined && value !== null && String(value).length) field.setValue(String(value).slice(0, maxLength));
   return description
     ? new LabelBuilder().setLabel(label).setDescription(description).setTextInputComponent(field)
@@ -217,23 +226,42 @@ export function buildAutomationModal(session, action) {
   // Give every Schedule opening a fresh ID, including the schedule mode, so
   // values from the Rust-wipe form cannot appear in Date/Time fields.
   if (action === 'schedule') session.scheduleModalCounter = (session.scheduleModalCounter || 0) + 1;
+  if (action === 'media') session.mediaModalCounter = (session.mediaModalCounter || 0) + 1;
   const modalId = action === 'schedule'
     ? `${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}:${draft.schedule}:${session.scheduleModalCounter}`
-    : `${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`;
+    : action === 'media'
+      ? `${AUTOMATION_BUILDER_PREFIX}media:${id}:${session.mediaModalCounter}`
+      : `${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`;
   const modal = new ModalBuilder()
     .setCustomId(modalId)
-    .setTitle(action === 'schedule' ? 'Schedule' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
+    .setTitle(action === 'media' ? 'Add media' : action === 'schedule' ? 'Schedule' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
+  if (action === 'media' && kind === 'vote') {
+    return modal.addLabelComponents(new LabelBuilder()
+      .setLabel('Upload pictures or GIFs')
+      .setDescription('Up to 10 per batch. Repeat Add media for 50+ files.')
+      .setFileUploadComponent(new FileUploadBuilder()
+        .setCustomId('media_files').setRequired(true)
+        .setMinValues(1).setMaxValues(10)));
+  }
   if (action === 'schedule') {
-    if (draft.schedule === 'repeat' || draft.schedule === 'once') {
+    if (draft.schedule === 'repeat' || draft.schedule === 'once' || draft.schedule === 'random_weekly') {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       modal.addLabelComponents(
         input('date', 'Date', session.scheduleInputs?.date ?? local.date, {
-          maxLength: 10, description: 'Type 10112026; saved as 10-11-2026.',
+          maxLength: 10, description: 'Date: DD-MM-YYYY (future date only).',
         }),
         input('time', 'Time (EU)', session.scheduleInputs?.time ?? local.time, {
-          maxLength: 5, description: 'Type 1800; saved as 18:00. Numbers only.',
+          maxLength: 5, description: 'Time: HH:MM (24-hour clock).',
         }),
       );
+      if (draft.schedule === 'random_weekly') {
+        modal.addLabelComponents(
+          input('weeklyMin', 'Minimum posts per week', session.scheduleInputs?.weeklyMin ?? draft.weeklyMin ?? 2,
+            { maxLength: 1, description: 'E.g. 2; must be between 1 and 7.' }),
+          input('weeklyMax', 'Maximum posts per week', session.scheduleInputs?.weeklyMax ?? draft.weeklyMax ?? 3,
+            { maxLength: 1, description: 'E.g. 3; must be at least the minimum.' }),
+        );
+      }
       if (draft.schedule === 'repeat') {
         modal.addLabelComponents(input('repeat', 'Repeat',
           session.scheduleInputs?.repeat ?? shortAutomationDuration(draft.repeatMinutes), {
@@ -253,7 +281,7 @@ export function buildAutomationModal(session, action) {
         }),
         input('before', 'Before wipe',
           session.scheduleInputs?.before ?? shortAutomationDuration(draft.beforeMinutes), {
-            maxLength: 8, description: `How early the ${kind} starts before the wipe. E.g. 10m, 1h.`,
+            maxLength: 8, description: `How early the ${kind} starts before the wipe. E.g. 10m, 1h, 1d, 1w.`,
           }),
         input('duration', 'Duration',
           session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
@@ -295,11 +323,14 @@ function applyModal(session, interaction, action) {
         ? ['server', 'before', 'duration']
         : session.draft.schedule === 'repeat'
           ? ['date', 'time', 'repeat', 'duration']
-          : ['date', 'time', 'duration'])
+          : session.draft.schedule === 'random_weekly'
+            ? ['date', 'time', 'weeklyMin', 'weeklyMax', 'duration']
+            : ['date', 'time', 'duration'])
         .map(id => [id, field(interaction, id)]),
     );
     const duration = parseAutomationDuration(field(interaction, 'duration'));
-    if (session.draft.schedule === 'repeat' || session.draft.schedule === 'once') {
+    if (session.draft.schedule === 'repeat' || session.draft.schedule === 'once'
+      || session.draft.schedule === 'random_weekly') {
       const startAt = parseAmsterdamStart(field(interaction, 'date'), field(interaction, 'time'));
       if (startAt <= Date.now()) throw new RangeError('Choose a future start date and time.');
       if (session.draft.schedule === 'repeat') {
@@ -308,6 +339,14 @@ function applyModal(session, interaction, action) {
           throw new RangeError('Repeat cannot be shorter than Duration.');
         }
         Object.assign(session.draft, { repeatMinutes: repeat, durationMinutes: duration, startAt });
+      } else if (session.draft.schedule === 'random_weekly') {
+        const weeklyMin = Number(field(interaction, 'weeklyMin'));
+        const weeklyMax = Number(field(interaction, 'weeklyMax'));
+        if (!Number.isInteger(weeklyMin) || !Number.isInteger(weeklyMax)
+          || weeklyMin < 1 || weeklyMax > 7 || weeklyMin > weeklyMax) {
+          throw new RangeError('Choose 1–7 posts per week, with minimum no greater than maximum.');
+        }
+        Object.assign(session.draft, { weeklyMin, weeklyMax, durationMinutes: duration, startAt });
       } else {
         Object.assign(session.draft, { durationMinutes: duration, startAt });
       }
@@ -374,6 +413,9 @@ async function validateDestination(interaction, session) {
 }
 
 async function saveSession(interaction, session) {
+  if (session.draft.schedule !== 'wipe' && !session.draft.startAt) {
+    throw new RangeError('Set a future start date and time in Schedule before saving.');
+  }
   await validateDestination(interaction, session);
   // Save configuration only; Start/Pause/Stop remain separate actions.
   // Editing an active automation must not stop it as a side effect.
@@ -502,6 +544,41 @@ export async function handleAutomationBuilderInteraction(interaction) {
       return true;
     }
     session.confirmDelete = false;
+    if (action === 'media' && interaction.isModalSubmit?.()) {
+      if (session.kind !== 'vote' || Number(parts[2]) !== session.mediaModalCounter) {
+        throw new RangeError('This media upload is outdated. Open Add media again.');
+      }
+      const uploaded = [...(interaction.fields.getUploadedFiles('media_files')?.values?.() || [])];
+      const current = session.draft.mediaLibrary || [];
+      if (!uploaded.length || uploaded.length > 10 || current.length + uploaded.length > 500) {
+        throw new RangeError('Upload 1–10 files at a time, up to 500 saved files.');
+      }
+      for (const file of uploaded) {
+        if (!/^image\/(?:png|jpeg|gif|webp)$/i.test(String(file.contentType || ''))
+          || file.size > 10 * 1024 * 1024 || file.size < 1) {
+          throw new RangeError('Only PNG, JPG, GIF or WebP images up to 10 MB are supported.');
+        }
+      }
+      await interaction.deferUpdate();
+      const extensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+      const files = await Promise.all(uploaded.map(async (file, index) => {
+        const response = await fetch(file.url, { signal: AbortSignal.timeout(30_000) });
+        if (!response.ok) throw new Error('An uploaded picture could not be downloaded.');
+        return { attachment: Buffer.from(await response.arrayBuffer()),
+          name: `automedia_${randomUUID().slice(0, 8)}_${index}.${extensions[file.contentType.toLowerCase()]}` };
+      }));
+      const stored = await uploadVotePictures(interaction.client, interaction.guild,
+        interaction.channel, files);
+      const added = stored.media.names.map(name => ({
+        channelId: stored.media.channelId, messageId: stored.media.messageId, name,
+      }));
+      session.draft.mediaLibrary = [...current, ...added];
+      session.dirty = true;
+      session.notice = `${added.length} pictures added. Total: ${session.draft.mediaLibrary.length}.`;
+      session.validationError = false;
+      await interaction.editReply(formatAutomationDashboard(session));
+      return true;
+    }
     if (action === 'modal' && interaction.isModalSubmit?.()) {
       if (parts[2] === 'schedule' && parts[3]
         && (parts[3] !== session.draft.schedule
@@ -512,7 +589,7 @@ export async function handleAutomationBuilderInteraction(interaction) {
       await interaction.update(formatAutomationDashboard(session));
       return true;
     }
-    if (action === 'details' || action === 'schedule') {
+    if (action === 'details' || action === 'schedule' || (action === 'media' && session.kind === 'vote')) {
       await interaction.showModal(buildAutomationModal(session, action));
       return true;
     }
@@ -536,13 +613,23 @@ export async function handleAutomationBuilderInteraction(interaction) {
       session.dirty = true;
     } else if (action === 'mode' && interaction.isStringSelectMenu?.()) {
       const mode = interaction.values?.[0];
-      if (!['once', 'repeat', 'wipe'].includes(mode)) return true;
+      if (!['once', 'repeat', 'wipe', ...(session.kind === 'vote' ? ['random_weekly'] : [])].includes(mode)) return true;
       if (session.draft.schedule !== mode) {
         session.scheduleInputs = null;
         session.validationError = false;
       }
       session.draft.schedule = mode;
       session.dirty = true;
+    } else if (action === 'clear_media' && session.kind === 'vote') {
+      if (!session.confirmClearMedia) {
+        session.confirmClearMedia = true;
+        session.notice = 'Click Confirm clear to remove all media from this vote.';
+      } else {
+        session.draft.mediaLibrary = [];
+        session.confirmClearMedia = false;
+        session.dirty = true;
+        session.notice = 'Media list cleared. Save to keep this change.';
+      }
     } else if (action === 'random') {
       session.draft.randomize = !session.draft.randomize;
       session.dirty = true;
