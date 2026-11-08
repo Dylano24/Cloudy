@@ -8,7 +8,8 @@ import {
 } from '../src/services/automationBuilderService.js';
 import {
   getWipeAutomationConfig, runWipeAutomationTick,
-  configureWipeAutomation, setWipeAutomationState,
+  configureWipeAutomation, setWipeAutomationState, observeWipeEvent,
+  changeAutoWipeEntry, syncWipePrize,
 } from '../src/services/wipeAutomationService.js';
 
 const GUILD = '1532882647838228723';
@@ -198,7 +199,7 @@ test('auto giveaway matches the normal giveaway preview, editing and posting flo
   assert.match(f.view.embeds[1].description, /Your prize/);
   assert.match(f.view.embeds[2].description, /Prize conditions/);
   assert.deepEqual(f.view.components[0].toJSON().components.map(b => b.label),
-    ['Edit text', 'Edit claim', 'Duration & winners']);
+    ['Type', 'Edit text', 'Edit claim', 'Duration & winners']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(b => b.label),
     ['Code', 'Schedule', 'Start', 'Pause']);
   assert.deepEqual(f.view.components[2].toJSON().components.map(b => b.label),
@@ -209,7 +210,7 @@ test('auto giveaway matches the normal giveaway preview, editing and posting flo
     'tag picker stays in the fifth row');
   await f.action(id, 'schedule');
   assert.deepEqual(f.modal.components[0].component.options.map(x => x.value),
-    ['repeat', 'once'], 'Rust wipe belongs only in Auto Vote');
+    ['repeat', 'once'], 'Standard giveaway scheduling remains unchanged');
   assert.doesNotMatch(JSON.stringify(f.view), /Before a Rust wipe|Connected Rust server name/);
 
   await f.action(id, 'channel', [CHANNEL]);
@@ -330,7 +331,7 @@ test('dashboard rejects foreign users and cannot start without a posting channel
 });
 
 
-test('Rust wipe cannot be selected in Auto Giveaway; historical wipe config remains untouched', async () => {
+test('historical Rust wipe auto giveaway opens with kit controls and no claim preview', async () => {
   const f = fixture();
   await configureWipeAutomation(f.client, GUILD, 'giveaway', {
     schedule: 'wipe', server: 'Cloudy Rust', beforeMinutes: 30, durationMinutes: 5,
@@ -339,13 +340,76 @@ test('Rust wipe cannot be selected in Auto Giveaway; historical wipe config rema
   const original = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
   const id = await f.open('giveaway', { showList: true });
   await f.action(id, 'select', ['legacy']);
-  assert.deepEqual(f.view.components[4].toJSON().components[0].options.map(x => x.value),
-    ['everyone', 'role', 'none']);
+  assert.equal(f.view.embeds.length, 2, 'no claim preview');
+  assert.deepEqual(f.view.components[0].toJSON().components.map(x => x.label),
+    ['Type', 'Edit text', 'Kit & role', 'Duration & winners']);
+  assert.deepEqual(f.view.components[1].toJSON().components.map(x => x.label),
+    ['Schedule', 'Start', 'Pause']);
   await f.action(id, 'schedule');
-  assert.deepEqual(f.modal.components[0].component.options.map(x => x.value),
-    ['repeat', 'once']);
-  assert.doesNotMatch(f.view.embeds[0].toJSON().description, /Rust|wipe/i);
+  assert.deepEqual(f.modal.components.map(x => x.label),
+    ['Connected Rust server name', 'Before wipe', 'Duration']);
+  assert.match(f.view.embeds[0].toJSON().description, /Rust wipe/);
   assert.deepEqual((await getWipeAutomationConfig(f.client, GUILD)).giveaway, original);
+});
+
+test('Rust wipe auto giveaway saves as independent no-claim kit job and syncs temporary role', async () => {
+  const f = fixture();
+  const roleId = '1569000000000000123';
+  f.guild.roles.cache.set(roleId, { id: roleId, managed: false });
+  const id = await f.open('giveaway');
+  await f.action(id, 'type');
+  assert.deepEqual(f.modal.components[0].component.options.map(x => x.value),
+    ['standard', 'wipe']);
+  await f.submit(id, 'type', { giveawayType: ['wipe'] });
+  assert.equal(f.view.embeds.length, 2, 'wipe has no claim preview');
+  assert.deepEqual(f.view.components[0].toJSON().components.map(x => x.label),
+    ['Type', 'Edit text', 'Kit & role', 'Duration & winners']);
+  assert.deepEqual(f.view.components[1].toJSON().components.map(x => x.label),
+    ['Schedule', 'Start', 'Pause']);
+  await f.action(id, 'kit');
+  assert.deepEqual(f.modal.components.map(x => (x.component || x.components[0]).custom_id),
+    ['kit', 'winnerRole']);
+  await f.submit(id, 'kit', { kit: 'Wipe starter kit', winnerRole: roleId });
+  await f.action(id, 'text');
+  assert.deepEqual(f.modal.components.map(x => (x.component || x.components[0]).custom_id),
+    ['introTitle', 'description', 'requirements', 'closingText']);
+  await f.submit(id, 'text', { introTitle: 'Giveaway time!',
+    description: 'Rust wipe kit', requirements: 'Join the server', closingText: 'Good luck!' });
+  await f.action(id, 'timing');
+  assert.deepEqual(f.modal.components.map(x => (x.component || x.components[0]).custom_id),
+    ['name', 'duration', 'winners']);
+  await f.submit(id, 'timing', { name: 'Wipe kit', duration: '5m', winners: '1' });
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.action(id, 'schedule');
+  assert.deepEqual(f.modal.components.map(x => x.label),
+    ['Connected Rust server name', 'Before wipe', 'Duration']);
+  await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '20m', duration: '5m' });
+  await f.action(id, 'save');
+  const config = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
+  assert.equal(config.giveawayType, 'wipe');
+  assert.equal(config.schedule, 'wipe');
+  assert.equal(config.codeType, 'none');
+  assert.equal(config.winnerRoleId, roleId);
+  assert.equal(config.kit, 'Wipe starter kit');
+  await f.action(id, 'start');
+  await observeWipeEvent(f.client, f.guild, {
+    type: 'status', server: 'Cloudy Rust', nextWipe: Date.now() + 15 * 60_000,
+  });
+  assert.equal(f.posts.length, 1);
+  assert.ok(!JSON.stringify(f.posts[0]).includes('claim'));
+  assert.deepEqual(f.posts[0].components[0].toJSON().components.map(x => x.label),
+    ['Enter giveaway', 'Leave giveaway']);
+  const sessionId = f.posts[0].components[0].toJSON().components[0].custom_id.split(':')[1];
+  assert.equal((await changeAutoWipeEntry(f.client, GUILD, sessionId, USER, true)).status, 'entered');
+  await runWipeAutomationTick(f.client, Date.now() + 6 * 60_000);
+  const assigned = new Set();
+  const member = { id: USER, guild: f.guild, roles: {
+    cache: { has: role => assigned.has(role) },
+    async add(role) { assigned.add(role.id); },
+  } };
+  assert.equal((await syncWipePrize(f.client, member)).status, 'synced');
+  assert.ok(assigned.has(roleId));
+  assert.match(f.posts[0].embeds[0].description, /\/wipe sync/);
 });
 
 test('another user cannot operate someone else’s automation dashboard', async () => {
@@ -374,7 +438,7 @@ test('Auto Giveaway uses the approved three button rows while vote stays unchang
         ['Start', 'Pause', 'Save', 'Delete']);
     } else {
       assert.deepEqual(rows[0].map(item => item.label),
-        ['Edit text', 'Edit claim', 'Duration & winners']);
+        ['Type', 'Edit text', 'Edit claim', 'Duration & winners']);
       assert.deepEqual(rows[1].map(item => item.label),
         ['Code', 'Schedule', 'Start', 'Pause']);
       assert.deepEqual(rows[2].map(item => item.label),

@@ -10,7 +10,7 @@ import {
   setWipeAutomationState, listAutomaticVotes, saveAutomaticVoteJob,
   setAutomaticVoteJobState, deleteAutomaticVoteJob,
   listAutomaticGiveaways, saveAutomaticGiveawayJob,
-  setAutomaticGiveawayJobState, deleteAutomaticGiveawayJob,
+  setAutomaticGiveawayJobState, deleteAutomaticGiveawayJob, autoWipeGiveawayPayload,
 } from './wipeAutomationService.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { newGiveawayDraft } from './giveawayBuilderService.js';
@@ -44,6 +44,7 @@ function baseDraft(kind, saved) {
     ? { ...previous, plainAddedCodes: unusedAddedCodes(previous) } : previous;
   return {
     schedule: 'repeat', server: 'Cloudy', channelId: '',
+    ...(kind === 'giveaway' ? { giveawayType: previous?.schedule === 'wipe' ? 'wipe' : 'standard' } : {}),
     repeatMinutes: 1440, beforeMinutes: 120, durationMinutes: kind === 'giveaway' ? 1440 : 60,
     randomize: false, state: 'stopped', weeklyMin: 2, weeklyMax: 3,
     mediaLibrary: [],
@@ -63,6 +64,7 @@ function button(id, action, label, style = ButtonStyle.Secondary, disabled = fal
 export function formatAutomationDashboard(session) {
   const { kind, draft, id, dirty } = session;
   const isVote = kind === 'vote';
+  const isWipe = !isVote && draft.giveawayType === 'wipe';
   const status = draft.state || 'stopped';
   const isFinished = draft.schedule === 'once'
     && (Boolean(draft.completedAt)
@@ -70,7 +72,7 @@ export function formatAutomationDashboard(session) {
   const label = isVote ? 'Auto vote' : 'Auto giveaway';
   const content = isVote
     ? `**Name:** ${draft.name || draft.question || 'New vote'}\n**Question:** ${draft.question || 'Not configured'}\n**Options:** ${draft.maps?.join(' / ') || 'Not configured'}`
-    : `**Name:** ${draft.name || draft.prizes?.[0] || draft.kit || 'New giveaway'}\n**Prizes:** ${draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Tag:** ${draft.ping?.type === 'everyone' ? '@everyone' : draft.ping?.type === 'role' ? `<@&${draft.ping.roleId}>` : 'No tag'}`;
+    : `**Type:** ${isWipe ? 'Rust wipe' : 'Standard'}\n**Name:** ${draft.name || draft.prizes?.[0] || draft.kit || 'New giveaway'}\n**${isWipe ? 'Kit' : 'Prizes'}:** ${isWipe ? draft.kit || 'Not configured' : draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Tag:** ${draft.ping?.type === 'everyone' ? '@everyone' : draft.ping?.type === 'role' ? `<@&${draft.ping.roleId}>` : 'No tag'}${isWipe ? `\n**Winner role:** ${draft.winnerRoleId ? `<@&${draft.winnerRoleId}>` : 'Not configured'}\n**Prize sync:** /wipe sync (no claim or reroll)` : ''}`;
   const schedule = draft.schedule === 'random_weekly'
     ? `Random ${draft.weeklyMin || 2}–${draft.weeklyMax || 3} times per week`
     : draft.schedule === 'repeat'
@@ -78,7 +80,8 @@ export function formatAutomationDashboard(session) {
     : draft.schedule === 'once'
       ? 'Once (selected date)'
       : isVote ? `${draft.beforeMinutes || 120} minutes before the **${draft.server || 'Rust'}** wipe`
-        : 'Old schedule — choose Repeat or Once';
+        : isWipe ? `${shortAutomationDuration(draft.beforeMinutes || 120)} before the **${draft.server || 'Rust'}** wipe`
+          : 'Choose Repeat or Once';
   const starts = draft.schedule !== 'wipe'
     ? `\n**Start date:** ${draft.startAt ? `<t:${Math.floor(draft.startAt / 1000)}:F>` : 'Set in Schedule'}`
     : '';
@@ -90,9 +93,9 @@ export function formatAutomationDashboard(session) {
     .setColor(invalidInformation ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
     .setTitle(invalidInformation ? 'Wrong information' : label)
     .setThumbnail(CLOUDY_LOGO_URL)
-    .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}\n**Randomize:** ${draft.randomize
+    .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}${isWipe ? '' : `\n**Randomize:** ${draft.randomize
       ? (isVote ? 'On — shuffle voting options and media' : 'On — choose a random prize')
-      : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}` }\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
   // Auto Giveaway stays within Discord's five-row limit:
@@ -106,7 +109,7 @@ export function formatAutomationDashboard(session) {
   const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
   const saveButton = button(id, 'save', 'Save', ButtonStyle.Success,
     Boolean(session.scheduleInputs) || Boolean(session.validationError)
-      || (!isVote && draft.schedule === 'wipe'));
+      );
   const deleteButton = button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
     ButtonStyle.Danger, !session.selectedJobId);
   const actions = new ActionRowBuilder().addComponents(...(isVote ? [
@@ -114,13 +117,17 @@ export function formatAutomationDashboard(session) {
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
   ] : [
+    button(id, 'type', 'Type'),
     button(id, 'text', 'Edit text', ButtonStyle.Primary),
-    button(id, 'claim', 'Edit claim'),
+    button(id, isWipe ? 'kit' : 'claim', isWipe ? 'Kit & role' : 'Edit claim'),
     button(id, 'timing', 'Duration & winners'),
   ]));
   const controls = new ActionRowBuilder().addComponents(...(isVote
     ? [startButton, pauseButton, saveButton, deleteButton]
-    : [button(id, 'code', 'Code'), button(id, 'schedule', 'Schedule'), startButton, pauseButton]));
+    : [
+      ...(isWipe ? [] : [button(id, 'code', 'Code')]),
+      button(id, 'schedule', 'Schedule'), startButton, pauseButton,
+    ]));
   const saveRow = !isVote ? new ActionRowBuilder().addComponents(
     saveButton, deleteButton, button(id, 'list', 'Back'),
   ) : null;
@@ -170,6 +177,11 @@ export function formatAutomationDashboard(session) {
     ...draft, prize, hostId: draft.hostId || session.botId || session.userId, guildId: session.guildId,
     messageId: 'preview', participants: [], endsAt: Date.now() + draft.durationMinutes * 60_000,
   };
+  if (isWipe) {
+    const wipe = autoWipeGiveawayPayload({ ...preview, id: 'preview', kit: draft.kit || prize,
+      status: 'active', winners: [], roleId: draft.winnerRoleId });
+    return { embeds: [embed, ...wipe.embeds], components: rows, allowedMentions: { parse: [] } };
+  }
   return {
     embeds: [embed, createGiveawayEmbed(preview, 'active'),
       buildPrivateClaimEmbed(preview, session.userId, currentGiveawayClaimIcons())],
@@ -207,7 +219,7 @@ export function formatAutomaticVotesList(session, jobs) {
     const status = job.completedAt ? 'completed' : (job.state || 'stopped');
     const schedule = job.schedule === 'once' ? 'Once'
       : job.schedule === 'repeat'
-        ? `Every ${shortAutomationDuration(job.repeatMinutes || 1440)}` : kind === 'vote' ? 'Rust wipe' : 'Old schedule';
+        ? `Every ${shortAutomationDuration(job.repeatMinutes || 1440)}` : 'Rust wipe';
     const next = job.nextRunAt && job.state === 'running'
       ? ` · Next: <t:${Math.floor(job.nextRunAt / 1000)}:f>` : '';
     return `**${index + 1}. ${title}**\n${channel} · ${schedule} · **${status}**${next}`;
@@ -231,7 +243,7 @@ export function formatAutomaticVotesList(session, jobs) {
           label: String(kind === 'vote'
             ? job.name || job.question || 'Untitled vote'
             : job.name || job.prizes?.[0] || job.kit || 'Untitled giveaway').replace(/\s+/g, ' ').slice(0, 100),
-          description: `${job.completedAt ? 'completed' : job.state || 'stopped'} · ${job.schedule === 'once' ? 'Once' : job.schedule === 'repeat' ? 'Repeat' : kind === 'vote' ? 'Rust wipe' : 'Old schedule'}`.slice(0, 100),
+          description: `${job.completedAt ? 'completed' : job.state || 'stopped'} · ${job.schedule === 'once' ? 'Once' : job.schedule === 'repeat' ? 'Repeat' : 'Rust wipe'}`.slice(0, 100),
           value: String(job.id),
         }))),
     ));
@@ -276,7 +288,26 @@ export function buildAutomationModal(session, action) {
   const modal = new ModalBuilder()
     .setCustomId(modalId)
     .setTitle(action === 'media' ? 'Add media' : action === 'schedule' ? 'Schedule' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
+  if (kind === 'giveaway' && action === 'type') {
+    return modal.setTitle('Giveaway type').addLabelComponents(
+      new LabelBuilder().setLabel('Giveaway type').setStringSelectMenuComponent(
+        new StringSelectMenuBuilder().setCustomId('giveawayType').addOptions(
+          { label: 'Standard', value: 'standard', default: draft.giveawayType !== 'wipe' },
+          { label: 'Rust wipe', value: 'wipe', default: draft.giveawayType === 'wipe' },
+        )));
+  }
+  if (kind === 'giveaway' && action === 'kit') {
+    const role = new RoleSelectMenuBuilder().setCustomId('winnerRole')
+      .setPlaceholder('Choose the temporary winner role').setMinValues(1).setMaxValues(1);
+    if (draft.winnerRoleId) role.setDefaultRoles(draft.winnerRoleId);
+    return modal.setTitle('Wipe kit & winner role').addLabelComponents(
+      input('kit', 'Rust kit name', draft.kit, {
+        maxLength: 150, description: 'The kit linked to the temporary winner role on your Rust server.',
+      }),
+      new LabelBuilder().setLabel('Temporary winner role').setRoleSelectMenuComponent(role));
+  }
   if (kind === 'giveaway' && action === 'code') {
+    if (draft.giveawayType === 'wipe') throw new RangeError('Wipe giveaways have no claim codes.');
     return giveawayCodeModal(modalId, { ...draft, draftAddedCodes: draft.plainAddedCodes || [] });
   }
   if (kind === 'giveaway' && action === 'role') {
@@ -287,6 +318,12 @@ export function buildAutomationModal(session, action) {
       new LabelBuilder().setLabel('Role').setRoleSelectMenuComponent(role));
   }
   if (kind === 'giveaway' && action === 'text') {
+    if (draft.giveawayType === 'wipe') return modal.setTitle('Wipe giveaway text').addComponents(
+      input('introTitle', 'Introduction title', draft.introTitle, { maxLength: 150 }),
+      input('description', 'Description', draft.description || '', { maxLength: 1000, paragraph: true, required: false }),
+      input('requirements', 'Requirements', draft.requirements, { maxLength: 500, paragraph: true, required: false }),
+      input('closingText', 'Closing message', draft.closingText, { maxLength: 300, paragraph: true }),
+    );
     return modal.setTitle('Giveaway text').addComponents(
       input('introTitle', 'Introduction title', draft.introTitle, { maxLength: 150 }),
       input('description', 'Description', draft.description || '', { maxLength: 1000, paragraph: true, required: false }),
@@ -296,6 +333,7 @@ export function buildAutomationModal(session, action) {
     );
   }
   if (kind === 'giveaway' && action === 'claim') {
+    if (draft.giveawayType === 'wipe') throw new RangeError('Wipe giveaways do not use claim channels.');
     return modal.setTitle('Winner claim instructions').addComponents(
       input('claimIntroduction', 'Introduction', draft.claimIntroduction || DEFAULT_CLAIM_INTRODUCTION, { maxLength: 250, paragraph: true }),
       input('claimConditions', 'Prize conditions', draft.claimConditions || DEFAULT_CLAIM_CONDITIONS, { maxLength: 1000, paragraph: true }),
@@ -309,7 +347,7 @@ export function buildAutomationModal(session, action) {
       input('name', 'Saved giveaway name (optional)', draft.name, { maxLength: 64, required: false }),
       input('duration', 'Duration', shortAutomationDuration(draft.durationMinutes), { maxLength: 8 }),
       input('winners', 'Number of winners (1-10)', draft.winnerCount, { maxLength: 2 }),
-      input('randomize', 'Randomize prizes (yes/no)', draft.randomize ? 'yes' : 'no', { maxLength: 3 }),
+      ...(draft.giveawayType === 'wipe' ? [] : [input('randomize', 'Randomize prizes (yes/no)', draft.randomize ? 'yes' : 'no', { maxLength: 3 })]),
     );
   }
   if (action === 'media' && kind === 'vote') {
@@ -322,6 +360,19 @@ export function buildAutomationModal(session, action) {
   }
   if (action === 'schedule') {
     if (kind === 'giveaway') {
+      if (draft.giveawayType === 'wipe') {
+        return modal.addLabelComponents(
+          input('server', 'Connected Rust server name', session.scheduleInputs?.server ?? (draft.server === 'Cloudy' ? '' : draft.server), {
+            maxLength: 60, description: 'Must match the Rust server connected to wipe events.',
+          }),
+          input('before', 'Before wipe', session.scheduleInputs?.before ?? shortAutomationDuration(draft.beforeMinutes), {
+            maxLength: 8, description: 'How early the giveaway starts. E.g. 1h, 1d, 1w.',
+          }),
+          input('duration', 'Duration', session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
+            maxLength: 8, description: 'The giveaway must finish before the wipe.',
+          }),
+        );
+      }
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       const savedMode = session.scheduleInputs?.scheduleType || draft.schedule;
       modal.addLabelComponents(
@@ -416,7 +467,19 @@ function field(interaction, id) {
 
 function applyModal(session, interaction, action) {
   if (action === 'schedule') {
-    if (session.kind === 'giveaway') {
+    if (session.kind === 'giveaway' && session.draft.giveawayType === 'wipe') {
+      // Preserve invalid entries so Schedule can be reopened for correction.
+      session.scheduleInputs = { server: field(interaction, 'server'),
+        before: field(interaction, 'before'), duration: field(interaction, 'duration') };
+      const before = parseAutomationDuration(session.scheduleInputs.before, 'Before wipe');
+      const duration = parseAutomationDuration(session.scheduleInputs.duration, 'Duration');
+      const server = session.scheduleInputs.server;
+      if (!server || server.length > 60 || before < 2 || before > 10080 || duration >= before) {
+        throw new RangeError('Enter a Rust server and a duration that ends before the wipe.');
+      }
+      Object.assign(session.draft, { schedule: 'wipe', server, beforeMinutes: before, durationMinutes: duration });
+      session.scheduleInputs = null;
+    } else if (session.kind === 'giveaway') {
       // Keep invalid fields for corrections; do not save or activate them.
       const scheduleType = interaction.fields.getStringSelectValues('scheduleType')?.[0];
       session.scheduleInputs = {
@@ -484,8 +547,31 @@ function applyModal(session, interaction, action) {
     }
     session.scheduleInputs = null;
     }
+  } else if (session.kind === 'giveaway' && action === 'type') {
+    const type = interaction.fields.getStringSelectValues('giveawayType')?.[0];
+    if (!['standard', 'wipe'].includes(type)) throw new RangeError('Choose Standard or Rust wipe.');
+    if (session.draft.giveawayType !== type) {
+      if (session.draft.state === 'running') throw new RangeError('Pause this automation before changing its type.');
+      session.draft.giveawayType = type;
+      session.draft.schedule = type === 'wipe' ? 'wipe' : 'repeat';
+      session.draft.startAt = null;
+      session.draft.nextRunAt = null;
+      session.draft.completedAt = null;
+      session.draft.randomize = false;
+      session.scheduleInputs = null;
+    }
+  } else if (session.kind === 'giveaway' && action === 'kit') {
+    if (session.draft.giveawayType !== 'wipe') throw new RangeError('Kit & role is only for Rust wipe giveaways.');
+    const kit = field(interaction, 'kit');
+    const roleId = interaction.fields.getField('winnerRole')?.values?.[0];
+    if (!kit || kit.length > 150 || !/^\d{17,20}$/.test(roleId || '')) {
+      throw new RangeError('Choose a Rust kit name and temporary winner role.');
+    }
+    Object.assign(session.draft, { kit, prizes: [kit], winnerRoleId: roleId });
   } else if (session.kind === 'giveaway' && action === 'text') {
-    const prizes = field(interaction, 'prizes').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    const prizes = session.draft.giveawayType === 'wipe'
+      ? [session.draft.kit].filter(Boolean)
+      : field(interaction, 'prizes').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
     if (!prizes.length || prizes.length > 20 || prizes.some(x => x.length > 150)) {
       throw new RangeError('Enter 1–20 prizes, each up to 150 characters.');
     }
@@ -506,7 +592,8 @@ function applyModal(session, interaction, action) {
   } else if (session.kind === 'giveaway' && action === 'timing') {
     const duration = parseAutomationDuration(field(interaction, 'duration'));
     const winnerCount = Number(field(interaction, 'winners'));
-    const randomize = field(interaction, 'randomize').toLowerCase();
+    const randomize = session.draft.giveawayType === 'wipe'
+      ? 'no' : field(interaction, 'randomize').toLowerCase();
     if (!Number.isInteger(winnerCount) || winnerCount < 1 || winnerCount > 10
       || !['yes', 'no'].includes(randomize) || duration > 43200) {
       throw new RangeError('Enter a valid duration, 1–10 winners and yes/no for randomize.');
@@ -570,7 +657,7 @@ async function validateDestination(interaction, session) {
     throw new RangeError('Cloudy needs Send Messages and Embed Links permissions in that channel.');
   }
   if (session.kind !== 'giveaway') return;
-  if (session.draft.schedule !== 'wipe') {
+  if (session.draft.giveawayType !== 'wipe') {
     if (session.draft.ping?.type === 'role') {
       const roleId = session.draft.ping.roleId;
       const role = interaction.guild?.roles?.cache?.get(roleId)
@@ -579,22 +666,19 @@ async function validateDestination(interaction, session) {
     }
     return;
   }
-  if (!session.draft.winnerRoleId) return;
+  if (!session.draft.winnerRoleId) throw new RangeError('Choose a temporary winner role in Kit & role.');
   const role = interaction.guild?.roles?.cache?.get(session.draft.winnerRoleId)
     || await interaction.guild?.roles?.fetch?.(session.draft.winnerRoleId).catch(() => null);
   if (!role || role.managed || role.id === interaction.guildId
     || !botMember?.permissions?.has?.(PermissionFlagsBits.ManageRoles)
     || !botMember.roles?.highest || botMember.roles.highest.comparePositionTo(role) <= 0) {
-    throw new RangeError('Choose a winner role below Cloudy’s highest role, or leave it empty.');
+    throw new RangeError('Choose a manageable winner role below Cloudy’s highest role.');
   }
 }
 
 async function saveSession(interaction, session) {
   if (session.scheduleInputs || session.validationError) throw new RangeError('Correct the information first.');
   await validateDestination(interaction, session);
-  if (session.kind === 'giveaway' && session.draft.schedule === 'wipe') {
-    throw new RangeError('Choose Repeat or Once for automatic giveaways.');
-  }
   if (session.draft.schedule !== 'wipe' && !session.draft.startAt) {
     throw new RangeError('Set a future start date and time in Schedule before saving.');
   }
@@ -766,7 +850,8 @@ export async function handleAutomationBuilderInteraction(interaction) {
       return true;
     }
     if (action === 'details' || action === 'schedule'
-      || (session.kind === 'giveaway' && ['text', 'claim', 'timing', 'code'].includes(action))
+      || (session.kind === 'giveaway' && ['type', 'text', 'kit', 'claim', 'timing', 'code'].includes(action)
+        && (session.draft.giveawayType !== 'wipe' || !['claim', 'code'].includes(action)))
       || (action === 'media' && session.kind === 'vote')) {
       await interaction.showModal(buildAutomationModal(session, action));
       return true;
