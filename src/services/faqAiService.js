@@ -15,7 +15,7 @@ import { buildCloudyPublicKnowledgeEvidence } from './cloudyPublicKnowledgeServi
 import { getEmbedRegistry, registerCloudyEmbedMessage } from './embedRegistryService.js';
 import { sameTicketComponents } from '../utils/ticket/ticketComponentEquality.js';
 
-export const FAQ_AI_CHANNEL_ID = '1534654577385672917';
+export const FAQ_AI_CHANNEL_ID = '1554538586001645679';
 export const FAQ_AI_BUTTON_ID = 'faq_ai_question';
 export const FAQ_AI_MODAL_ID = 'faq_ai_question_modal';
 
