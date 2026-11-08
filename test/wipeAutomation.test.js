@@ -497,3 +497,19 @@ test('running weekly votes can update media after their original start date, but
     question: 'Past?', maps: ['A', 'B'],
   }), RangeError);
 });
+
+
+test('editing a repeat vote later never resets its existing scheduled run', async () => {
+  const f = fixture();
+  const job = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'Initial question', maps: ['Yes', 'No'],
+  });
+  // A delayed edit must not drift by even a few milliseconds.
+  await new Promise(resolve => { setTimeout(resolve, 12); });
+  const updated = await saveAutomaticVoteJob(f.client, GUILD, {
+    ...job, question: 'Updated question', maps: ['Agree', 'Disagree'],
+  }, job.id);
+  assert.equal(updated.nextRunAt, job.nextRunAt);
+  assert.equal(updated.question, 'Updated question');
+});
