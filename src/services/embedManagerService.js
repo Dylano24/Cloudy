@@ -622,6 +622,19 @@ function bestBuilderSourceRecord(records, fallback = null) {
 // BUILDER_HUMAN_NAMES_V1
 
 
+// Content creator guides are three separate physical messages. The Builder
+// must not group them into one global template just because the titles match.
+export function contentCreatorGuideRecordIdentity(record) {
+    const channel = String(record?.channelName || '')
+        .split('│').at(-1).trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (!['youtube', 'twitch', 'tiktok'].includes(channel)) return null;
+    const source = String(record?.source || '');
+    const title = String(recordEmbedData(record)?.title || record?.title || '');
+    if (source !== 'content-creators' && !/content\s+creators/i.test(title)) return null;
+    const channelId = String(record?.channelId || record?.backingChannelId || '');
+    return channelId ? `content-creators:${channelId}` : null;
+}
+
 export function templateIdentity(channelId, value) {
     const data = value && typeof value === 'object' ? value : { title: value };
     const balanceIdentity = balanceResponseIdentity(data);
@@ -678,6 +691,15 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
         if (isLegacyHelperParserArtifactRecord(record) || isStaleDynamicSourceArtifactRecord(record)) continue;
         const rawName = recordName(record);
         const recordData = recordEmbedData(record);
+        const creatorIdentity = contentCreatorGuideRecordIdentity(record);
+        if (creatorIdentity) {
+            if (!groups.has(creatorIdentity)) groups.set(creatorIdentity, {
+                label: `Content creators (${String(record.channelName).split('│').at(-1).trim()})`,
+                records: [], templateMode: false, preventTemplateMode: true,
+            });
+            groups.get(creatorIdentity).records.push(record);
+            continue;
+        }
         const casinoTemplate = canonicalCasinoBuilderTemplate(recordData);
         if (casinoTemplate) {
             const key = `casino:${casinoTemplate.key}`;
@@ -815,11 +837,12 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         const raw = record.snapshot || getEmbedRegistrySnapshot(record) || recordEmbedData(record);
         if (isRetiredGamblingEmbed(raw)) continue;
         const isOwnerPost = record.source === 'embed-builder' && record.manualSaved === true;
-        const saved = isOwnerPost ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, record.channelId, raw);
+        const creatorIdentity = contentCreatorGuideRecordIdentity(record);
+        const saved = isOwnerPost || creatorIdentity ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, record.channelId, raw);
         if (isUnusedBuilderCatalogRecord(record, { saved })) continue;
-        const identity = isOwnerPost
+        const identity = creatorIdentity || (isOwnerPost
             ? `owner:${record.backingChannelId || record.channelId}:${record.messageId}:${record.embedIndex || 0}`
-            : (balanceResponseIdentity(raw) || saved.canonicalIdentity || templateIdentity(record.channelId, raw));
+            : (balanceResponseIdentity(raw) || saved.canonicalIdentity || templateIdentity(record.channelId, raw)));
         if (!identity || identity === '::') continue;
         const groupKey = perChannel ? String(record.channelId) + '|' + identity : identity;
         if (!groups.has(groupKey)) groups.set(groupKey, []);
@@ -837,12 +860,13 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
         const source = getSystemSourceDefinitionPreviewForEmbed(data);
         const hydrated = { ...(source || {}), ...data };
         const ownerPost = master.source === 'embed-builder' && master.manualSaved === true;
-        const saved = ownerPost ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, master.channelId, hydrated);
+        const creatorGuide = Boolean(contentCreatorGuideRecordIdentity(master));
+        const saved = ownerPost || creatorGuide ? { matched: false } : getCachedSavedEmbedTemplateData(guild.id, master.channelId, hydrated);
         const snapshot = removeRetiredGamblingGuideCommand(saved.matched ? saved.data : hydrated);
         const canonical = {
             ...master, snapshot, canonicalIdentity: identity,
             title: snapshot.title || '', name: humanTemplateRecordName({ ...master, snapshot }),
-            templateMode: !ownerPost,
+            templateMode: !ownerPost && !creatorGuide,
         };
         canonical.sourceRecord = { ...master, snapshot };
         canonical.previewRecord = { ...master, snapshot };
@@ -1335,7 +1359,7 @@ export function loadRecordSnapshotIntoState(
         savedLogoPreference: record.source !== 'embed-builder'
             && savedDisplay.matched && savedDisplay.thumbnailOverrideApplied === true,
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
-        templateMode: savedPhysicalBuilder
+        templateMode: savedPhysicalBuilder || contentCreatorGuideRecordIdentity(record)
             ? false : (Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder'),
         templateTitle: record.canonicalIdentity || templateRule?.key || templateIdentity(
             logicalChannelId,
@@ -1479,7 +1503,8 @@ function loadEmbedIntoState(state, resolved) {
             embedIndex: Math.max(0, Number(record.embedIndex) || 0),
         },
         hadBuilderMarker: Boolean(data.footer?.text?.endsWith(MESSAGE_BUILDER_FOOTER_MARKER)),
-        templateMode: record.source === 'embed-builder' && record.manualSaved === true
+        templateMode: contentCreatorGuideRecordIdentity(record)
+            || (record.source === 'embed-builder' && record.manualSaved === true)
             ? false : (Boolean(record.templateMode) || Boolean(templateRule) || record.source !== 'embed-builder'),
         templateTitle: templateRule?.key || templateIdentity(logicalChannelId, data),
         templateKind,

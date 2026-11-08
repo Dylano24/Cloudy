@@ -567,6 +567,13 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   // sender. Never do a second, visible edit immediately after creation.
   if (isGamblingGuide) return true;
 
+  // Guides are separate physical messages, even with matching titles.
+  // Do not apply a shared YouTube template when posting Twitch or TikTok.
+  const creatorChannel = String(message.channel?.name || '').split('│').at(-1)
+    .trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (['youtube', 'twitch', 'tiktok'].includes(creatorChannel)
+    && message.embeds.some(embed => /content\s+creators/i.test(String(embed?.title || '')))) return true;
+
   // ZORP Guide is owner-authored content. Never rewrite it from background
   // template/catalog/normalization passes. A manual Embed Builder Save still
   // edits the message and persists its template through the normal save path.
