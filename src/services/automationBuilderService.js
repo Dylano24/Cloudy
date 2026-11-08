@@ -413,10 +413,10 @@ async function validateDestination(interaction, session) {
 }
 
 async function saveSession(interaction, session) {
+  await validateDestination(interaction, session);
   if (session.draft.schedule !== 'wipe' && !session.draft.startAt) {
     throw new RangeError('Set a future start date and time in Schedule before saving.');
   }
-  await validateDestination(interaction, session);
   // Save configuration only; Start/Pause/Stop remain separate actions.
   // Editing an active automation must not stop it as a side effect.
   const previousState = session.draft.state;
