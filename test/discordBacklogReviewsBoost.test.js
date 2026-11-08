@@ -163,7 +163,9 @@ test('selection enables rating on same panel, never sends repetitive ephemeral d
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   const embed = sent[0].embeds[0].toJSON();
-  assert.ok(embed.description.includes('**Product or service**\nCloudy bot'));
+  assert.ok(embed.description.startsWith('**Cloudy bot**\n\n'));
+  assert.ok(!embed.description.includes('Product or service'));
+  assert.equal(embed.timestamp, undefined, 'review footer cannot include a timestamp');
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
   assert.match(embed.description, /Excellent experience/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
@@ -183,6 +185,20 @@ test('rating cannot open a modal before this reviewer selects a service', async 
   assert.equal(shown, false);
   assert.equal(reply.flags, MessageFlags.Ephemeral);
   assert.match(reply.content, /Choose a product or service first/);
+});
+
+test('published service review uses only the selected category as heading and the Staff Reviews footer style', () => {
+  for (const [type, label] of Object.entries(SERVICE_REVIEW_TYPES)) {
+    const embed = buildPublishedServiceReview({
+      user: { username: 'Reviewer', displayAvatarURL: () => 'https://example.com/avatar.png' },
+    }, type, 5, 'Perfect!', '<:W84starwhite:1543289625035022346>').toJSON();
+    assert.ok(embed.description.startsWith(`**${label}**\n\n**Rating**`),
+      `Only the selected service heading should be shown for ${label}`);
+    assert.ok(!embed.description.includes('Product or service'));
+    assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.ok(!Object.hasOwn(embed, 'timestamp'), 'Must show footer without Today at time');
+    assert.ok(embed.description.endsWith('**Experience**\nPerfect!'));
+  }
 });
 
 test('boost embed contains exact requested wording and never invents counts', async () => {
