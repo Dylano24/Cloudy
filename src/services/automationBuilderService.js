@@ -95,7 +95,20 @@ export function formatAutomationDashboard(session) {
       : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
-  // Match /giveaway create while retaining the Auto Vote control positions.
+  // Auto Giveaway stays within Discord's five-row limit:
+  // 1. Edit text / Edit claim / Duration & winners
+  // 2. Code / Schedule / Start / Pause
+  // 3. Save / Delete / Back
+  // 4. Posting channel, 5. Tag. Schedule mode is picked in the modal.
+  const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
+    ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished)
+      || Boolean(session.scheduleInputs) || Boolean(session.validationError));
+  const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
+  const saveButton = button(id, 'save', 'Save', ButtonStyle.Success,
+    Boolean(session.scheduleInputs) || Boolean(session.validationError)
+      || (!isVote && draft.schedule === 'wipe'));
+  const deleteButton = button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
+    ButtonStyle.Danger, !session.selectedJobId);
   const actions = new ActionRowBuilder().addComponents(...(isVote ? [
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
@@ -104,29 +117,22 @@ export function formatAutomationDashboard(session) {
     button(id, 'text', 'Edit text', ButtonStyle.Primary),
     button(id, 'claim', 'Edit claim'),
     button(id, 'timing', 'Duration & winners'),
-    button(id, 'code', 'Code'),
-    button(id, 'schedule', 'Schedule'),
   ]));
-  const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
-    ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished) || Boolean(session.scheduleInputs) || Boolean(session.validationError));
-  const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
-  const saveButton = button(id, 'save', 'Save', ButtonStyle.Success,
-    Boolean(session.scheduleInputs) || Boolean(session.validationError) || (!isVote && draft.schedule === 'wipe'));
-  const controls = new ActionRowBuilder().addComponents(
-    startButton,
-    pauseButton,
-    saveButton,
-    button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
-      ButtonStyle.Danger, !session.selectedJobId),
-    ...(!isVote ? [button(id, 'list', 'Back')] : []),
-  );
+  const controls = new ActionRowBuilder().addComponents(...(isVote
+    ? [startButton, pauseButton, saveButton, deleteButton]
+    : [button(id, 'code', 'Code'), button(id, 'schedule', 'Schedule'), startButton, pauseButton]));
+  const saveRow = !isVote ? new ActionRowBuilder().addComponents(
+    saveButton, deleteButton, button(id, 'list', 'Back'),
+  ) : null;
   const channelMenu = new ChannelSelectMenuBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}channel:${id}`)
     .setPlaceholder('Choose a posting channel')
     .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
     .setMinValues(1).setMaxValues(1);
   if (draft.channelId) channelMenu.setDefaultChannels(draft.channelId);
-  const rows = [actions, controls, new ActionRowBuilder().addComponents(channelMenu)];
+  const rows = isVote
+    ? [actions, controls, new ActionRowBuilder().addComponents(channelMenu)]
+    : [actions, controls, saveRow, new ActionRowBuilder().addComponents(channelMenu)];
   if (!isVote) {
     const ping = draft.ping || { type: 'none' };
     const tag = new StringSelectMenuBuilder()
@@ -147,7 +153,7 @@ export function formatAutomationDashboard(session) {
       { label: 'Once on a date', value: 'once', default: draft.schedule === 'once' },
       ...(isVote ? [{ label: 'Before a Rust wipe', value: 'wipe', default: draft.schedule === 'wipe' }] : []),
     );
-  rows.push(new ActionRowBuilder().addComponents(mode));
+  if (isVote) rows.push(new ActionRowBuilder().addComponents(mode));
   if (isVote) {
     // Keep all rows comfortable on Discord mobile: media controls live with
     // Back, rather than squeezing five long labels into the first row.
@@ -315,7 +321,29 @@ export function buildAutomationModal(session, action) {
         .setMinValues(1).setMaxValues(10)));
   }
   if (action === 'schedule') {
-    if (draft.schedule === 'repeat' || draft.schedule === 'once' || draft.schedule === 'random_weekly') {
+    if (kind === 'giveaway') {
+      const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
+      const savedMode = session.scheduleInputs?.scheduleType || draft.schedule;
+      modal.addLabelComponents(
+        new LabelBuilder().setLabel('Schedule type')
+          .setDescription('Choose Repeat or Once')
+          .setStringSelectMenuComponent(new StringSelectMenuBuilder()
+            .setCustomId('scheduleType')
+            .setPlaceholder('Choose a schedule type')
+            .addOptions(
+              { label: 'Repeat from a date', value: 'repeat', default: savedMode !== 'once' },
+              { label: 'Once on a date', value: 'once', default: savedMode === 'once' },
+            )),
+        input('date', 'Date', session.scheduleInputs?.date ?? local.date,
+          { maxLength: 10, description: 'Future date only.' }),
+        input('time', 'Time (EU)', session.scheduleInputs?.time ?? local.time,
+          { maxLength: 5, description: '24-hour clock.' }),
+        input('repeat', 'Repeat (only for Repeat)',
+          session.scheduleInputs?.repeat ?? shortAutomationDuration(draft.repeatMinutes),
+          { maxLength: 8, required: false,
+            description: 'Interval between giveaways, e.g. 1m, 1h, 1d, 1w. Ignored for Once.' }),
+      );
+    } else if (draft.schedule === 'repeat' || draft.schedule === 'once' || draft.schedule === 'random_weekly') {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       modal.addLabelComponents(
         input('date', 'Date', session.scheduleInputs?.date ?? local.date, {
@@ -388,9 +416,29 @@ function field(interaction, id) {
 
 function applyModal(session, interaction, action) {
   if (action === 'schedule') {
-    if (session.kind === 'giveaway' && session.draft.schedule === 'wipe') {
-      throw new RangeError('Choose Repeat or Once for automatic giveaways.');
-    }
+    if (session.kind === 'giveaway') {
+      // Keep invalid fields for corrections; do not save or activate them.
+      const scheduleType = interaction.fields.getStringSelectValues('scheduleType')?.[0];
+      session.scheduleInputs = {
+        scheduleType, date: field(interaction, 'date'),
+        time: field(interaction, 'time'), repeat: field(interaction, 'repeat'),
+      };
+      if (!['repeat', 'once'].includes(scheduleType)) {
+        throw new RangeError('Choose Repeat or Once.');
+      }
+      const startAt = parseAmsterdamStart(session.scheduleInputs.date, session.scheduleInputs.time);
+      if (startAt <= Date.now()) throw new RangeError('Choose a future start date and time.');
+      if (scheduleType === 'repeat') {
+        const repeat = parseAutomationDuration(session.scheduleInputs.repeat, 'Repeat');
+        if (repeat < session.draft.durationMinutes) {
+          throw new RangeError('Repeat cannot be shorter than Duration.');
+        }
+        Object.assign(session.draft, { schedule: 'repeat', repeatMinutes: repeat, startAt });
+      } else {
+        Object.assign(session.draft, { schedule: 'once', startAt });
+      }
+      session.scheduleInputs = null;
+    } else {
     // Keep submitted entries if validation fails so reopening Schedule does not
     // erase what the user typed. Successful submissions clear the draft.
     session.scheduleInputs = Object.fromEntries(
@@ -435,6 +483,7 @@ function applyModal(session, interaction, action) {
       Object.assign(session.draft, { server, beforeMinutes: before, durationMinutes: duration });
     }
     session.scheduleInputs = null;
+    }
   } else if (session.kind === 'giveaway' && action === 'text') {
     const prizes = field(interaction, 'prizes').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
     if (!prizes.length || prizes.length > 20 || prizes.some(x => x.length > 150)) {
