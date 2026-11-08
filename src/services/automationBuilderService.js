@@ -197,6 +197,31 @@ export function formatAutomaticVotesList(session, votes) {
   return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }
 
+export function formatAutomaticVoteMediaLibrary(session) {
+  const pool = session.draft.mediaPool || [];
+  const pages = Math.max(1, Math.ceil(pool.length / 12));
+  session.mediaPage = Math.min(Math.max(0, session.mediaPage || 0), pages - 1);
+  const offset = session.mediaPage * 12;
+  const entries = pool.slice(offset, offset + 12).map((media, index) =>
+    `**${offset + index + 1}.** [View media](${media.url}) — ${media.name.replace(/[*_\[\]]/g, '')}`);
+  const embed = new EmbedBuilder().setTitle('Auto vote media')
+    .setColor(session.validationError ? 0xE53935 : 0xFFFFFF)
+    .setThumbnail(CLOUDY_LOGO_URL)
+    .setDescription(`${pool.length} stored media • Page ${session.mediaPage + 1}/${pages}\n\n${entries.join('\n') || 'No media added yet.'}\n\nUpload in batches of five. Remove media by number (e.g. 1,3,12).${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+    .setFooter({ text: CLOUDY_BRANDING });
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      button(session.id, 'media_prev', 'Previous', ButtonStyle.Secondary, session.mediaPage === 0),
+      button(session.id, 'media_next', 'Next', ButtonStyle.Secondary, session.mediaPage >= pages - 1),
+      button(session.id, 'media_add', 'Add media', ButtonStyle.Success, pool.length >= MAX_AUTO_VOTE_MEDIA),
+      button(session.id, 'media_remove', 'Remove', ButtonStyle.Danger, pool.length === 0),
+      button(session.id, 'media_back', 'Back'),
+    )],
+    allowedMentions: { parse: [] },
+  };
+}
+
 function input(id, label, value, {
   required = true, maxLength = 250, paragraph = false, description = '',
 } = {}) {
