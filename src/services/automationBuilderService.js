@@ -90,8 +90,13 @@ export function formatAutomationDashboard(session) {
     button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
       ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished)),
     button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running'),
-    button(id, 'stop', 'Stop', ButtonStyle.Danger, status === 'stopped'),
-    button(id, 'close', 'Cancel'),
+    ...(isVote
+      ? [button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
+        ButtonStyle.Danger, !session.selectedJobId)]
+      : [
+        button(id, 'stop', 'Stop', ButtonStyle.Danger, status === 'stopped'),
+        button(id, 'close', 'Cancel'),
+      ]),
   );
   const channelMenu = new ChannelSelectMenuBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}channel:${id}`)
@@ -120,8 +125,6 @@ export function formatAutomationDashboard(session) {
   if (isVote) {
     rows.push(new ActionRowBuilder().addComponents(
       button(id, 'list', 'Back'),
-      button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete vote',
-        ButtonStyle.Danger, !session.selectedJobId),
     ));
   }
   return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
