@@ -78,22 +78,28 @@ export function formatAutomationDashboard(session) {
       : 'Off'}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
-  // Discord supports up to five buttons per action row. Keep the layout
-  // identical for votes and giveaways, regardless of automation state.
+  // Keep the giveaway layout unchanged; auto vote uses Start, Pause, Save, Delete.
   const actions = new ActionRowBuilder().addComponents(
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
   );
+  const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
+    ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished));
+  const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
+  const saveButton = button(id, 'save', 'Save', ButtonStyle.Success);
   const controls = new ActionRowBuilder().addComponents(
-    button(id, 'save', 'Save', ButtonStyle.Success),
-    button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
-      ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished)),
-    button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running'),
     ...(isVote
-      ? [button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
-        ButtonStyle.Danger, !session.selectedJobId)]
-      : [
+      ? [
+        startButton,
+        pauseButton,
+        saveButton,
+        button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
+          ButtonStyle.Danger, !session.selectedJobId),
+      ] : [
+        saveButton,
+        startButton,
+        pauseButton,
         button(id, 'stop', 'Stop', ButtonStyle.Danger, status === 'stopped'),
         button(id, 'close', 'Cancel'),
       ]),
