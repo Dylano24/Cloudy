@@ -210,8 +210,8 @@ function input(id, label, value, {
   if (id === 'duration' || id === 'before') {
     field.setPlaceholder('1m, 1h, 1d, 1w');
   }
-  if (id === 'date') field.setPlaceholder('10-11-2026 or 10112026');
-  if (id === 'time') field.setPlaceholder('18:00 or 1800');
+  if (id === 'date') field.setPlaceholder('10-11-2026');
+  if (id === 'time') field.setPlaceholder('18:00');
   if (value !== undefined && value !== null && String(value).length) field.setValue(String(value).slice(0, maxLength));
   return description
     ? new LabelBuilder().setLabel(label).setDescription(description).setTextInputComponent(field)
@@ -229,18 +229,50 @@ export function buildAutomationModal(session, action) {
     : `${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`;
   const modal = new ModalBuilder()
     .setCustomId(modalId)
-    .setTitle(action === 'schedule' ? 'Schedule' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
+    .setTitle(action === 'schedule' ? 'Schedule'
+      : action === 'media' ? 'Add media'
+        : action === 'media_remove' ? 'Remove media'
+          : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
+  if (action === 'media') {
+    if (kind !== 'vote') throw new RangeError('Media are only supported for auto votes.');
+    session.mediaModalCounter = (session.mediaModalCounter || 0) + 1;
+    modal.setCustomId(`${AUTOMATION_BUILDER_PREFIX}modal:${id}:media:${session.mediaModalCounter}`);
+    modal.addLabelComponents(...Array.from({ length: 5 }, (_, index) =>
+      new LabelBuilder().setLabel(`Image or GIF ${index + 1}`)
+        .setDescription('Optional • upload an image or GIF.')
+        .setFileUploadComponent(new FileUploadBuilder()
+          .setCustomId(`media${index + 1}`).setRequired(false)
+          .setMinValues(0).setMaxValues(1))));
+    return modal;
+  }
+  if (action === 'media_remove') {
+    if (kind !== 'vote') throw new RangeError('Media are only supported for auto votes.');
+    modal.addLabelComponents(input('numbers', 'Media number(s)', '', {
+      maxLength: 100, description: 'Remove media by number. E.g. 1,3,12.',
+    }));
+    return modal;
+  }
   if (action === 'schedule') {
-    if (draft.schedule === 'repeat' || draft.schedule === 'once') {
+    if (draft.schedule === 'repeat' || draft.schedule === 'once' || draft.schedule === 'weekly') {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       modal.addLabelComponents(
         input('date', 'Date', session.scheduleInputs?.date ?? local.date, {
-          maxLength: 10, description: 'Type 10112026; saved as 10-11-2026.',
+          maxLength: 10, description: 'DD-MM-YYYY • choose a future date.',
         }),
         input('time', 'Time (EU)', session.scheduleInputs?.time ?? local.time, {
-          maxLength: 5, description: 'Type 1800; saved as 18:00. Numbers only.',
+          maxLength: 5, description: 'HH:MM • 24-hour clock.',
         }),
       );
+      if (draft.schedule === 'weekly') {
+        modal.addLabelComponents(
+          input('minPosts', 'Minimum posts per week', session.scheduleInputs?.minPosts ?? draft.weeklyMin ?? 2, {
+            maxLength: 2, description: 'Choose 1–14 posts per week.',
+          }),
+          input('maxPosts', 'Maximum posts per week', session.scheduleInputs?.maxPosts ?? draft.weeklyMax ?? 3, {
+            maxLength: 2, description: 'At least the minimum; no more than 14.',
+          }),
+        );
+      }
       if (draft.schedule === 'repeat') {
         modal.addLabelComponents(input('repeat', 'Repeat',
           session.scheduleInputs?.repeat ?? shortAutomationDuration(draft.repeatMinutes), {
@@ -260,7 +292,7 @@ export function buildAutomationModal(session, action) {
         }),
         input('before', 'Before wipe',
           session.scheduleInputs?.before ?? shortAutomationDuration(draft.beforeMinutes), {
-            maxLength: 8, description: `How early the ${kind} starts before the wipe. E.g. 10m, 1h.`,
+            maxLength: 8, description: `How early the ${kind} starts before the wipe. E.g. 1m, 1h, 1d, 1w.`,
           }),
         input('duration', 'Duration',
           session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
