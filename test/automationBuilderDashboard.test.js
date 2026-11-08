@@ -399,12 +399,12 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
       ['Date', 'Time (EU)', 'Repeat', 'Duration']);
     assert.deepEqual(f.modal.components.map(row => row.description),
-      ['Date: DD-MM-YYYY (future date only).',
-        'Time: HH:MM (24-hour clock).',
+      ['Future date only.',
+        '24-hour clock.',
         `How often a new ${kind} starts. E.g. 1m, 1h, 1d, 1w.`,
         `How long the ${kind} stays open. E.g. 1m, 1h, 1d, 1w.`]);
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).placeholder),
-      ['DD-MM-YYYY (e.g. 10-11-2027)', 'HH:MM (e.g. 18:00)',
+      ['10-11-2027', '18:00',
         '1m, 1h, 1d, 1w',
         '1m, 1h, 1d, 1w']);
     await f.action(id, 'mode', ['once']);
@@ -637,7 +637,7 @@ test('Time rejects letters immediately on submission for both dashboards', async
     });
     assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
     assert.match(f.view.embeds[0].toJSON().description,
-      /Invalid Time: use HH:MM/i);
+      /Invalid Time: use 18:00/i);
     await f.action(id, 'schedule');
     assert.equal(f.modal.components[1].component.value, 'abcd');
     const cfg = await getWipeAutomationConfig(f.client, GUILD);
@@ -840,4 +840,33 @@ test('Add media accepts 60 pictures in six uploads and preserves them after Save
   assert.match(f.view.embeds[0].toJSON().description, /Confirm clear/);
   await f.action(id, 'clear_media');
   assert.ok(f.view.embeds[0].toJSON().description.includes('**Media:** 0 saved'));
+});
+
+
+test('invalid schedule blocks Save and Start even after a previously valid schedule', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'channel', [CHANNEL]);
+    await f.submit(id, 'details', kind === 'vote'
+      ? { question: 'Pick?', option1: 'A', option2: 'B' }
+      : { prizes: 'Prize', winners: '1' });
+    const valid = { date: futureStart.date, time: futureStart.time, repeat: '1d', duration: '1h' };
+    await f.submit(id, 'schedule', valid);
+    await f.action(id, 'save');
+    const before = await getWipeAutomationConfig(f.client, GUILD);
+    await f.submit(id, 'schedule', { ...valid, time: 'wrong' });
+    assert.equal(f.view.embeds[0].toJSON().title, 'Wrong information');
+    assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+    const controls = f.view.components.flatMap(row => row.toJSON().components);
+    for (const action of ['save', 'start']) {
+      assert.equal(controls.find(item => item.custom_id === `auto_builder:${action}:${id}`).disabled, true);
+      await f.action(id, action);
+      assert.deepEqual(await getWipeAutomationConfig(f.client, GUILD), before);
+    }
+    await f.submit(id, 'schedule', valid);
+    assert.notEqual(f.view.embeds[0].toJSON().title, 'Wrong information');
+    assert.equal(f.view.components.flatMap(row => row.toJSON().components)
+      .find(item => item.custom_id === `auto_builder:save:${id}`).disabled, false);
+  }
 });
