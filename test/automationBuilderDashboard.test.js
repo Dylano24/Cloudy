@@ -121,11 +121,11 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(f.view.components.length, 5);
   assert.equal(f.view.components[2].toJSON().components[0].type, 8);
   assert.deepEqual(f.view.components[4].toJSON().components.map(item => item.label),
-    ['Back', 'Delete vote']);
+    ['Back']);
   assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
     ['Edit details', 'Schedule', 'Randomize: off']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
-    ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
+    ['Save', 'Start', 'Pause', 'Delete']);
   assert.equal(f.view.components[1].toJSON().components[1].disabled, true,
     'start cannot run before the automation has been saved');
   assert.match(f.view.embeds[0].toJSON().title, /Auto vote/i);
@@ -173,8 +173,15 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(f.view.components[1].toJSON().components[1].label, 'Resume');
   await f.action(id, 'start');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running');
-  await f.action(id, 'stop');
-  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'stopped');
+  await f.action(id, 'delete');
+  assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
+    ['Save', 'Start', 'Pause', 'Confirm delete']);
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running',
+    'first delete press only asks for confirmation');
+  await f.action(id, 'delete');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs.length, 0,
+    'second delete press removes the selected automation');
+  assert.equal(f.view.embeds[0].toJSON().title, 'Auto vote');
 });
 
 test('giveaway builder supports prizes, role choice, and safe repeated scheduling', async () => {
@@ -266,12 +273,15 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     let rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[0].map(item => item.label),
       ['Edit details', 'Schedule', 'Randomize: off']);
-    assert.deepEqual(rows[1].map(item => item.label),
-      ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
+    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
+      ? ['Save', 'Start', 'Pause', 'Delete']
+      : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
     assert.equal(rows[0].length, 3);
-    assert.equal(rows[1].length, 5, 'all controls fit in one Discord action row');
+    assert.equal(rows[1].length, kind === 'vote' ? 4 : 5,
+      'management controls fit on one Discord action row');
     assert.deepEqual(rows[1].map(item => item.disabled),
-      [false, true, true, true, false], 'only Save and Cancel work before configuration');
+      kind === 'vote' ? [false, true, true, true] : [false, true, true, true, false],
+      'delete cannot be used until a vote is saved');
 
     await f.action(id, 'channel', [CHANNEL]);
     if (kind === 'vote') {
@@ -281,26 +291,34 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     }
     await f.action(id, 'save');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].map(item => item.label),
-      ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
+    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
+      ? ['Save', 'Start', 'Pause', 'Delete']
+      : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
     assert.deepEqual(rows[1].map(item => item.disabled),
-      [false, false, true, true, false]);
+      kind === 'vote' ? [false, false, true, false]
+        : [false, false, true, true, false]);
 
     await f.action(id, 'start');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[1].map(item => item.disabled),
-      [false, true, false, false, false]);
+      kind === 'vote' ? [false, true, false, false] : [false, true, false, false, false]);
 
     await f.action(id, 'pause');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].map(item => item.label),
-      ['Save', 'Resume', 'Pause', 'Stop', 'Cancel']);
+    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
+      ? ['Save', 'Resume', 'Pause', 'Delete']
+      : ['Save', 'Resume', 'Pause', 'Stop', 'Cancel']);
     assert.deepEqual(rows[1].map(item => item.disabled),
-      [false, false, true, false, false]);
+      kind === 'vote' ? [false, false, true, false] : [false, false, true, false, false]);
 
-    await f.action(id, 'close');
-    assert.equal(f.view.content, 'Automation builder closed.');
-    assert.deepEqual(f.view.components, []);
+    if (kind === 'vote') {
+      await f.action(id, 'list');
+      assert.equal(f.view.embeds[0].toJSON().title, 'Auto vote');
+    } else {
+      await f.action(id, 'close');
+      assert.equal(f.view.content, 'Automation builder closed.');
+      assert.deepEqual(f.view.components, []);
+    }
   }
 });
 
