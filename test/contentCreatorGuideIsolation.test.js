@@ -60,7 +60,7 @@ test('Search lists all three live guides even when title and body are identical'
   records[0].snapshot.title = '<:Z94tiktok:1543280394508701857>My YouTube embed';
   const newOptions = buildSearchChoices(buildMatches(guild, records, 'embed'));
   assert.equal(newOptions.length, 1);
-  assert.equal(newOptions[0].name, 'My YouTube embed — YouTube');
+  assert.equal(newOptions[0].name, '<:Z94tiktok:1543280394508701857>My YouTube embed — YouTube');
   const updatedChannel = buildEmbedPayload(guild, records, channels[0].id);
   assert.equal(updatedChannel.components[0].toJSON().components[0].options[0].label, 'My YouTube embed');
 });
@@ -116,7 +116,7 @@ test('real TikTok ID survives a legacy raw-emoji title and hides the external du
   assert.equal(new Set(choices.map(x => x.value)).size, 3,
     'each Search selection must keep its own channel and message ID');
   assert.deepEqual(choices.map(x => x.name).sort(), [
-    'Content creators — TikTok', 'Content creators — Twitch', 'Content creators — YouTube',
+    '<:Z94tiktok:1543280394508701857>Content creators — TikTok', 'Content creators — Twitch', 'Content creators — YouTube',
   ]);
   assert.equal(buildSearchChoices(buildAutocompleteMatches(guild, [...records, retired], 'con')).length, 3);
   // The obsolete entry can also appear as a title/name overlay with an older
