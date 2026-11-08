@@ -11,7 +11,7 @@ test('short durations are parsed and displayed consistently for auto vote and gi
     assert.equal(parseAutomationDuration(input), minutes);
     assert.equal(shortAutomationDuration(minutes), input);
   }
-  assert.equal(parseAutomationDuration('15'), 15, 'older numeric values still work');
+  assert.throws(() => parseAutomationDuration('15'), RangeError, 'a duration must have m, h, d or w');
   for (const invalid of ['0m', '12x', 'abc', '-1h', '31d', '1.5h', '1hour', '1day']) {
     assert.throws(() => parseAutomationDuration(invalid), RangeError);
   }
@@ -20,12 +20,11 @@ test('short durations are parsed and displayed consistently for auto vote and gi
 test('Central European dates and times are real UTC timestamps independent of host timezone', () => {
   const expected = Date.parse('2026-11-10T17:00:00.000Z');
   assert.equal(parseAmsterdamStart('10-11-2026', '18:00'), expected);
-  assert.equal(parseAmsterdamStart('2026-11-10', '18:00'), expected);
-  assert.equal(parseAmsterdamStart('10/11/2026', '18.00'), expected);
-  assert.equal(parseAmsterdamStart('10.11.2026', '18'), expected);
-  assert.equal(parseAmsterdamStart('10-11-2026', '18'), expected);
-  assert.equal(parseAmsterdamStart('10112026', '1800'), expected);
-  assert.equal(parseAmsterdamStart('20261110', '1800'), expected);
+  for (const [date, time] of [
+    ['2026-11-10', '18:00'], ['10/11/2026', '18.00'],
+    ['10.11.2026', '18'], ['10-11-2026', '18'],
+    ['10112026', '1800'], ['20261110', '1800'],
+  ]) assert.throws(() => parseAmsterdamStart(date, time), RangeError);
   assert.equal(normalizeAutomationDate('10112026'), '10-11-2026');
   assert.equal(normalizeAutomationDate('20261110'), '2026-11-10');
   assert.equal(normalizeAutomationTime('1800'), '18:00');
