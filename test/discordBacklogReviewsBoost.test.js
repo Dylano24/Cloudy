@@ -45,7 +45,7 @@ function addChannel(client, guild, id, extras = {}) {
 
 test('panel offers exactly five requested services in order, with rating initially disabled', () => {
   assert.deepEqual(Object.values(SERVICE_REVIEW_TYPES), [
-    'Cloudy bot', 'Website', 'Game servers', 'Game store', 'Services',
+    'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Services',
   ]);
   const rows = serviceReviewPanelRows().map(row => row.toJSON());
   assert.equal(rows.length, 2);
@@ -56,6 +56,10 @@ test('panel offers exactly five requested services in order, with rating initial
   assert.deepEqual(rows[1].components[0].options.map(option => option.label),
     ['★', '★★', '★★★', '★★★★', '★★★★★']);
   assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 5);
+  assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Game servers'));
+  assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Bot development'));
+  assert.equal(serviceReviewModal('development', 5).toJSON().custom_id, 'service_review_modal:development:5');
+  assert.throws(() => serviceReviewModal('servers', 5), /Invalid review details/);
   assert.equal(serviceReviewRatingRow().toJSON().components[0].disabled, true);
   const chosen = serviceReviewPanelRows('bot').map(row => row.toJSON());
   assert.equal(chosen[1].components[0].disabled, false);
