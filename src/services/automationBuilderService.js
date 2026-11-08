@@ -494,11 +494,11 @@ async function validateDestination(interaction, session) {
 
 async function saveSession(interaction, session) {
   if (session.validationError) throw new RangeError('Correct the invalid settings before Save.');
-  if (['repeat', 'once', 'weekly'].includes(session.draft.schedule)
+  await validateDestination(interaction, session);
+  if (['once', 'weekly'].includes(session.draft.schedule)
     && (!session.draft.startAt || !Number.isSafeInteger(session.draft.startAt))) {
     throw new RangeError('Choose a future start date and time in Schedule first.');
   }
-  await validateDestination(interaction, session);
   // Save configuration only; Start/Pause/Stop remain separate actions.
   // Editing an active automation must not stop it as a side effect.
   const previousState = session.draft.state;
