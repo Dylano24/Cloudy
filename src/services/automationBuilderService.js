@@ -562,6 +562,7 @@ export async function handleAutomationBuilderInteraction(interaction) {
       || action === 'list' || action === 'refresh' || action === 'back' || action === 'select')) {
       if (action === 'new') {
         session.view = 'editor';
+        session.mediaPage = 0;
         session.draft = baseDraft('vote', null);
         session.selectedJobId = null;
         session.scheduleInputs = null;
@@ -594,6 +595,7 @@ export async function handleAutomationBuilderInteraction(interaction) {
       const choice = votes.find(vote => vote.id === interaction.values?.[0]);
       if (!choice) throw new RangeError('This saved vote is no longer available. Refresh the list.');
       session.view = 'editor';
+      session.mediaPage = 0;
       session.selectedJobId = choice.id;
       session.draft = baseDraft('vote', choice);
       session.scheduleInputs = null;
@@ -626,14 +628,44 @@ export async function handleAutomationBuilderInteraction(interaction) {
       return true;
     }
     session.confirmDelete = false;
+    if (session.kind === 'vote' && action === 'media_library') {
+      session.view = 'media';
+      await interaction.update(formatAutomaticVoteMediaLibrary(session));
+      return true;
+    }
+    if (session.kind === 'vote' && action === 'media_back') {
+      session.view = 'editor';
+      await interaction.update(formatAutomationDashboard(session));
+      return true;
+    }
+    if (session.kind === 'vote' && (action === 'media_prev' || action === 'media_next')) {
+      session.mediaPage = Math.max(0, (session.mediaPage || 0) + (action === 'media_next' ? 1 : -1));
+      await interaction.update(formatAutomaticVoteMediaLibrary(session));
+      return true;
+    }
+    if (session.kind === 'vote' && (action === 'media_add' || action === 'media_remove')) {
+      await interaction.showModal(buildAutomationModal(session, action === 'media_add' ? 'media' : 'media_remove'));
+      return true;
+    }
     if (action === 'modal' && interaction.isModalSubmit?.()) {
+      if (parts[2] === 'media') {
+        if (session.kind !== 'vote' || Number(parts[3]) !== session.mediaModalCounter) {
+          throw new RangeError('This media form is outdated. Open Add media again.');
+        }
+        await interaction.deferUpdate();
+        await addAutoVoteMedia(session, interaction);
+        await interaction.editReply(session.view === 'media'
+          ? formatAutomaticVoteMediaLibrary(session) : formatAutomationDashboard(session));
+        return true;
+      }
       if (parts[2] === 'schedule' && parts[3]
         && (parts[3] !== session.draft.schedule
           || Number(parts[4]) !== session.scheduleModalCounter)) {
         throw new RangeError('This Schedule form is outdated. Open Schedule again.');
       }
       applyModal(session, interaction, parts[2]);
-      await interaction.update(formatAutomationDashboard(session));
+      await interaction.update(session.view === 'media'
+        ? formatAutomaticVoteMediaLibrary(session) : formatAutomationDashboard(session));
       return true;
     }
     if (action === 'details' || action === 'schedule') {
@@ -660,10 +692,12 @@ export async function handleAutomationBuilderInteraction(interaction) {
       session.dirty = true;
     } else if (action === 'mode' && interaction.isStringSelectMenu?.()) {
       const mode = interaction.values?.[0];
-      if (!['once', 'repeat', 'wipe'].includes(mode)) return true;
+      if (!['once', 'repeat', 'wipe', ...(session.kind === 'vote' ? ['weekly'] : [])].includes(mode)) return true;
       if (session.draft.schedule !== mode) {
         session.scheduleInputs = null;
         session.validationError = false;
+        // A new dated mode must explicitly validate its own future start.
+        if (mode !== 'wipe') session.draft.startAt = null;
       }
       session.draft.schedule = mode;
       session.dirty = true;
@@ -704,7 +738,9 @@ export async function handleAutomationBuilderInteraction(interaction) {
     session.validationError = true;
     session.notice = error instanceof RangeError ? error.message : 'Automation could not be updated.';
     if (!(error instanceof RangeError)) logger.warn('[AUTO_BUILDER] Unexpected dashboard error:', error);
-    const payload = session.kind === 'vote' && session.view === 'list'
+    const payload = session.kind === 'vote' && session.view === 'media'
+      ? formatAutomaticVoteMediaLibrary(session)
+      : session.kind === 'vote' && session.view === 'list'
       ? formatAutomaticVotesList(
         session, await listAutomaticVotes(interaction.client, session.guildId),
       ) : session.kind === 'vote' && session.view === 'home'
