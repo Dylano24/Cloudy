@@ -350,7 +350,7 @@ function field(interaction, id) {
   return String(interaction.fields.getTextInputValue(id) || '').trim();
 }
 
-async function addAutoVoteMedia(session, interaction) {
+export async function addAutoVoteMedia(session, interaction, store = storeExistingDiscordEmbedMedia) {
   if (session.kind !== 'vote') throw new RangeError('Media are only available for auto votes.');
   const uploads = Array.from({ length: 5 }, (_, index) => {
     try { return interaction.fields.getUploadedFiles(`media${index + 1}`)?.first?.() || null; }
@@ -366,7 +366,7 @@ async function addAutoVoteMedia(session, interaction) {
       || Number(file.size) > 25 * 1024 * 1024) {
       throw new RangeError('Media must be an image or GIF, no larger than 25 MB each.');
     }
-    const url = await storeExistingDiscordEmbedMedia(file.url);
+    const url = await store(file.url);
     if (!url) throw new RangeError('Cloudy media storage is unavailable. Please try again.');
     return { url, name: String(file.name || 'Image').slice(0, 100) };
   }));
