@@ -113,6 +113,12 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   const id = await f.open('vote');
   assert.equal(f.view.components.length, 4);
   assert.equal(f.view.components[2].toJSON().components[0].type, 8);
+  assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
+    ['Edit details', 'Schedule', 'Randomize: off']);
+  assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
+    ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
+  assert.equal(f.view.components[1].toJSON().components[1].disabled, true,
+    'start cannot run before the automation has been saved');
   assert.match(f.view.embeds[0].toJSON().title, /Auto vote/i);
 
   await f.action(id, 'channel', [CHANNEL]);
@@ -137,15 +143,22 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(saved.channelId, CHANNEL);
   assert.equal(saved.repeatMinutes, 15);
   assert.equal(saved.randomize, true);
+  assert.equal(f.view.components[1].toJSON().components[1].disabled, false,
+    'start becomes available only after saving');
 
-  await f.action(id, 'toggle');
+  await f.action(id, 'start');
   saved = (await getWipeAutomationConfig(f.client, GUILD)).vote;
   assert.equal(saved.state, 'running');
   await runWipeAutomationTick(f.client, saved.nextRunAt + 10);
   assert.equal(f.posts.length, 1);
-  await f.action(id, 'toggle');
+  assert.equal(f.view.components[1].toJSON().components[1].disabled, true,
+    'start is disabled while running');
+  assert.equal(f.view.components[1].toJSON().components[2].disabled, false,
+    'pause is enabled while running');
+  await f.action(id, 'pause');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'paused');
-  await f.action(id, 'toggle');
+  assert.equal(f.view.components[1].toJSON().components[1].label, 'Resume');
+  await f.action(id, 'start');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'running');
   await f.action(id, 'stop');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'stopped');
@@ -163,7 +176,8 @@ test('giveaway builder supports prizes, role choice, and safe repeated schedulin
   await f.action(id, 'schedule');
   await f.submit(id, 'schedule', { repeat: '60', duration: '15' });
   await f.action(id, 'random');
-  await f.action(id, 'toggle');
+  await f.action(id, 'save');
+  await f.action(id, 'start');
   const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
   assert.equal(cfg.state, 'running');
   assert.deepEqual(cfg.prizes, ['Kit A', 'Kit B']);
@@ -185,7 +199,7 @@ test('dashboard rejects foreign users and cannot start without a posting channel
   const id = await f.open('vote');
   await f.action(id, 'details');
   await f.submit(id, 'details', { question: 'Test?', option1: 'A', option2: 'B' });
-  const result = await f.action(id, 'toggle');
+  const result = await f.action(id, 'save');
   assert.match(result.view.embeds[0].toJSON().description, /Select a posting channel first/i);
   assert.equal(result.view.components.length, 4, 'validation must not close the dashboard');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote, null);
@@ -206,7 +220,8 @@ test('wipe mode is editable in the dashboard without changing the legacy wipe sc
   assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
     ['server', 'before', 'duration']);
   await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30', duration: '5' });
-  await f.action(id, 'toggle');
+  await f.action(id, 'save');
+  await f.action(id, 'start');
   const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
   assert.equal(cfg.schedule, 'wipe');
   assert.equal(cfg.server, 'Cloudy Rust');
@@ -227,4 +242,66 @@ test('another user cannot operate someone else’s automation dashboard', async 
   assert.equal(answer.flags, MessageFlags.Ephemeral);
   assert.match(answer.content, /belongs to another user/i);
   assert.match(f.view.embeds[0].toJSON().description, /Randomize:\*\* Off/);
+});
+
+test('vote and giveaway always use the same compact two-row button layout', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    let rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
+    assert.deepEqual(rows[0].map(item => item.label),
+      ['Edit details', 'Schedule', 'Randomize: off']);
+    assert.deepEqual(rows[1].map(item => item.label),
+      ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
+    assert.equal(rows[0].length, 3);
+    assert.equal(rows[1].length, 5, 'all controls fit in one Discord action row');
+    assert.deepEqual(rows[1].map(item => item.disabled),
+      [false, true, true, true, false], 'only Save and Cancel work before configuration');
+
+    await f.action(id, 'channel', [CHANNEL]);
+    if (kind === 'vote') {
+      await f.submit(id, 'details', { question: 'Your map?', option1: 'A', option2: 'B' });
+    } else {
+      await f.submit(id, 'details', { prizes: 'Kit A', winners: '1' });
+    }
+    await f.action(id, 'save');
+    rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
+    assert.deepEqual(rows[1].map(item => item.label),
+      ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
+    assert.deepEqual(rows[1].map(item => item.disabled),
+      [false, false, true, true, false]);
+
+    await f.action(id, 'start');
+    rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
+    assert.deepEqual(rows[1].map(item => item.disabled),
+      [false, true, false, false, false]);
+
+    await f.action(id, 'pause');
+    rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
+    assert.deepEqual(rows[1].map(item => item.label),
+      ['Save', 'Resume', 'Pause', 'Stop', 'Cancel']);
+    assert.deepEqual(rows[1].map(item => item.disabled),
+      [false, false, true, false, false]);
+
+    await f.action(id, 'close');
+    assert.equal(f.view.content, 'Automation builder closed.');
+    assert.deepEqual(f.view.components, []);
+  }
+});
+
+test('Save does not stop a running vote and Start never implicitly saves edits', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { question: 'Your map?', option1: 'A', option2: 'B' });
+  await f.action(id, 'save');
+  await f.action(id, 'start');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.state, 'running');
+  await f.action(id, 'random');
+  const buttons = f.view.components[1].toJSON().components;
+  assert.equal(buttons[1].disabled, true, 'Start cannot silently save pending edits');
+  await f.action(id, 'save');
+  const updated = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(updated.state, 'running', 'saving an active configuration must not stop it');
+  assert.equal(updated.randomize, true);
 });
