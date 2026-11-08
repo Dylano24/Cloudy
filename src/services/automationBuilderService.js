@@ -359,14 +359,25 @@ function applyModal(session, interaction, action) {
         ? ['server', 'before', 'duration']
         : session.draft.schedule === 'repeat'
           ? ['date', 'time', 'repeat', 'duration']
-          : ['date', 'time', 'duration'])
+          : session.draft.schedule === 'weekly'
+            ? ['date', 'time', 'minPosts', 'maxPosts', 'duration']
+            : ['date', 'time', 'duration'])
         .map(id => [id, field(interaction, id)]),
     );
     const duration = parseAutomationDuration(field(interaction, 'duration'));
-    if (session.draft.schedule === 'repeat' || session.draft.schedule === 'once') {
+    if (session.draft.schedule === 'repeat' || session.draft.schedule === 'once' || session.draft.schedule === 'weekly') {
       const startAt = parseAmsterdamStart(field(interaction, 'date'), field(interaction, 'time'));
       if (startAt <= Date.now()) throw new RangeError('Choose a future start date and time.');
-      if (session.draft.schedule === 'repeat') {
+      if (session.draft.schedule === 'weekly') {
+        const minRaw = field(interaction, 'minPosts');
+        const maxRaw = field(interaction, 'maxPosts');
+        const min = Number(minRaw), max = Number(maxRaw);
+        if (!/^\d{1,2}$/.test(minRaw) || !/^\d{1,2}$/.test(maxRaw)
+          || min < 1 || max > 14 || min > max) {
+          throw new RangeError('Choose 1–14 posts per week, with Minimum no greater than Maximum.');
+        }
+        Object.assign(session.draft, { weeklyMin: min, weeklyMax: max, durationMinutes: duration, startAt });
+      } else if (session.draft.schedule === 'repeat') {
         const repeat = parseAutomationDuration(field(interaction, 'repeat'), 'Repeat');
         if (repeat < duration) {
           throw new RangeError('Repeat cannot be shorter than Duration.');
@@ -384,6 +395,19 @@ function applyModal(session, interaction, action) {
       Object.assign(session.draft, { server, beforeMinutes: before, durationMinutes: duration });
     }
     session.scheduleInputs = null;
+  } else if (action === 'media_remove' && session.kind === 'vote') {
+    const raw = field(interaction, 'numbers');
+    if (!/^\d{1,4}(?:\s*,\s*\d{1,4})*$/.test(raw)) {
+      throw new RangeError('Enter valid media numbers separated by commas (e.g. 1,3,12).');
+    }
+    const indexes = [...new Set(raw.split(',').map(x => Number(x.trim())))];
+    const pool = session.draft.mediaPool || [];
+    if (indexes.some(n => n < 1 || n > pool.length)) {
+      throw new RangeError(`Enter a media number between 1 and ${pool.length}.`);
+    }
+    const removed = new Set(indexes);
+    session.draft.mediaPool = pool.filter((_, index) => !removed.has(index + 1));
+    session.notice = `${removed.size} media removed from this automation.`;
   } else if (session.kind === 'vote') {
     const name = field(interaction, 'name');
     const question = field(interaction, 'question');
@@ -438,6 +462,11 @@ async function validateDestination(interaction, session) {
 }
 
 async function saveSession(interaction, session) {
+  if (session.validationError) throw new RangeError('Correct the invalid settings before Save.');
+  if (['repeat', 'once', 'weekly'].includes(session.draft.schedule)
+    && (!session.draft.startAt || !Number.isSafeInteger(session.draft.startAt))) {
+    throw new RangeError('Choose a future start date and time in Schedule first.');
+  }
   await validateDestination(interaction, session);
   // Save configuration only; Start/Pause/Stop remain separate actions.
   // Editing an active automation must not stop it as a side effect.
