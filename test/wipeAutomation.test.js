@@ -5,6 +5,7 @@ import {
   autoWipeGiveawayPayload, changeAutoWipeEntry, configureWipeAutomation,
   expirePreviousWipeRoles, getWipeAutomationConfig, observeWipeEvent,
   refreshAutoWipeEntryMessage, runWipeAutomationTick, setWipeAutomationState, syncWipePrize, wipeSessionId,
+  listAutomaticVotes, saveAutomaticVoteJob, setAutomaticVoteJobState, deleteAutomaticVoteJob,
 } from '../src/services/wipeAutomationService.js';
 import autoCommand from '../src/commands/Tools/auto.js';
 import wipeCommand from '../src/commands/Giveaway/wipe.js';
@@ -90,7 +91,7 @@ test('command definitions expose explicit settings and member sync without auto 
 
 test('both automatic systems are disabled until configured, enabled and supplied with actual wipe time', async () => {
   const f=fixture();
-  assert.deepEqual(await getWipeAutomationConfig(f.client,GUILD), { vote:null,giveaway:null,wipes:{} });
+  assert.deepEqual(await getWipeAutomationConfig(f.client,GUILD), { vote:null,giveaway:null,voteJobs:[],wipes:{} });
   await runWipeAutomationTick(f.client);
   assert.equal(f.allPosts.length,0);
   await configureWipeAutomation(f.client,GUILD,'vote',voteCfg);
@@ -312,4 +313,98 @@ test('a dated repeating giveaway waits until its selected day, then repeats on i
   assert.equal(cfg.nextRunAt, startAt + 1440 * MINUTE);
   await runWipeAutomationTick(f.client, cfg.nextRunAt + 10);
   assert.equal(f.giveaways.posts.length, 2);
+});
+
+test('multiple automatic votes retain independent names, channels, schedules and statuses', async () => {
+  const f = fixture();
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'Original legacy vote', maps: ['One', 'Two'],
+    channelId: f.votes.ch.id,
+  });
+  const a = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'First scheduled vote', maps: ['A', 'B'], channelId: f.votes.ch.id,
+  });
+  const b = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 120, durationMinutes: 10,
+    question: 'Second scheduled vote', maps: ['Yes', 'No'], channelId: f.giveaways.ch.id,
+  });
+  assert.match(a.id, /^[a-f0-9]{16}$/);
+  assert.match(b.id, /^[a-f0-9]{16}$/);
+  assert.notEqual(a.id, b.id);
+  const votes = await listAutomaticVotes(f.client, GUILD);
+  assert.deepEqual(votes.map(v => v.question),
+    ['Original legacy vote', 'First scheduled vote', 'Second scheduled vote']);
+  assert.equal(votes[0].id, 'legacy');
+  assert.equal(votes[1].channelId, f.votes.ch.id);
+  assert.equal(votes[2].channelId, f.giveaways.ch.id);
+  await setAutomaticVoteJobState(f.client, GUILD, a.id, 'running');
+  await setAutomaticVoteJobState(f.client, GUILD, b.id, 'paused');
+  assert.deepEqual((await listAutomaticVotes(f.client, GUILD)).map(v => v.state),
+    ['stopped', 'running', 'paused']);
+  const nextA = (await listAutomaticVotes(f.client, GUILD)).find(v => v.id === a.id).nextRunAt;
+  await Promise.all([
+    runWipeAutomationTick(f.client, nextA + 1),
+    runWipeAutomationTick(f.client, nextA + 1),
+  ]);
+  assert.equal(f.votes.posts.length, 1, 'only running first vote publishes');
+  assert.equal(f.giveaways.posts.length, 0, 'paused second vote does not publish');
+  assert.equal((await listAutomaticVotes(f.client, GUILD))[1].state, 'running');
+  await setAutomaticVoteJobState(f.client, GUILD, b.id, 'running');
+  const nextB = (await listAutomaticVotes(f.client, GUILD)).find(v => v.id === b.id).nextRunAt;
+  await runWipeAutomationTick(f.client, nextB + 1);
+  assert.equal(f.giveaways.posts.length, 1, 'second auto vote publishes to its own channel');
+  assert.equal((await listAutomaticVotes(f.client, GUILD))[0].state, 'stopped');
+});
+
+test('editing one auto vote does not overwrite another or the legacy configuration', async () => {
+  const f = fixture();
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 30, durationMinutes: 5,
+    question: 'Legacy remains', maps: ['One', 'Two'],
+  });
+  const a = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'Vote A', maps: ['A', 'B'],
+  });
+  const b = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
+    question: 'Vote B', maps: ['C', 'D'],
+  });
+  await setAutomaticVoteJobState(f.client, GUILD, a.id, 'running');
+  const saved = await saveAutomaticVoteJob(f.client, GUILD, {
+    ...a, question: 'Vote A renamed', maps: ['X', 'Y'],
+  }, a.id);
+  assert.equal(saved.id, a.id);
+  assert.equal(saved.state, 'running');
+  assert.equal(saved.nextRunAt, a.nextRunAt);
+  const votes = await listAutomaticVotes(f.client, GUILD);
+  assert.deepEqual(votes.map(v => v.question), ['Legacy remains', 'Vote A renamed', 'Vote B']);
+  assert.equal(votes[2].id, b.id);
+  await deleteAutomaticVoteJob(f.client, GUILD, a.id);
+  assert.deepEqual((await listAutomaticVotes(f.client, GUILD)).map(v => v.question),
+    ['Legacy remains', 'Vote B']);
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote.question, 'Legacy remains');
+});
+
+test('separate once-only automatic votes each run once and preserve their own completed status', async () => {
+  const f = fixture();
+  const startAt = Date.now() + 4 * MINUTE;
+  const base = { schedule: 'once', startAt, durationMinutes: 5, maps: ['Yes', 'No'] };
+  const a = await saveAutomaticVoteJob(f.client, GUILD, {
+    ...base, question: 'A', channelId: f.votes.ch.id,
+  });
+  const b = await saveAutomaticVoteJob(f.client, GUILD, {
+    ...base, question: 'B', channelId: f.votes.ch.id,
+  });
+  await setAutomaticVoteJobState(f.client, GUILD, a.id, 'running');
+  await setAutomaticVoteJobState(f.client, GUILD, b.id, 'running');
+  await runWipeAutomationTick(f.client, startAt + 1);
+  assert.equal(f.votes.posts.length, 2, 'IDs must not collide for same-day automatic votes');
+  const states = await listAutomaticVotes(f.client, GUILD);
+  assert.deepEqual(states.map(v => v.state), ['stopped', 'stopped']);
+  assert.ok(states.every(v => v.completedAt));
+  await runWipeAutomationTick(f.client, startAt + MINUTE);
+  assert.equal(f.votes.posts.length, 2);
 });
