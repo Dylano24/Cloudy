@@ -253,7 +253,7 @@ test('repeating kit giveaways select one of the configured prizes and conclude s
 test('repeat rejects invalid schedules and never posts until explicitly started', async () => {
   const f = fixture();
   await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'vote', {
-    schedule: 'repeat', repeatMinutes: 10, durationMinutes: 5,
+    schedule: 'repeat', repeatMinutes: 0, durationMinutes: 5,
     question: 'Test', maps: ['One', 'Two'],
   }), RangeError);
   await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'vote', {

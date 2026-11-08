@@ -6,16 +6,18 @@ const LOCAL_PARTS = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
-export function parseAutomationDuration(input) {
+export function parseAutomationDuration(input, fieldName = 'Duration') {
   const raw = String(input ?? '').trim().toLowerCase();
-  const match = /^(\d{1,6})\s*(m|min|minutes?|h|hours?|d|days?|w|weeks?)?$/.exec(raw);
-  if (!match) throw new RangeError('Use a duration such as 1m, 2h or 1d.');
+  const match = /^(\d{1,6})\s*([mhdw])?$/.exec(raw);
+  if (!match) {
+    throw new RangeError(`${fieldName}: use 1m, 1h, 1d or 1w. Other letters are not allowed.`);
+  }
   const multiplier = match[2]?.startsWith('w') ? 10080
     : match[2]?.startsWith('d') ? 1440
       : match[2]?.startsWith('h') ? 60 : 1;
   const minutes = Number(match[1]) * multiplier;
   if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 43200) {
-    throw new RangeError('Duration must be between 1m and 30d.');
+    throw new RangeError(`${fieldName} must be between 1m and 30d.`);
   }
   return minutes;
 }
@@ -37,15 +39,38 @@ export function amsterdamParts(timestamp) {
   };
 }
 
+// Discord text inputs do not support live input masks. Normalize compact
+// entries at submit time instead, so 10112026 and 1800 work as expected.
+export function normalizeAutomationDate(input) {
+  const raw = String(input ?? '').trim().replace(/[/.]/g, '-');
+  if (!/^\d{8}$/.test(raw)) return raw;
+  if (/^20\d{2}(0[1-9]|1[0-2])/.test(raw)) {
+    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6)}`;
+  }
+  return `${raw.slice(0, 2)}-${raw.slice(2, 4)}-${raw.slice(4)}`;
+}
+
+export function normalizeAutomationTime(input) {
+  const raw = String(input ?? '').trim().replace('.', ':');
+  if (/^\d{1,2}$/.test(raw)) return `${raw.padStart(2, '0')}:00`;
+  if (/^\d{3,4}$/.test(raw)) {
+    return `${raw.slice(0, -2).padStart(2, '0')}:${raw.slice(-2)}`;
+  }
+  const parts = /^(\d{1,2}):(\d{1,2})$/.exec(raw);
+  return parts ? `${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}` : raw;
+}
+
 export function parseAmsterdamStart(date, time) {
-  const rawDate = String(date || '').trim().replace(/[/.]/g, '-');
-  const enteredTime = String(time || '').trim().replace('.', ':');
-  const rawTime = /^\d{1,2}$/.test(enteredTime) ? `${enteredTime}:00` : enteredTime;
+  const rawDate = normalizeAutomationDate(date);
+  const rawTime = normalizeAutomationTime(time);
   const match = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(rawDate)
     || /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawDate);
   const timeMatch = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(rawTime);
-  if (!match || !timeMatch) {
-    throw new RangeError('Use a date like 10-11-2026 and a time like 18:00 (EU time).');
+  if (!match) {
+    throw new RangeError('Invalid Date: type 10112026 or 10-11-2026 (numbers only).');
+  }
+  if (!timeMatch) {
+    throw new RangeError('Invalid Time: type 1800 or 18:00 (numbers only, 24-hour clock).');
   }
   const iso = /^\d{4}-/.test(rawDate);
   const year = Number(iso ? match[1] : match[3]);
