@@ -87,8 +87,6 @@ export function formatAutomationDashboard(session) {
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
-    ...(isVote ? [button(id, 'media', 'Add media'),
-      button(id, 'clear_media', session.confirmClearMedia ? 'Confirm clear' : 'Clear media', ButtonStyle.Secondary, !draft.mediaLibrary?.length)] : []),
   );
   const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
     ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished));
@@ -136,8 +134,13 @@ export function formatAutomationDashboard(session) {
     );
   rows.push(new ActionRowBuilder().addComponents(mode));
   if (isVote) {
+    // Keep all rows comfortable on Discord mobile: media controls live with
+    // Back, rather than squeezing five long labels into the first row.
     rows.push(new ActionRowBuilder().addComponents(
       button(id, 'list', 'Back'),
+      button(id, 'media', 'Add media'),
+      button(id, 'clear_media', session.confirmClearMedia ? 'Confirm clear' : 'Clear media',
+        ButtonStyle.Secondary, !draft.mediaLibrary?.length),
     ));
   }
   return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
