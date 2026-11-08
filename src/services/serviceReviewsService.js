@@ -88,10 +88,9 @@ export function buildPublishedServiceReview(interaction, type, rating, comment, 
       icon_url: interaction.user.displayAvatarURL(),
     },
     thumbnail: { url: LOGO },
-    description: `**Product or service**\n${SERVICE_REVIEW_TYPES[type]}\n\n`
+    description: `**${SERVICE_REVIEW_TYPES[type]}**\n\n`
       + `**Rating**\n${stars}\n\n`
       + `**Experience**\n${comment}`,
     footer: { text: FOOTER },
-    timestamp: new Date().toISOString(),
   });
 }
