@@ -6,7 +6,7 @@ import {
   expirePreviousWipeRoles, getWipeAutomationConfig, observeWipeEvent,
   refreshAutoWipeEntryMessage, runWipeAutomationTick, setWipeAutomationState, syncWipePrize, wipeSessionId,
 } from '../src/services/wipeAutomationService.js';
-import automationCommand from '../src/commands/Giveaway/automation.js';
+import autoCommand from '../src/commands/Tools/auto.js';
 import wipeCommand from '../src/commands/Giveaway/wipe.js';
 import { loadVote } from '../src/services/voteService.js';
 
@@ -78,16 +78,13 @@ const kitCfg = {
 };
 
 test('command definitions expose explicit settings and member sync without auto defaults', () => {
-  const data = automationCommand.data.toJSON();
-  assert.equal(data.name, 'automation');
-  assert.deepEqual(data.options.map(option=>option.name),
-    ['vote', 'giveaway', 'start', 'pause', 'resume', 'stop', 'status']);
+  const data = autoCommand.data.toJSON();
+  assert.equal(data.name, 'auto');
+  assert.deepEqual(data.options.map(option=>option.name), ['feed', 'giveaway', 'vote']);
   assert.equal(wipeCommand.data.toJSON().name, 'wipe');
   assert.equal(wipeCommand.data.toJSON().options[0].name, 'sync');
   for (const option of data.options.filter(x=>['vote', 'giveaway'].includes(x.name))) {
-    assert.ok(option.options.some(x=>x.name==='server'&&x.required), 'server never guessed');
-    assert.ok(option.options.some(x=>x.name==='before_minutes'&&x.required), 'before not guessed');
-    assert.ok(option.options.some(x=>x.name==='duration_minutes'&&x.required), 'duration not guessed');
+    assert.deepEqual(option.options, [], 'the dashboard replaces lengthy slash options');
   }
 });
 
@@ -191,4 +188,82 @@ test('bad configuration, unknown role, invalid session and wrong guild never tri
   assert.equal((await syncWipePrize(f.client,{guild:{id:'other'}})).status,'unavailable');
   await observeWipeEvent(f.client,{id:'other'},{type:'status',server:SERVER,nextWipe:futureWipe});
   assert.equal(f.allPosts.length,0);
+});
+
+
+test('repeating automatic votes use the selected channel, never duplicate a tick, and can pause', async () => {
+  const f = fixture();
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 15, durationMinutes: 5,
+    channelId: f.giveaways.ch.id, server: 'Cloudy',
+    question: 'Choose a new map', maps: ['Map Alpha', 'Map Bravo', 'Map Charlie'],
+    randomize: true,
+  });
+  await setWipeAutomationState(f.client, GUILD, 'vote', 'running');
+  let stored = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(stored.schedule, 'repeat');
+  assert.equal(stored.state, 'running');
+  assert.ok(stored.nextRunAt > Date.now());
+  await runWipeAutomationTick(f.client, stored.nextRunAt - 100);
+  assert.equal(f.allPosts.length, 0, 'cannot post early');
+  await Promise.all([
+    runWipeAutomationTick(f.client, stored.nextRunAt + 10),
+    runWipeAutomationTick(f.client, stored.nextRunAt + 10),
+  ]);
+  assert.equal(f.giveaways.posts.length, 1, 'only one vote even with concurrent ticks');
+  assert.equal(f.votes.posts.length, 0, 'must use custom destination rather than the old votes channel');
+  const first = await loadVote(f.client, GUILD, f.giveaways.posts[0].id);
+  assert.deepEqual([...first.options].sort(), ['Map Alpha', 'Map Bravo', 'Map Charlie'].sort());
+  stored = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  await runWipeAutomationTick(f.client, stored.nextRunAt + 10);
+  assert.equal(f.giveaways.posts.length, 2, 'second interval produces a fresh vote');
+  await setWipeAutomationState(f.client, GUILD, 'vote', 'paused');
+  stored = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  await runWipeAutomationTick(f.client, stored.nextRunAt + 10);
+  assert.equal(f.giveaways.posts.length, 2, 'paused schedule must not publish');
+});
+
+test('repeating kit giveaways select one of the configured prizes and conclude safely', async () => {
+  const f = fixture();
+  await configureWipeAutomation(f.client, GUILD, 'giveaway', {
+    schedule: 'repeat', repeatMinutes: 30, durationMinutes: 5,
+    channelId: f.votes.ch.id, server: 'Cloudy', winnerRoleId: '',
+    kit: 'Red kit', prizes: ['Red kit', 'Blue kit', 'Green kit'],
+    winnerCount: 2, randomize: true, description: 'A prize for our members.',
+  });
+  await setWipeAutomationState(f.client, GUILD, 'giveaway', 'running');
+  const setting = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+  await runWipeAutomationTick(f.client, setting.nextRunAt + 100);
+  assert.equal(f.votes.posts.length, 1, 'giveaway posts in the selected channel');
+  const id = wipeSessionId(GUILD, 'giveaway:repeat', setting.nextRunAt);
+  const session = await f.db.get(`guild:${GUILD}:wipe-automation:giveaway:${id}`);
+  assert.ok(['Red kit', 'Blue kit', 'Green kit'].includes(session.kit));
+  assert.equal(session.description, 'A prize for our members.');
+  assert.equal(session.winnerCount, 2);
+  assert.equal((await changeAutoWipeEntry(f.client, GUILD, id, USER, true)).status, 'entered');
+  await runWipeAutomationTick(f.client, setting.nextRunAt + 6 * MINUTE);
+  const ended = await f.db.get(`guild:${GUILD}:wipe-automation:giveaway:${id}`);
+  assert.equal(ended.status, 'ended');
+  assert.deepEqual(ended.winners, [USER]);
+  assert.equal(ended.roleId, '');
+  assert.equal(f.giveaways.posts.length, 0, 'must not post in the legacy channel');
+});
+
+test('repeat rejects invalid schedules and never posts until explicitly started', async () => {
+  const f = fixture();
+  await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 10, durationMinutes: 5,
+    question: 'Test', maps: ['One', 'Two'],
+  }), RangeError);
+  await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 30, durationMinutes: 30,
+    question: 'Test', maps: ['One', 'Two'],
+  }), RangeError);
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'repeat', repeatMinutes: 15, durationMinutes: 5,
+    question: 'Test', maps: ['One', 'Two'],
+  });
+  const stored = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  await runWipeAutomationTick(f.client, stored.nextRunAt + 15 * MINUTE);
+  assert.equal(f.allPosts.length, 0, 'saving cannot automatically start a schedule');
 });

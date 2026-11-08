@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { openCloudyFeedDashboard } from '../../services/cloudyFeedDashboardService.js';
+import { openAutomationDashboard } from '../../services/automationBuilderService.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -11,13 +12,20 @@ export default {
     .setDMPermission(false)
     .addSubcommand(command => command
       .setName('feed')
-      .setDescription('Open the Cloudy feed dashboard')),
+      .setDescription('Open the Cloudy feed dashboard'))
+    .addSubcommand(command => command
+      .setName('giveaway')
+      .setDescription('Open the automatic giveaway builder'))
+    .addSubcommand(command => command
+      .setName('vote')
+      .setDescription('Open the automatic vote builder')),
 
   category: 'Tools',
   adminOnly: false,
 
   async execute(interaction, _config, client) {
-    if (interaction.options.getSubcommand(false) !== 'feed') return;
-    await openCloudyFeedDashboard(interaction, client);
+    const sub = interaction.options.getSubcommand(false);
+    if (sub === 'feed') return openCloudyFeedDashboard(interaction, client);
+    if (sub === 'vote' || sub === 'giveaway') return openAutomationDashboard(interaction, sub);
   },
 };
