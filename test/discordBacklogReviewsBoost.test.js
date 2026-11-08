@@ -43,9 +43,9 @@ function addChannel(client, guild, id, extras = {}) {
   return channel;
 }
 
-test('panel offers exactly five requested services in order, with rating initially disabled', () => {
+test('panel offers all service choices with Other after Services and rating initially disabled', () => {
   assert.deepEqual(Object.values(SERVICE_REVIEW_TYPES), [
-    'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Services',
+    'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Services', 'Other',
   ]);
   const rows = serviceReviewPanelRows().map(row => row.toJSON());
   assert.equal(rows.length, 2);
@@ -55,7 +55,7 @@ test('panel offers exactly five requested services in order, with rating initial
   assert.equal(rows[1].components[0].disabled, true);
   assert.deepEqual(rows[1].components[0].options.map(option => option.label),
     ['★', '★★', '★★★', '★★★★', '★★★★★']);
-  assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 5);
+  assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 6);
   assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Game servers'));
   assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Bot development'));
   assert.equal(serviceReviewModal('development', 5).toJSON().custom_id, 'service_review_modal:development:5');
@@ -65,7 +65,7 @@ test('panel offers exactly five requested services in order, with rating initial
   assert.equal(chosen[1].components[0].disabled, false);
   assert.equal(chosen[0].components[0].options.filter(option => option.default).length, 1);
   assert.equal(chosen[0].components[0].options.find(option => option.default).label, 'Cloudy bot');
-  assert.throws(() => serviceReviewRatingRow('other'), /Invalid/);
+  assert.throws(() => serviceReviewRatingRow('unknown'), /Invalid/);
   assert.equal(serviceReviewModal('bot', 4).toJSON().custom_id, 'service_review_modal:bot:4');
   assert.throws(() => serviceReviewModal('servers', 6), /Invalid/);
 });
@@ -196,14 +196,65 @@ test('published service review uses only the selected category as heading and th
   for (const [type, label] of Object.entries(SERVICE_REVIEW_TYPES)) {
     const embed = buildPublishedServiceReview({
       user: { username: 'Reviewer', displayAvatarURL: () => 'https://example.com/avatar.png' },
-    }, type, 5, 'Perfect!', '<:W84starwhite:1543289625035022346>').toJSON();
-    assert.ok(embed.description.startsWith(`**${label}**\n\n**Rating**`),
+    }, type, 5, 'Perfect!', '<:W84starwhite:1543289625035022346>',
+    type === 'other' ? 'Custom support service' : null).toJSON();
+    const expectedHeading = type === 'other' ? 'Custom support service' : label;
+    assert.ok(embed.description.startsWith(`**${expectedHeading}**\n\n**Rating**`),
       `Only the selected service heading should be shown for ${label}`);
     assert.ok(!embed.description.includes('Product or service'));
     assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
     assert.ok(!Object.hasOwn(embed, 'timestamp'), 'Must show footer without Today at time');
     assert.ok(embed.description.endsWith('**Experience**\nPerfect!'));
   }
+});
+
+test('Other asks for a title and reason; published review uses its title instead of Other', async () => {
+  const modal = serviceReviewModal('other', 4).toJSON();
+  assert.deepEqual(
+    modal.components.map(row => row.components[0].custom_id),
+    ['service_review_title', 'service_review_comment'],
+  );
+  assert.equal(modal.components[0].components[0].label, 'Title');
+  assert.equal(modal.components[1].components[0].label, 'Reason');
+  assert.equal(serviceReviewModal('bot', 4).toJSON().components.length, 1);
+  assert.throws(() => buildPublishedServiceReview({
+    user: { username: 'Reviewer', displayAvatarURL: () => 'https://example.com/avatar.png' },
+  }, 'other', 4, 'Great!', null), /Invalid review title/);
+
+  const { guild, client } = mockClient();
+  const published = [];
+  addChannel(client, guild, POSTED, {
+    async send(payload) { published.push(payload); return { id: 'posted-review' }; },
+  });
+  const interaction = {
+    customId: 'service_review_modal:other:4',
+    channelId: REVIEWS, guildId: GUILD_ID,
+    isStringSelectMenu: () => false, isModalSubmit: () => true,
+    user: { id: 'other-reviewer', username: 'Reviewer', displayAvatarURL: () => 'https://example.com/avatar.png' },
+    guild, client,
+    fields: {
+      getTextInputValue: id => id === 'service_review_title' ? 'Priority support' : 'They solved my issue.',
+    },
+    deferReply: async () => {},
+    editReply: async () => {},
+    deleteReply: async () => {},
+  };
+  await serviceReviewInteraction.execute(interaction);
+  assert.equal(published.length, 1);
+  const description = published[0].embeds[0].toJSON().description;
+  assert.ok(description.startsWith('**Priority support**\n\n**Rating**'));
+  assert.ok(!description.includes('**Other**'));
+  assert.ok(description.endsWith('**Experience**\nThey solved my issue.'));
+
+  let validationReply = null;
+  await serviceReviewInteraction.execute({
+    ...interaction,
+    fields: { getTextInputValue: id => id === 'service_review_title' ? ' ' : 'Nice experience' },
+    reply: async payload => { validationReply = payload; },
+    deferReply: async () => { throw new Error('Invalid title must not be deferred'); },
+  });
+  assert.equal(published.length, 1);
+  assert.match(validationReply.content, /Enter a title/);
 });
 
 test('legacy Service Reviews are corrected in their existing message, without changing rating or experience', async () => {
