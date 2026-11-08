@@ -43,9 +43,9 @@ function addChannel(client, guild, id, extras = {}) {
   return channel;
 }
 
-test('panel offers all service choices with Other after Services and rating initially disabled', () => {
+test('panel replaces Services with Other, with rating initially disabled', () => {
   assert.deepEqual(Object.values(SERVICE_REVIEW_TYPES), [
-    'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Services', 'Other',
+    'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Other',
   ]);
   const rows = serviceReviewPanelRows().map(row => row.toJSON());
   assert.equal(rows.length, 2);
@@ -55,7 +55,8 @@ test('panel offers all service choices with Other after Services and rating init
   assert.equal(rows[1].components[0].disabled, true);
   assert.deepEqual(rows[1].components[0].options.map(option => option.label),
     ['★', '★★', '★★★', '★★★★', '★★★★★']);
-  assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 6);
+  assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 5);
+  assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Services'));
   assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Game servers'));
   assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Bot development'));
   assert.equal(serviceReviewModal('development', 5).toJSON().custom_id, 'service_review_modal:development:5');
