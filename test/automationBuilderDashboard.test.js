@@ -5,6 +5,8 @@ import autoCommand from '../src/commands/Tools/auto.js';
 import { amsterdamParts, parseAmsterdamStart } from '../src/services/automationSchedule.js';
 import {
   openAutomationDashboard, handleAutomationBuilderInteraction,
+  buildAutomationModal, addAutoVoteMedia, formatAutomaticVoteMediaLibrary,
+  formatAutomationDashboard,
 } from '../src/services/automationBuilderService.js';
 import {
   getWipeAutomationConfig, runWipeAutomationTick,
@@ -769,4 +771,102 @@ test('starting another auto vote clears unsaved Schedule values from the previou
   assert.equal(f.modal.components[0].component.value, undefined);
   assert.equal(f.modal.components[1].component.value, undefined);
   assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
+});
+
+
+test('auto vote supports a media library larger than 50 in batches of five', async () => {
+  const session = {
+    id: 'test', kind: 'vote', draft: {
+      schedule: 'repeat', mediaPool: [], question: 'A?', maps: ['A', 'B'], durationMinutes: 60,
+      repeatMinutes: 1440, randomize: false,
+    }, dirty: false, view: 'editor', saved: false, notice: '',
+  };
+  const uploadModal = buildAutomationModal(session, 'media').toJSON();
+  assert.equal(uploadModal.title, 'Add media');
+  assert.equal(uploadModal.components.length, 5);
+  assert.ok(uploadModal.components.every(row => row.type === 18 && row.component.custom_id.startsWith('media')));
+  let count = 0;
+  const store = async () => 'https://cloudy-production-b24f.up.railway.app/cloudy-embed-media/'
+    + (++count).toString(16).padStart(64, '0') + '.png';
+  for (let batch = 0; batch < 11; batch++) {
+    await addAutoVoteMedia(session, {
+      fields: {
+        getUploadedFiles: () => ({
+          first: () => ({
+            url: 'https://cdn.discordapp.com/attachments/source.png',
+            contentType: 'image/png', size: 100,
+            name: 'Media ' + (batch + 1) + '.png',
+          }),
+        }),
+      },
+    }, store);
+  }
+  assert.equal(session.draft.mediaPool.length, 55);
+  assert.equal(session.dirty, true);
+  assert.match(formatAutomationDashboard(session).embeds[0].toJSON().description, /55 stored/);
+  let library = formatAutomaticVoteMediaLibrary(session);
+  assert.match(library.embeds[0].toJSON().description, /Page 1\/5/);
+  session.mediaPage = 4;
+  library = formatAutomaticVoteMediaLibrary(session);
+  assert.match(library.embeds[0].toJSON().description, /Page 5\/5/);
+  assert.equal(library.components[0].toJSON().components[1].disabled, true);
+  await assert.rejects(() => addAutoVoteMedia(session, {
+    fields: {
+      getUploadedFiles: () => ({
+        first: () => ({ url: 'https://cdn.discordapp.com/x.pdf', contentType: 'application/pdf', size: 10 }),
+      }),
+    },
+  }, store), /image or GIF/i);
+  assert.equal(session.draft.mediaPool.length, 55, 'bad uploads cannot alter saved media');
+});
+
+test('weekly schedule is valid without Rust and rejects invalid counts and old dates before save', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { question: 'Next feature?', option1: 'Bot', option2: 'Website' });
+  await f.action(id, 'mode', ['weekly']);
+  await f.action(id, 'schedule');
+  assert.deepEqual(f.modal.components.map(row => row.component.custom_id),
+    ['date', 'time', 'minPosts', 'maxPosts', 'duration']);
+  await f.submit(id, 'schedule', {
+    date: '10-11-2020', time: '18:00', minPosts: '2', maxPosts: '3', duration: '1h',
+  });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+  await f.action(id, 'save');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs.length, 0);
+  await f.submit(id, 'schedule', {
+    date: futureStart.date, time: futureStart.time,
+    minPosts: '3', maxPosts: '2', duration: '1h',
+  });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+  await f.submit(id, 'schedule', {
+    date: futureStart.date, time: futureStart.time,
+    minPosts: '2', maxPosts: '3', duration: '1h',
+  });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xFFFFFF);
+  await f.action(id, 'save');
+  const saved = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
+  assert.equal(saved.schedule, 'weekly');
+  assert.equal(saved.weeklyMin, 2);
+  assert.equal(saved.weeklyMax, 3);
+  assert.ok(saved.nextRunAt > Date.now());
+});
+
+test('Before wipe accepts 1w with examples; invalid duration is rejected', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.action(id, 'mode', ['wipe']);
+  await f.submit(id, 'details', { question: 'Next wipe?', option1: 'A', option2: 'B' });
+  await f.action(id, 'schedule');
+  assert.match(f.modal.components[1].description, /1m, 1h, 1d, 1w/);
+  await f.submit(id, 'schedule', { server: 'Rust server', before: '1w', duration: '1w' });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+  await f.submit(id, 'schedule', { server: 'Rust server', before: '1w', duration: '1d' });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xFFFFFF);
+  await f.action(id, 'save');
+  const saved = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
+  assert.equal(saved.beforeMinutes, 10080);
+  assert.equal(saved.durationMinutes, 1440);
 });
