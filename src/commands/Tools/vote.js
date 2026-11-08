@@ -99,7 +99,7 @@ async function postVoteFromForm(interaction, id, dependencies) {
   const upload = () => (dependencies.uploadPictures || uploadVotePictures)(interaction.client, interaction.guild, interaction.channel, small);
   const vote = {
     messageId: null, channelId: interaction.channelId, guildId: interaction.guildId,
-    question: draft.question, options: draft.options, votes: {},
+    question: draft.question, options: draft.options, ...(draft.description ? { description: draft.description } : {}), votes: {},
     ...(draft.tagRoleId ? { tagRoleId: draft.tagRoleId } : {}),
     endsAt: draft.durationMs ? Date.now() + draft.durationMs : null, ended: false,
     // Every vote is the card (owner's choice: no custom emoji, so nothing
@@ -185,6 +185,7 @@ export default {
       .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true).setMaxLength(80))
       .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true).setMaxLength(80))
       .addStringOption(option => option.setName('option3').setDescription('Third option (optional)').setRequired(false).setMaxLength(80))
+      .addStringOption(option => option.setName('description').setDescription('Description (optional)').setRequired(false).setMaxLength(500))
       .addStringOption(option => option.setName('duration').setDescription('How long the vote stays open, e.g. 1h or 2d (optional)').setRequired(false).setMaxLength(10))
       .addRoleOption(option => option.setName('role').setDescription('Role to tag when the vote starts (optional)').setRequired(false)))
     .addSubcommand(command => command
@@ -223,7 +224,8 @@ export default {
     const now = Date.now();
     for (const [key, draft] of drafts) if (draft.expiresAt <= now) drafts.delete(key);
     drafts.set(interaction.id, {
-      question, options, tagRoleId: role?.id || null, durationMs, userId: interaction.user.id, expiresAt: now + FORM_TTL_MS,
+      question, options, description: interaction.options.getString('description')?.trim() || null,
+      tagRoleId: role?.id || null, durationMs, userId: interaction.user.id, expiresAt: now + FORM_TTL_MS,
     });
     return interaction.showModal(voteMediaForm(interaction.id, options));
   },

@@ -22,7 +22,8 @@ const unix = ms => Math.floor(ms / 1000);
 const warning = text => setPreservedEmbedColor(warningEmbed('Warning', text), CLOUDY_RED_COLOR);
 const statusOf = vote => (isVoteOpen(vote) ? 'active' : 'ended');
 const totalOf = vote => voteCounts(vote).reduce((sum, count) => sum + count, 0);
-const panel = { title: 'Manage vote', color: 0xFFFFFF, thumbnail: { url: CLOUDY_C_LOGO_URL } };
+// Keep the dropdown/picker logo-free, as requested. Vote messages retain branding.
+const panel = { title: 'Manage vote', color: 0xFFFFFF };
 const wait = ms => new Promise(resolve => {
   const timer = setTimeout(() => resolve(null), ms);
   timer.unref?.();
