@@ -71,7 +71,7 @@ function fixture() {
     const firstButton = view.components.flatMap(row => row.toJSON().components)
       .find(component => component.type === 2);
     const id = firstButton.custom_id.split(':').at(-1);
-    if (kind === 'vote') await action(id, showList ? 'manage' : 'new');
+    await action(id, showList ? 'manage' : 'new');
     return id;
   }
 
@@ -191,7 +191,7 @@ test('giveaway builder supports prizes, role choice, and safe repeated schedulin
   await f.action(id, 'channel', [CHANNEL]);
   await f.action(id, 'details');
   assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
-    ['prizes', 'winners', 'description']);
+    ['name', 'prizes', 'winners', 'description']);
   await f.submit(id, 'details', { prizes: 'Kit A\nKit B', winners: '2', description: 'Community event' });
   await f.action(id, 'schedule');
   await f.submit(id, 'schedule', {
@@ -200,7 +200,7 @@ test('giveaway builder supports prizes, role choice, and safe repeated schedulin
   await f.action(id, 'random');
   await f.action(id, 'save');
   await f.action(id, 'start');
-  const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+  const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
   assert.equal(cfg.state, 'running');
   assert.deepEqual(cfg.prizes, ['Kit A', 'Kit B']);
   assert.equal(cfg.description, 'Community event');
@@ -244,7 +244,7 @@ test('wipe mode is editable in the dashboard without changing the legacy wipe sc
   await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30m', duration: '5m' });
   await f.action(id, 'save');
   await f.action(id, 'start');
-  const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+  const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
   assert.equal(cfg.schedule, 'wipe');
   assert.equal(cfg.server, 'Cloudy Rust');
   assert.equal(cfg.channelId, CHANNEL);
@@ -266,61 +266,36 @@ test('another user cannot operate someone else’s automation dashboard', async 
   assert.match(f.view.embeds[0].toJSON().description, /Randomize:\*\* Off/);
 });
 
-test('vote and giveaway always use the same compact two-row button layout', async () => {
+test('vote and giveaway use matching Start, Pause, Save and Delete controls', async () => {
   for (const kind of ['vote', 'giveaway']) {
     const f = fixture();
     const id = await f.open(kind);
     let rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[0].map(item => item.label),
-      ['Edit details', 'Schedule', 'Randomize: off']);
-    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Start', 'Pause', 'Save', 'Delete']
-      : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
-    assert.equal(rows[0].length, 3);
-    assert.equal(rows[1].length, kind === 'vote' ? 4 : 5,
-      'management controls fit on one Discord action row');
-    assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [true, true, false, true] : [false, true, true, true, false],
-      'delete cannot be used until a vote is saved');
+    assert.deepEqual(rows[0].map(item => item.label), kind === 'vote'
+      ? ['Edit details', 'Schedule', 'Randomize: off']
+      : ['Edit details', 'Schedule', 'Randomize: off', 'Back']);
+    assert.deepEqual(rows[1].map(item => item.label), ['Start', 'Pause', 'Save', 'Delete']);
+    assert.deepEqual(rows[1].map(item => item.disabled), [true, true, false, true]);
 
     await f.action(id, 'channel', [CHANNEL]);
-    if (kind === 'vote') {
-      await f.submit(id, 'details', { question: 'Your map?', option1: 'A', option2: 'B' });
-    } else {
-      await f.submit(id, 'details', { prizes: 'Kit A', winners: '1' });
-    }
+    await f.submit(id, 'details', kind === 'vote'
+      ? { question: 'Your map?', option1: 'A', option2: 'B' }
+      : { name: 'First prize', prizes: 'Kit A', winners: '1' });
     await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
       repeat: '1d', duration: '1h' });
     await f.action(id, 'save');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Start', 'Pause', 'Save', 'Delete']
-      : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
-    assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [false, true, false, false]
-        : [false, false, true, true, false]);
+    assert.deepEqual(rows[1].map(item => item.disabled), [false, true, false, false]);
 
     await f.action(id, 'start');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [true, false, false, false] : [false, true, false, false, false]);
-
+    assert.deepEqual(rows[1].map(item => item.disabled), [true, false, false, false]);
     await f.action(id, 'pause');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Resume', 'Pause', 'Save', 'Delete']
-      : ['Save', 'Resume', 'Pause', 'Stop', 'Cancel']);
-    assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [false, true, false, false] : [false, false, true, false, false]);
-
-    if (kind === 'vote') {
-      await f.action(id, 'list');
-      assert.equal(f.view.embeds[0].toJSON().title, 'Auto vote');
-    } else {
-      await f.action(id, 'close');
-      assert.equal(f.view.content, 'Automation builder closed.');
-      assert.deepEqual(f.view.components, []);
-    }
+    assert.equal(rows[1][0].label, 'Resume');
+    assert.deepEqual(rows[1].map(item => item.disabled), [false, true, false, false]);
+    await f.action(id, 'list');
+    assert.equal(f.view.embeds[0].toJSON().title, kind === 'vote' ? 'Auto vote' : 'Auto giveaway');
   }
 });
 
@@ -367,14 +342,14 @@ test('both dashboards accept an actual Netherlands calendar date and 1d duration
     await f.action(id, 'save');
     let config = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
-      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
     assert.equal(config.schedule, 'once');
     assert.equal(config.startAt, expected);
     assert.equal(config.durationMinutes, 1440);
     await f.action(id, 'start');
     config = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
-      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
     assert.equal(config.nextRunAt, expected);
     assert.equal(config.state, 'running');
   }
@@ -583,7 +558,7 @@ test('explicit EU date and time separators save correctly for vote and giveaway'
     await f.action(id, 'save');
     const saved = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
-      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
     assert.equal(saved.startAt, expected);
     assert.equal(saved.durationMinutes, 1);
   }
@@ -667,7 +642,7 @@ test('Repeat 1m and Duration 1m are valid and appear with explanations in the mo
     await f.action(id, 'save');
     const saved = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
-      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
     assert.equal(saved.repeatMinutes, 1);
     assert.equal(saved.durationMinutes, 1);
   }
@@ -869,4 +844,64 @@ test('invalid schedule blocks Save and Start even after a previously valid sched
     assert.equal(f.view.components.flatMap(row => row.toJSON().components)
       .find(item => item.custom_id === `auto_builder:save:${id}`).disabled, false);
   }
+});
+
+test('auto giveaway offers Add and Manage with independent saved schedules', async () => {
+  const f = fixture();
+  const landing = await openAutomationDashboard({ ...f.base, async reply(payload) { return payload; } }, 'giveaway');
+  assert.deepEqual(landing.components[0].toJSON().components.map(button => button.label),
+    ['Add giveaway', 'Manage giveaway']);
+  assert.equal(landing.components[0].toJSON().components[1].disabled, true);
+
+  const id = await f.open('giveaway');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { name: 'Daily kits', prizes: 'Kit A\nKit B', winners: '2' });
+  await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
+    repeat: '1d', duration: '1h' });
+  await f.action(id, 'save');
+  await f.action(id, 'start');
+  const original = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
+  assert.equal(original.name, 'Daily kits');
+  assert.equal(original.state, 'running');
+  await f.action(id, 'list');
+  assert.match(f.view.embeds[0].toJSON().description, /Daily kits/);
+  await f.action(id, 'back');
+  assert.deepEqual(f.view.components[0].toJSON().components.map(x => x.label),
+    ['Add giveaway', 'Manage giveaway']);
+
+  await f.action(id, 'new');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { name: 'Special kit', prizes: 'VIP prize', winners: '1' });
+  await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
+    repeat: '1w', duration: '1d' });
+  await f.action(id, 'save');
+  let jobs = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs;
+  assert.equal(jobs.length, 2);
+  assert.notEqual(jobs[0].id, jobs[1].id);
+  assert.equal(jobs[1].state, 'stopped');
+  await f.action(id, 'list');
+  assert.equal(f.view.components[0].toJSON().components[0].options.length, 2);
+  assert.match(f.view.embeds[0].toJSON().description, /Special kit/);
+
+  await f.action(id, 'select', [original.id]);
+  await f.submit(id, 'details', { name: 'Daily kits updated', prizes: 'Updated kit', winners: '1' });
+  await f.action(id, 'save');
+  jobs = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs;
+  assert.equal(jobs[0].id, original.id);
+  assert.equal(jobs[0].state, 'running');
+  assert.equal(jobs[0].nextRunAt, original.nextRunAt, 'editing does not reset the next run');
+  assert.equal(jobs[1].name, 'Special kit', 'editing one job must not change another');
+  await runWipeAutomationTick(f.client, jobs[0].nextRunAt + 10);
+  assert.equal(f.posts.length, 1, 'only running giveaways publish');
+  assert.match(f.posts[0].embeds[0].description, /Updated kit/);
+  await runWipeAutomationTick(f.client, jobs[0].nextRunAt + 10);
+  assert.equal(f.posts.length, 1, 'the same scheduled giveaway cannot post twice');
+
+  await f.action(id, 'delete');
+  assert.match(f.view.embeds[0].toJSON().description, /Confirm delete/);
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs.length, 2);
+  await f.action(id, 'delete');
+  jobs = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs;
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].name, 'Special kit');
 });
