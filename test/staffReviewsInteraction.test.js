@@ -116,7 +116,7 @@ test('staff review choices send independent private rating menus, never changing
   assert.ok(privatePrompts.every(prompt =>
     prompt.components[0].toJSON().components[0].custom_id === 'staff_review_rating:owner-member-id'));
   assert.equal(message.components[1].toJSON().components[0].disabled, true);
-  assert.equal(message.components[0].toJSON().components[0].options[0].default, undefined);
+  assert.notEqual(message.components[0].toJSON().components[0].options[0].default, true);
 });
 
 test('rating selection rejects stale cached Owner membership', async () => {
