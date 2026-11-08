@@ -86,9 +86,28 @@ const LOG_SCHEMA_DEFAULTS = Object.freeze({
   traceId: null,
 });
 
-const logFormat = printf(({ level, message, timestamp, stack, displayLevel }) => {
+// Console text for Railway. A stack used to replace the caller's own message
+// ("Could not ... <id>"), and an `error` detail field was never printed, so a
+// failure did not say which feature it came from or why it failed.
+export function formatConsoleMessage({ message, stack, error } = {}) {
+  const text = String(message ?? '');
+  let line = text;
+  if (typeof stack === 'string' && stack) {
+    const firstStackLine = stack.split('\n', 1)[0];
+    line = text && !stack.startsWith(text) && !firstStackLine.includes(text)
+      ? `${text}\n${stack}`
+      : stack;
+  }
+  const detail = typeof error === 'string'
+    ? error
+    : (error instanceof Error ? String(error) : (typeof error?.message === 'string' ? error.message : ''));
+  if (detail && !line.includes(detail)) line += ` (${detail})`;
+  return line;
+}
+
+const logFormat = printf(({ level, message, timestamp, stack, displayLevel, error }) => {
   const visibleLevel = displayLevel || level;
-  const logMessage = `[${timestamp}] [${visibleLevel}]: ${stack || message}`;
+  const logMessage = `[${timestamp}] [${visibleLevel}]: ${formatConsoleMessage({ message, stack, error })}`;
   return logMessage;
 });
 

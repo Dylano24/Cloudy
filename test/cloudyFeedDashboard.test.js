@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ButtonStyle, ApplicationCommandOptionType } from 'discord.js';
 import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 import { CLOUDY_BRANDING } from '../src/services/cloudyBrandingService.js';
+import { withCloudyFooter } from '../src/utils/cloudyFooter.js';
 import auto from '../src/commands/Tools/auto.js';
 import { buildCloudyFeedDashboard, channelChooser, feedChooser, feedDetail, feedModal, readableFeedName, parseAutoMessageTime, formatAutoMessage } from '../src/services/cloudyFeedDashboardService.js';
 
@@ -22,7 +23,9 @@ test('Cloudy feed main embed only shows its original title and description', () 
   };
   for (const feeds of [[], [feed]]) {
     const result = buildCloudyFeedDashboard('1532882647838228723', feeds);
-    const embed = result.embeds[0].toJSON();
+    // In the running bot the Cloudy footer is added when the message is sent.
+    const sent = withCloudyFooter({ embeds: result.embeds }).embeds[0];
+    const embed = sent.toJSON?.() ?? sent;
     assert.equal(embed.title, 'Cloudy feed');
     assert.equal(embed.description,
       'Configure automatic posts from websites. Cloudy will randomly select new content and post it to your chosen channel.\n\u200B');
@@ -127,7 +130,8 @@ test('all feed embeds keep C logo and footer without a white separator', () => {
   const chooser = feedChooser({ id: 'session1' }, [feed]);
   const detail = feedDetail({ id: 'session1' }, feed);
   for (const panel of [main, chooser, detail]) {
-    const embed = panel.embeds[0].toJSON();
+    const sent = withCloudyFooter({ embeds: panel.embeds }).embeds[0];
+    const embed = sent.toJSON?.() ?? sent;
     assert.equal(embed.thumbnail.url, CLOUDY_LOGO_URL);
     assert.equal(embed.footer.text, CLOUDY_BRANDING);
     assert.equal(embed.color, 0xFFFFFF);

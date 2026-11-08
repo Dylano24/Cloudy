@@ -632,9 +632,26 @@ export async function handleReportCaseControl(interaction, client, [action, mess
   }
 }
 
+// The legacy report-log cleanup only has to succeed once per case. Repeating it
+// on every start re-edited every old log and kept the restore busy for about
+// half an hour of rate-limited REST calls.
+async function markLogControlsCleaned(client, key, audience) {
+  return withReportLock(key, async () => {
+    const latest = await client.db.get(key);
+    const entry = latest?.cases?.[audience];
+    if (!entry || entry.logControlsCleaned) return latest;
+    entry.logControlsCleaned = true;
+    return save(client, latest);
+  });
+}
+
 export async function restoreReportCaseTimers(client) {
   let restored = 0;
   for (const key of await client.db.list('global:report:')) {
+    // A deploy can stop this process while the restore is still running; the
+    // next process restores everything again, so stop instead of failing each
+    // remaining case with "Expected token to be set".
+    if (client.token === null) break;
     try {
       let record = await client.db.get(key);
       const guild = record && client.guilds.cache.get(record.guildId);
@@ -646,7 +663,11 @@ export async function restoreReportCaseTimers(client) {
         for (const audience of audiences) {
           const entry = record.cases[audience];
           if (!entry) continue;
-          await refreshLogControls(client, guild, record, audience);
+          if (!entry.logControlsCleaned) {
+            await refreshLogControls(client, guild, record, audience);
+            await markLogControlsCleaned(client, key, audience);
+            entry.logControlsCleaned = true;
+          }
           // A restart can interrupt background deletion-log delivery after
           // channel deletion was saved. Resume that essential log exactly once.
           if (entry.deletedAt && (!entry.deleteLogId || (entry.closedAt && !entry.closeLogId))) {
