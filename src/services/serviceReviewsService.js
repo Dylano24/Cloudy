@@ -20,6 +20,7 @@ export const SERVICE_REVIEW_TYPES = Object.freeze({
   store: 'Game store',
   development: 'Website development',
   services: 'Services',
+  other: 'Other',
 });
 
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
@@ -65,19 +66,33 @@ export function serviceReviewModal(type, rating) {
   if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type) || !Number.isInteger(rating) || rating < 1 || rating > 5) {
     throw new RangeError('Invalid review details');
   }
-  return new ModalBuilder()
+  const modal = new ModalBuilder()
     .setCustomId(`${SERVICE_REVIEW_MODAL_ID}:${type}:${rating}`)
-    .setTitle('Product & service review')
-    .addComponents(new ActionRowBuilder().addComponents(
+    .setTitle('Product & service review');
+
+  if (type === 'other') {
+    modal.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder()
-        .setCustomId('service_review_comment')
-        .setLabel('Tell us about your experience')
-        .setPlaceholder('Write your review here...')
-        .setStyle(TextInputStyle.Paragraph)
+        .setCustomId('service_review_title')
+        .setLabel('Title')
+        .setPlaceholder('What are you reviewing?')
+        .setStyle(TextInputStyle.Short)
         .setMinLength(3)
-        .setMaxLength(1000)
+        .setMaxLength(100)
         .setRequired(true),
     ));
+  }
+
+  return modal.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder()
+      .setCustomId('service_review_comment')
+      .setLabel(type === 'other' ? 'Reason' : 'Tell us about your experience')
+      .setPlaceholder('Write your review here...')
+      .setStyle(TextInputStyle.Paragraph)
+      .setMinLength(3)
+      .setMaxLength(1000)
+      .setRequired(true),
+  ));
 }
 
 // Upgrade only reviews created with the old generic heading. Other embeds
@@ -99,8 +114,10 @@ export function normalizeLegacyServiceReviewEmbed(embed) {
   return updated;
 }
 
-export function buildPublishedServiceReview(interaction, type, rating, comment, emoji = null) {
+export function buildPublishedServiceReview(interaction, type, rating, comment, emoji = null, customTitle = null) {
   if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid service');
+  const title = type === 'other' ? customTitle?.trim().replace(/\s+/g, ' ') : SERVICE_REVIEW_TYPES[type];
+  if (!title || title.length > 100) throw new RangeError('Invalid review title');
   const stars = emoji ? emoji.repeat(rating) : '⭐'.repeat(rating);
   // Cloudy's shared embeds helper globally removes Unicode emoji, ordinary
   // footers and timestamps from fluent EmbedBuilder setters. The owner asked
@@ -113,7 +130,7 @@ export function buildPublishedServiceReview(interaction, type, rating, comment, 
       icon_url: interaction.user.displayAvatarURL(),
     },
     thumbnail: { url: LOGO },
-    description: `**${SERVICE_REVIEW_TYPES[type]}**\n\n`
+    description: `**${title}**\n\n`
       + `**Rating**\n${stars}\n\n`
       + `**Experience**\n${comment}`,
     footer: { text: FOOTER },

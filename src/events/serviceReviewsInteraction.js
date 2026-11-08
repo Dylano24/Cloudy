@@ -110,6 +110,15 @@ export default {
     if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type) || !Number.isInteger(rating)
       || rating < 1 || rating > 5) return;
 
+    const title = type === 'other'
+      ? interaction.fields?.getTextInputValue('service_review_title')?.trim() : null;
+    if (type === 'other' && (!title || title.length < 3 || title.length > 100)) {
+      await interaction.reply({
+        content: 'Enter a title between 3 and 100 characters.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
+      return;
+    }
     const comment = interaction.fields?.getTextInputValue('service_review_comment')?.trim();
     if (!comment || comment.length < 3 || comment.length > 1000) return;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -123,7 +132,7 @@ export default {
       }
       const emoji = await ensureStaffReviewStarEmoji(interaction.guild);
       await channel.send({
-        embeds: [buildPublishedServiceReview(interaction, type, rating, comment, emoji)],
+        embeds: [buildPublishedServiceReview(interaction, type, rating, comment, emoji, title)],
         allowedMentions: { parse: [] },
       });
       await interaction.editReply({ content: 'Your review has been published. Thank you!' });
