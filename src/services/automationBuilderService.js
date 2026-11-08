@@ -120,10 +120,10 @@ function input(id, label, value, { required = true, maxLength = 250, paragraph =
   const field = new TextInputBuilder().setCustomId(id).setLabel(label)
     .setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(required).setMaxLength(maxLength);
-  if (id === 'repeat') field.setPlaceholder('1h, 1d, 1w');
-  if (id === 'duration') field.setPlaceholder('1m, 2h, 1d');
-  if (id === 'date') field.setPlaceholder('DD-MM-YYYY e.g. 10-11-2026');
-  if (id === 'time') field.setPlaceholder('HH:MM e.g. 18:00 (NL time)');
+  if (id === 'repeat') field.setPlaceholder('1d');
+  if (id === 'duration') field.setPlaceholder('1m');
+  if (id === 'date') field.setPlaceholder('10-11-2026');
+  if (id === 'time') field.setPlaceholder('18:00');
   if (value !== undefined && value !== null && String(value).length) field.setValue(String(value).slice(0, maxLength));
   return new ActionRowBuilder().addComponents(field);
 }
@@ -132,26 +132,26 @@ export function buildAutomationModal(session, action) {
   const { id, kind, draft } = session;
   const modal = new ModalBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`)
-    .setTitle(action === 'schedule' ? 'Schedule automation' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
+    .setTitle(action === 'schedule' ? 'Schedule' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
   if (action === 'schedule') {
     if (draft.schedule === 'repeat' || draft.schedule === 'once') {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       modal.addComponents(
-        input('date', 'Start date (DD-MM-YYYY)', local.date, { maxLength: 10 }),
-        input('time', 'Start time (HH:MM, NL time)', local.time, { maxLength: 5 }),
+        input('date', 'Date', local.date, { maxLength: 10 }),
+        input('time', 'Time (EU)', local.time, { maxLength: 5 }),
       );
       if (draft.schedule === 'repeat') {
-        modal.addComponents(input('repeat', 'Repeat every (1h, 1d, 1w)', shortAutomationDuration(draft.repeatMinutes),
+        modal.addComponents(input('repeat', 'Repeat', shortAutomationDuration(draft.repeatMinutes),
           { maxLength: 8 }));
       }
-      modal.addComponents(input('duration', 'Duration (1m, 1h, 1d)', shortAutomationDuration(draft.durationMinutes),
+      modal.addComponents(input('duration', 'Duration', shortAutomationDuration(draft.durationMinutes),
         { maxLength: 8 }));
     } else {
       modal.addComponents(
         input('server', 'Connected Rust server name', draft.server === 'Cloudy' ? '' : draft.server, { maxLength: 60 }),
-        input('before', 'Minutes before wipe (e.g. 2h)', shortAutomationDuration(draft.beforeMinutes),
+        input('before', 'Before wipe', shortAutomationDuration(draft.beforeMinutes),
           { maxLength: 8 }),
-        input('duration', 'Duration (1m, 1h, 1d)', shortAutomationDuration(draft.durationMinutes),
+        input('duration', 'Duration', shortAutomationDuration(draft.durationMinutes),
           { maxLength: 8 }),
       );
     }

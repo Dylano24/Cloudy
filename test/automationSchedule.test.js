@@ -16,10 +16,13 @@ test('short durations are parsed and displayed consistently for auto vote and gi
   }
 });
 
-test('Netherlands date and time are real UTC timestamps independent of host timezone', () => {
+test('Central European dates and times are real UTC timestamps independent of host timezone', () => {
   const expected = Date.parse('2026-11-10T17:00:00.000Z');
   assert.equal(parseAmsterdamStart('10-11-2026', '18:00'), expected);
   assert.equal(parseAmsterdamStart('2026-11-10', '18:00'), expected);
+  assert.equal(parseAmsterdamStart('10/11/2026', '18.00'), expected);
+  assert.equal(parseAmsterdamStart('10.11.2026', '18'), expected);
+  assert.equal(parseAmsterdamStart('10-11-2026', '18'), expected);
   assert.deepEqual(amsterdamParts(expected), { date: '10-11-2026', time: '18:00' });
   assert.equal(parseAmsterdamStart('10-07-2027', '18:00'), Date.parse('2027-07-10T16:00:00.000Z'));
 });
