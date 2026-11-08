@@ -79,8 +79,9 @@ export function formatAutomationDashboard(session) {
       ? `Every ${shortAutomationDuration(draft.repeatMinutes || 1440)}`
     : draft.schedule === 'once'
       ? 'Once (selected date)'
-      : isVote || isWipe ? `${shortAutomationDuration(draft.beforeMinutes || 120)} before the **${draft.server || 'Rust'}** wipe`
-        : 'Choose Repeat or Once';
+      : isVote ? `${draft.beforeMinutes || 120} minutes before the **${draft.server || 'Rust'}** wipe`
+        : isWipe ? `${shortAutomationDuration(draft.beforeMinutes || 120)} before the **${draft.server || 'Rust'}** wipe`
+          : 'Choose Repeat or Once';
   const starts = draft.schedule !== 'wipe'
     ? `\n**Start date:** ${draft.startAt ? `<t:${Math.floor(draft.startAt / 1000)}:F>` : 'Set in Schedule'}`
     : '';
@@ -92,9 +93,9 @@ export function formatAutomationDashboard(session) {
     .setColor(invalidInformation ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
     .setTitle(invalidInformation ? 'Wrong information' : label)
     .setThumbnail(CLOUDY_LOGO_URL)
-    .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}\n**Randomize:** ${draft.randomize
+    .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}${isWipe ? '' : `\n**Randomize:** ${draft.randomize
       ? (isVote ? 'On — shuffle voting options and media' : 'On — choose a random prize')
-      : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}` }\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
   // Auto Giveaway stays within Discord's five-row limit:
