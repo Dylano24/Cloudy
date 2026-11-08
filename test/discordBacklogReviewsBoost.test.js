@@ -216,7 +216,7 @@ test('Other asks for a title and reason; published review uses its title instead
     ['service_review_title', 'service_review_comment'],
   );
   assert.equal(modal.components[0].components[0].label, 'Title');
-  assert.equal(modal.components[1].components[0].label, 'Reason');
+  assert.equal(modal.components[1].components[0].label, 'Tell us about your experience');
   assert.equal(serviceReviewModal('bot', 4).toJSON().components.length, 1);
   assert.throws(() => buildPublishedServiceReview({
     user: { username: 'Reviewer', displayAvatarURL: () => 'https://example.com/avatar.png' },
