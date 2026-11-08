@@ -9,6 +9,7 @@ import {
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
+  buildRatingPrompt,
   buildStaffReviewModal,
   ensureStaffReviewStarEmoji,
   isOwnerReviewTarget,
@@ -46,36 +47,6 @@ function getSelectedOwner(interaction) {
 
 function clearSelectedOwner(interaction) {
   selectedOwners.delete(selectionKey(interaction));
-}
-
-function buildSelectedOwnerRow(interaction, memberId) {
-  const existingMemberMenu = interaction.message?.components?.[0]?.components?.[0];
-  if (!existingMemberMenu) return null;
-
-  const data = typeof existingMemberMenu.toJSON === 'function'
-    ? existingMemberMenu.toJSON()
-    : existingMemberMenu;
-
-  const memberMenu = new StringSelectMenuBuilder({
-    ...data,
-    options: (data.options || []).map(option => ({
-      ...option,
-      default: option.value === memberId,
-    })),
-  });
-
-  return new ActionRowBuilder().addComponents(memberMenu);
-}
-
-function buildEnabledRatingRow(interaction) {
-  const existingRating = interaction.message?.components?.[1]?.components?.[0];
-  if (!existingRating) return null;
-
-  const ratingMenu = StringSelectMenuBuilder.from(existingRating)
-    .setCustomId(STAFF_REVIEW_RATING_ID)
-    .setDisabled(false);
-
-  return new ActionRowBuilder().addComponents(ratingMenu);
 }
 
 function buildResetReviewRows(interaction) {
@@ -144,27 +115,17 @@ export default {
       const memberId = interaction.values?.[0];
       if (!memberId || memberId === 'none') return;
 
-      try {
-        await interaction.deferUpdate();
-      } catch {
-        return;
-      }
-
+      // Never modify the shared review panel: everyone's selection and rating
+      // must stay in their own private interaction, even while reviews overlap.
       rememberSelectedOwner(interaction, memberId);
-
-      const selectedOwnerRow = buildSelectedOwnerRow(interaction, memberId);
-      const enabledRatingRow = buildEnabledRatingRow(interaction);
-      if (!selectedOwnerRow || !enabledRatingRow) {
-        await interaction.followUp({
-          content: 'The review selectors could not be updated. Please try again.',
+      try {
+        await interaction.reply({
+          ...buildRatingPrompt(memberId),
           flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
-        return;
+        });
+      } catch {
+        clearSelectedOwner(interaction);
       }
-
-      await interaction.editReply({
-        components: [selectedOwnerRow, enabledRatingRow],
-      }).catch(() => {});
       return;
     }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import staffReviewsInteraction from '../src/events/staffReviewsInteraction.js';
 import {
+  STAFF_REVIEW_MEMBER_ID,
   STAFF_REVIEW_MODAL_ID,
   STAFF_REVIEW_RATING_ID,
   STAFF_REVIEW_STAR_EMOJI_ID,
@@ -88,6 +89,34 @@ test('staff review is not published when deferReply rejects', async () => {
   await staffReviewsInteraction.execute(interaction);
 
   assert.equal(channelFetches, 0);
+});
+
+test('staff review choices send independent private rating menus, never changing the public panel', async () => {
+  const publicPanel = buildStaffReviewsPanel([{ id: 'owner-member-id', displayName: 'Lano',
+    user: { username: 'Lano' } }]);
+  let publicEdits = 0;
+  const message = { ...publicPanel, edit: async () => { publicEdits += 1; } };
+  const privatePrompts = [];
+  for (const userId of ['private-reviewer-1', 'private-reviewer-2']) {
+    await staffReviewsInteraction.execute({
+      customId: STAFF_REVIEW_MEMBER_ID,
+      guildId: 'private-test-guild',
+      user: { id: userId },
+      values: ['owner-member-id'],
+      message,
+      isStringSelectMenu: () => true,
+      reply: async payload => { privatePrompts.push(payload); },
+      deferUpdate: async () => { throw new Error('Must not change public message'); },
+    });
+  }
+  assert.equal(publicEdits, 0);
+  assert.equal(privatePrompts.length, 2);
+  assert.ok(privatePrompts.every(prompt => prompt.flags === 64));
+  assert.ok(privatePrompts.every(prompt => prompt.components.length === 1));
+  assert.ok(privatePrompts.every(prompt =>
+    prompt.components[0].toJSON().components[0].custom_id === 'staff_review_rating:owner-member-id'));
+  assert.equal(message.components[1].toJSON().components[0].disabled, true);
+  assert.equal(message.components[0].toJSON().components[0].options[0].default, undefined);
 });
 
 test('rating selection rejects stale cached Owner membership', async () => {

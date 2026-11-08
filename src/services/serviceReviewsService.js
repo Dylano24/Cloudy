@@ -41,11 +41,11 @@ export function serviceReviewChoiceRow(selectedType = null) {
   );
 }
 
-export function serviceReviewRatingRow(type = null) {
+export function serviceReviewRatingRow(type = null, privateRating = false) {
   if (type !== null && !Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid product or service');
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId(SERVICE_REVIEW_RATING_ID)
+      .setCustomId(privateRating && type ? `${SERVICE_REVIEW_RATING_ID}:${type}` : SERVICE_REVIEW_RATING_ID)
       .setPlaceholder('Choose your rating')
       .setDisabled(type === null)
       .addOptions([1, 2, 3, 4, 5].map(rating => ({
