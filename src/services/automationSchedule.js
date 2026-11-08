@@ -52,8 +52,8 @@ export function normalizeAutomationTime(input) {
 export function parseAmsterdamStart(date, time) {
   const rawDate = normalizeAutomationDate(date);
   const rawTime = normalizeAutomationTime(time);
-  const match = /^(\\d{2})-(\\d{2})-(\\d{4})$/.exec(rawDate);
-  const timeMatch = /^([01]\\d|2[0-3]):([0-5]\\d)$/.exec(rawTime);
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(rawDate);
+  const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(rawTime);
   if (!match) throw new RangeError('Invalid Date: use DD-MM-YYYY, e.g. 10-11-2026.');
   if (!timeMatch) throw new RangeError('Invalid Time: use HH:MM (24-hour clock), e.g. 18:00.');
   const day = Number(match[1]);
