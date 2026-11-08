@@ -6,6 +6,7 @@ import {
   expirePreviousWipeRoles, getWipeAutomationConfig, observeWipeEvent,
   refreshAutoWipeEntryMessage, runWipeAutomationTick, setWipeAutomationState, syncWipePrize, wipeSessionId,
   listAutomaticVotes, saveAutomaticVoteJob, setAutomaticVoteJobState, deleteAutomaticVoteJob,
+  planWeeklyVoteRuns, MAX_AUTO_VOTE_MEDIA,
 } from '../src/services/wipeAutomationService.js';
 import autoCommand from '../src/commands/Tools/auto.js';
 import wipeCommand from '../src/commands/Giveaway/wipe.js';
@@ -407,4 +408,73 @@ test('separate once-only automatic votes each run once and preserve their own co
   assert.ok(states.every(v => v.completedAt));
   await runWipeAutomationTick(f.client, startAt + MINUTE);
   assert.equal(f.votes.posts.length, 2);
+});
+
+
+test('weekly random auto vote schedules 2–3 posts and uses a library of 75 media', async () => {
+  const f = fixture();
+  const startAt = Date.now() + 10 * MINUTE;
+  const mediaPool = Array.from({ length: 75 }, (_, i) => ({
+    name: 'Media ' + (i + 1),
+    url: 'https://cloudy-production-b24f.up.railway.app/cloudy-embed-media/'
+      + (i + 1).toString(16).padStart(64, '0') + '.png',
+  }));
+  assert.ok(mediaPool.length > 50 && mediaPool.length < MAX_AUTO_VOTE_MEDIA);
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'weekly', startAt, weeklyMin: 2, weeklyMax: 3, durationMinutes: 5,
+    channelId: f.votes.ch.id, question: 'Which experience?', maps: ['A', 'B'],
+    mediaPool, randomize: false,
+  });
+  await setWipeAutomationState(f.client, GUILD, 'vote', 'running');
+  const active = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(active.mediaPool.length, 75);
+  const slots = active.weeklyPlan.slots;
+  assert.ok(slots.length >= 2 && slots.length <= 3);
+  assert.ok(slots.every(at => at >= startAt && at < startAt + 7 * 24 * 60 * MINUTE));
+  assert.equal(active.nextRunAt, slots[0]);
+  await runWipeAutomationTick(f.client, slots[0] - 1);
+  assert.equal(f.votes.posts.length, 0);
+  await Promise.all([
+    runWipeAutomationTick(f.client, slots[0] + 1),
+    runWipeAutomationTick(f.client, slots[0] + 1),
+  ]);
+  assert.equal(f.votes.posts.length, 1, 'concurrent ticks cannot duplicate a post');
+  for (let i = 1; i < slots.length; i++) {
+    await runWipeAutomationTick(f.client, slots[i] + 1);
+  }
+  assert.equal(f.votes.posts.length, slots.length);
+  const firstVote = await loadVote(f.client, GUILD, f.votes.posts[0].id);
+  assert.deepEqual(firstVote.options, ['A', 'B']);
+  assert.equal(firstVote.images?.[0], mediaPool[0].url);
+  assert.ok(f.votes.posts[0].embeds?.[0]?.image?.url, 'published vote includes stored media');
+  const next = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(next.weeklyPlan.weekIndex, 1);
+  assert.ok(next.nextRunAt > slots.at(-1));
+  await runWipeAutomationTick(f.client, slots.at(-1) + 1);
+  assert.equal(f.votes.posts.length, slots.length, 'no duplicates after the final weekly slot');
+  await setWipeAutomationState(f.client, GUILD, 'vote', 'paused');
+  await runWipeAutomationTick(f.client, next.nextRunAt + 1);
+  assert.equal(f.votes.posts.length, slots.length, 'paused automation never posts');
+});
+
+test('weekly random plans persist slots and invalid ranges are rejected', async () => {
+  const startAt = Date.now() + 2 * MINUTE;
+  const rng = (minimum, maximum) => maximum === undefined ? 500 : minimum;
+  const first = planWeeklyVoteRuns({ startAt, weeklyMin: 2, weeklyMax: 3 }, startAt - 1, rng);
+  assert.equal(first.weeklyPlan.slots.length, 2);
+  const same = planWeeklyVoteRuns({
+    startAt, weeklyMin: 2, weeklyMax: 3, weeklyPlan: first.weeklyPlan,
+  }, startAt - 1, rng);
+  assert.deepEqual(same, first, 'the saved week does not get rerolled after reboot');
+  const f = fixture();
+  for (const [weeklyMin, weeklyMax] of [[0, 3], [3, 2], [2, 20]]) {
+    await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'vote', {
+      schedule: 'weekly', startAt, weeklyMin, weeklyMax, durationMinutes: 5,
+      question: 'Question?', maps: ['A', 'B'],
+    }), RangeError);
+  }
+  await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'giveaway', {
+    schedule: 'weekly', startAt, weeklyMin: 2, weeklyMax: 3, durationMinutes: 5,
+    prizes: ['Kit'], winnerCount: 1,
+  }), RangeError);
 });
