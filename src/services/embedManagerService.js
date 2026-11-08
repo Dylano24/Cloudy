@@ -630,7 +630,10 @@ export function contentCreatorGuideRecordIdentity(record) {
     if (!['youtube', 'twitch', 'tiktok'].includes(channel)) return null;
     const source = String(record?.source || '');
     const title = String(recordEmbedData(record)?.title || record?.title || '');
-    if (source !== 'content-creators' && !/content\s+creators/i.test(title)) return null;
+    const subscribeButton = (record?.components || []).some(row =>
+        (row.components || []).some(button =>
+            String(button.label || '').toLowerCase() === 'subscribe' && Number(button.style) === 5));
+    if (source !== 'content-creators' && !/content\s+creators/i.test(title) && !subscribeButton) return null;
     const channelId = String(record?.channelId || record?.backingChannelId || '');
     return channelId ? `content-creators:${channelId}` : null;
 }
@@ -694,7 +697,8 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
         const creatorIdentity = contentCreatorGuideRecordIdentity(record);
         if (creatorIdentity) {
             if (!groups.has(creatorIdentity)) groups.set(creatorIdentity, {
-                label: `Content creators (${String(record.channelName).split('│').at(-1).trim()})`,
+                label: stripCustomEmojiMarkup(recordData?.title || '')
+                    || humanTemplateRecordName(record),
                 records: [], templateMode: false, preventTemplateMode: true,
             });
             groups.get(creatorIdentity).records.push(record);

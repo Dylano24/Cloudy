@@ -17,6 +17,7 @@ export function createStickyGuideManager({
   saveState,
   buildPayload,
   prepareExisting,
+  onPublished,
   isGuide,
   onError,
   delayMs = DEFAULT_REFRESH_DELAY_MS,
@@ -96,6 +97,7 @@ export function createStickyGuideManager({
         await current.delete().catch(onError);
         throw error;
       }
+      if (onPublished) await onPublished(current).catch(onError);
       return true;
     }
 
@@ -131,6 +133,7 @@ export function createStickyGuideManager({
     if (stale.length && remainingIds.length !== stale.length) {
       await persist(channel, { messageId: current.id, staleMessageIds: remainingIds });
     }
+    if (!alreadyLast && onPublished) await onPublished(current).catch(onError);
     return true;
   }
 
