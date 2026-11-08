@@ -1,15 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ChannelSelectMenuBuilder, ChannelType, EmbedBuilder,
+  ChannelSelectMenuBuilder, ChannelType, EmbedBuilder, FileUploadBuilder,
   LabelBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import {
   AUTO_WIPE_GUILD_ID, configureWipeAutomation, getWipeAutomationConfig,
   setWipeAutomationState, listAutomaticVotes, saveAutomaticVoteJob,
-  setAutomaticVoteJobState, deleteAutomaticVoteJob,
+  setAutomaticVoteJobState, deleteAutomaticVoteJob, MAX_AUTO_VOTE_MEDIA,
 } from './wipeAutomationService.js';
+import { storeExistingDiscordEmbedMedia } from './embedMediaStorageService.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
@@ -35,7 +36,7 @@ function baseDraft(kind, saved) {
     repeatMinutes: 1440, beforeMinutes: 120, durationMinutes: 60,
     randomize: false, state: 'stopped',
     ...(kind === 'vote'
-      ? { question: '', maps: [] }
+      ? { question: '', maps: [], mediaPool: [], mediaCursor: 0, weeklyMin: 2, weeklyMax: 3 }
       : { kit: '', prizes: [], winnerCount: 1, winnerRoleId: '', description: '' }),
     ...(previous || {}),
   };
@@ -58,8 +59,10 @@ export function formatAutomationDashboard(session) {
   const content = isVote
     ? `**Name:** ${draft.name || draft.question || 'New vote'}\n**Question:** ${draft.question || 'Not configured'}\n**Options:** ${draft.maps?.join(' / ') || 'Not configured'}`
     : `**Prizes:** ${draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Winner role:** ${draft.winnerRoleId ? `<@&${draft.winnerRoleId}>` : 'None (optional for repeats)'}`;
-  const schedule = draft.schedule === 'repeat'
-    ? `Every ${shortAutomationDuration(draft.repeatMinutes || 1440)}`
+  const schedule = draft.schedule === 'weekly'
+    ? `Random ${draft.weeklyMin || 2}–${draft.weeklyMax || 3} times per week`
+    : draft.schedule === 'repeat'
+      ? `Every ${shortAutomationDuration(draft.repeatMinutes || 1440)}`
     : draft.schedule === 'once'
       ? 'Once (selected date)'
       : `${draft.beforeMinutes || 120} minutes before the **${draft.server || 'Rust'}** wipe`;
@@ -74,8 +77,8 @@ export function formatAutomationDashboard(session) {
     .setTitle(label)
     .setThumbnail(CLOUDY_LOGO_URL)
     .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}\n**Randomize:** ${draft.randomize
-      ? (isVote ? 'On — shuffle voting options' : 'On — choose a random prize')
-      : 'Off'}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      ? (isVote ? 'On — shuffle choices and media' : 'On — choose a random prize')
+      : 'Off'}${isVote ? `\n**Media:** ${(draft.mediaPool || []).length} stored (up to ${MAX_AUTO_VOTE_MEDIA})` : ''}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
   // Keep the giveaway layout unchanged; auto vote uses Start, Pause, Save, Delete.
@@ -83,6 +86,7 @@ export function formatAutomationDashboard(session) {
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
+    ...(isVote ? [button(id, 'media_add', 'Add media'), button(id, 'media_library', 'Media library')] : []),
   );
   const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
     ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished));
@@ -126,6 +130,7 @@ export function formatAutomationDashboard(session) {
       { label: 'Repeat from a date', value: 'repeat', default: draft.schedule === 'repeat' },
       { label: 'Once on a date', value: 'once', default: draft.schedule === 'once' },
       { label: 'Before a Rust wipe', value: 'wipe', default: draft.schedule === 'wipe' },
+      ...(isVote ? [{ label: 'Random times each week', value: 'weekly', default: draft.schedule === 'weekly' }] : []),
     );
   rows.push(new ActionRowBuilder().addComponents(mode));
   if (isVote) {
@@ -158,7 +163,9 @@ export function formatAutomaticVotesList(session, votes) {
     const status = vote.completedAt ? 'completed' : (vote.state || 'stopped');
     const schedule = vote.schedule === 'once' ? 'Once'
       : vote.schedule === 'repeat'
-        ? `Every ${shortAutomationDuration(vote.repeatMinutes || 1440)}` : 'Rust wipe';
+        ? `Every ${shortAutomationDuration(vote.repeatMinutes || 1440)}`
+        : vote.schedule === 'weekly'
+          ? `${vote.weeklyMin || 2}–${vote.weeklyMax || 3} random/week` : 'Rust wipe';
     const next = vote.nextRunAt && vote.state === 'running'
       ? ` · Next: <t:${Math.floor(vote.nextRunAt / 1000)}:f>` : '';
     return `**${index + 1}. ${question}**\n${channel} · ${schedule} · **${status}**${next}`;
@@ -182,7 +189,7 @@ export function formatAutomaticVotesList(session, votes) {
         .setPlaceholder('Choose an existing auto vote')
         .addOptions(limited.map(vote => ({
           label: String(vote.name || vote.question || 'Untitled vote').replace(/\s+/g, ' ').slice(0, 100),
-          description: `${vote.completedAt ? 'completed' : vote.state || 'stopped'} · ${vote.schedule === 'once' ? 'Once' : vote.schedule === 'repeat' ? 'Repeat' : 'Rust wipe'}`.slice(0, 100),
+          description: `${vote.completedAt ? 'completed' : vote.state || 'stopped'} · ${vote.schedule === 'once' ? 'Once' : vote.schedule === 'repeat' ? 'Repeat' : vote.schedule === 'weekly' ? 'Random weekly' : 'Rust wipe'}`.slice(0, 100),
           value: String(vote.id),
         }))),
     ));
