@@ -978,6 +978,14 @@ function isBuilderSearchFamilyHidden(record) {
         }) || isPendingSearchResponseNameHidden(guildId, title));
 }
 
+// A retired search-only copy of the creator guide was indexed with the
+// TikTok emoji markup as literal text. Keep the physical message and all
+// user-created embeds unchanged; hide only this exact old autocomplete alias.
+export function isRetiredCreatorGuideSearchAlias(record) {
+    const title = String(record?.snapshot?.title || record?.title || '').trim();
+    return /^<a?:Z94tiktok:1543280394508701857>\s*Content creators$/i.test(title);
+}
+
 function builderSearchDisplayRecords(records) {
     // Search stays complete, but a canonical Cloudy template is shown only once.
     // Runtime/history mirrors are not separate editable Builder items.
@@ -989,6 +997,7 @@ function builderSearchDisplayRecords(records) {
         const channelId = String(record?.channelId || '');
         const messageId = String(record?.messageId || '');
         if (!channelId || !messageId) continue;
+        if (isRetiredCreatorGuideSearchAlias(record)) continue;
 
         if (source === 'embed-builder' && record.manualSaved === false) continue;
         if (isBuilderSearchFamilyHidden(record)
