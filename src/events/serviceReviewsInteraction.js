@@ -45,6 +45,7 @@ export default {
   async execute(interaction) {
     const customId = interaction.customId || '';
     if (customId !== SERVICE_REVIEW_SELECT_ID
+      && customId !== SERVICE_REVIEW_RATING_ID
       && !customId.startsWith(`${SERVICE_REVIEW_RATING_ID}:`)
       && !customId.startsWith(`${SERVICE_REVIEW_MODAL_ID}:`)) return;
     // No other Cloudy guild or channel may publish service reviews.
