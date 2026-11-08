@@ -69,21 +69,23 @@ export function formatAutomationDashboard(session) {
     .setThumbnail(CLOUDY_LOGO_URL)
     .setDescription(`Manage automatic ${isVote ? 'votes' : 'giveaways'} from one dashboard. All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}\n**Duration:** ${draft.durationMinutes} minutes\n**Randomize:** ${draft.randomize
       ? (isVote ? 'On — shuffle voting options' : 'On — choose a random prize')
-      : 'Off'}\n**Status:** ${status}${next}${dirty ? '\n\n*Unsaved changes — choose Save or Save & start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      : 'Off'}\n**Status:** ${status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
+  // Discord supports up to five buttons per action row. Keep the layout
+  // identical for votes and giveaways, regardless of automation state.
   const actions = new ActionRowBuilder().addComponents(
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
-    button(id, 'save', 'Save', ButtonStyle.Success),
   );
   const controls = new ActionRowBuilder().addComponents(
-    button(id, 'toggle', dirty ? 'Save & start'
-      : status === 'running' ? 'Pause' : status === 'paused' ? 'Resume' : 'Save & start',
-      status === 'running' && !dirty ? ButtonStyle.Secondary : ButtonStyle.Success),
+    button(id, 'save', 'Save', ButtonStyle.Success),
+    button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
+      ButtonStyle.Success, status === 'running' || dirty || !session.saved),
+    button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running'),
     button(id, 'stop', 'Stop', ButtonStyle.Danger, status === 'stopped'),
-    button(id, 'close', 'Close'),
+    button(id, 'close', 'Cancel'),
   );
   const channelMenu = new ChannelSelectMenuBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}channel:${id}`)
@@ -230,15 +232,18 @@ async function validateDestination(interaction, session) {
   }
 }
 
-async function saveSession(interaction, session, start = false) {
+async function saveSession(interaction, session) {
   await validateDestination(interaction, session);
+  // Save configuration only; Start/Pause/Stop remain separate actions.
+  // Editing an active automation must not stop it as a side effect.
+  const previousState = session.draft.state;
   await configureWipeAutomation(interaction.client, session.guildId, session.kind, session.draft);
-  const state = start ? 'running' : 'stopped';
-  const stored = start ? await setWipeAutomationState(interaction.client, session.guildId, session.kind, state)
+  const stored = previousState === 'running' || previousState === 'paused'
+    ? await setWipeAutomationState(interaction.client, session.guildId, session.kind, previousState)
     : (await getWipeAutomationConfig(interaction.client, session.guildId))[session.kind];
   session.draft = baseDraft(session.kind, stored);
   session.dirty = false;
-  return state;
+  session.saved = true;
 }
 
 export async function openAutomationDashboard(interaction, kind) {
@@ -251,7 +256,8 @@ export async function openAutomationDashboard(interaction, kind) {
   const id = randomUUID().slice(0, 12);
   const session = {
     id, kind, guildId: interaction.guildId, userId: interaction.user.id,
-    draft: baseDraft(kind, saved), dirty: false, notice: '', expiresAt: Date.now() + SESSION_MS,
+    draft: baseDraft(kind, saved), dirty: false, saved: Boolean(saved),
+    notice: '', expiresAt: Date.now() + SESSION_MS,
   };
   sessions.set(id, session);
   return interaction.reply({
@@ -312,18 +318,19 @@ export async function handleAutomationBuilderInteraction(interaction) {
       session.dirty = true;
     } else if (action === 'save') {
       await interaction.deferUpdate();
-      await saveSession(interaction, session, false);
+      if (session.dirty || !session.saved) await saveSession(interaction, session);
       await interaction.editReply(formatAutomationDashboard(session));
       return true;
-    } else if (action === 'toggle') {
+    } else if (action === 'start' || action === 'pause') {
       await interaction.deferUpdate();
-      if (session.dirty || session.draft.state === 'stopped') {
-        await saveSession(interaction, session, true);
-      } else {
-        const state = session.draft.state === 'running' ? 'paused' : 'running';
-        const stored = await setWipeAutomationState(interaction.client, session.guildId, session.kind, state);
-        session.draft = baseDraft(session.kind, stored);
+      if (session.dirty || !session.saved) {
+        throw new RangeError('Save your settings before starting or pausing.');
       }
+      if (action === 'start' && session.draft.state === 'running') return true;
+      if (action === 'pause' && session.draft.state !== 'running') return true;
+      const state = action === 'start' ? 'running' : 'paused';
+      const stored = await setWipeAutomationState(interaction.client, session.guildId, session.kind, state);
+      session.draft = baseDraft(session.kind, stored);
       await interaction.editReply(formatAutomationDashboard(session));
       return true;
     } else if (action === 'stop') {
