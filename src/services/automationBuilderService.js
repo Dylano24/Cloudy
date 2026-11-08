@@ -193,9 +193,12 @@ export function formatAutomaticVotesList(session, votes) {
 function input(id, label, value, {
   required = true, maxLength = 250, paragraph = false, description = '',
 } = {}) {
-  const field = new TextInputBuilder().setCustomId(id).setLabel(label)
+  // Discord disallows a nested TextInput.label inside a Label component.
+  // Keep the label on the old ActionRow inputs only.
+  const field = new TextInputBuilder().setCustomId(id)
     .setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(required).setMaxLength(maxLength);
+  if (!description) field.setLabel(label);
   if (id === 'repeat') field.setPlaceholder('1m = minute | 1h = hour | 1d = day | 1w = week');
   if (id === 'duration' || id === 'before') {
     field.setPlaceholder('1m = minute | 1h = hour | 1d = day | 1w = week');
