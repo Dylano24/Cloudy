@@ -38,7 +38,7 @@ test('the existing question button becomes Assistant with the white bot without 
   assert.deepEqual(panel.embeds[0].toJSON(), original);
   const button = panel.components[0].toJSON().components[0];
   assert.equal(button.custom_id, 'faq_ai_question');
-  assert.equal(button.label, 'Assistant');
+  assert.equal(button.label, 'Cloudy assistant');
   assert.equal(button.emoji.id, emoji.id);
   const saved = (await getEmbedRegistry('icon-guild')).find(row => row.messageId === panel.id);
   assert.equal(saved.components[0].components[0].emoji.id, emoji.id, 'a later Builder Save must retain the bot icon');
