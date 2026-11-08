@@ -19,9 +19,9 @@ import {
 export const FAQ_RESPONSE_DELETE_DELAY_MS = 10_000;
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
-function isFaqChannel(interaction) {
+export function isFaqChannel(interaction) {
   return String(interaction.channelId || '') === FAQ_AI_CHANNEL_ID
-    || ['faq', 'support-assistant'].includes(normalizeCloudyChannelName(interaction.channel?.name));
+    || ['faq', 'support-assistant', 'cloudy-assistant'].includes(normalizeCloudyChannelName(interaction.channel?.name));
 }
 
 const QUESTION_LABELS = {
