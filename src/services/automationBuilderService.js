@@ -131,7 +131,6 @@ export function formatAutomationDashboard(session) {
       { label: 'Repeat from a date', value: 'repeat', default: draft.schedule === 'repeat' },
       { label: 'Once on a date', value: 'once', default: draft.schedule === 'once' },
       { label: 'Before a Rust wipe', value: 'wipe', default: draft.schedule === 'wipe' },
-      ...(isVote ? [{ label: 'Random 2–3 weekly', value: 'random_weekly', default: draft.schedule === 'random_weekly' }] : []),
     );
   rows.push(new ActionRowBuilder().addComponents(mode));
   if (isVote) {
@@ -618,7 +617,7 @@ export async function handleAutomationBuilderInteraction(interaction) {
       session.dirty = true;
     } else if (action === 'mode' && interaction.isStringSelectMenu?.()) {
       const mode = interaction.values?.[0];
-      if (!['once', 'repeat', 'wipe', ...(session.kind === 'vote' ? ['random_weekly'] : [])].includes(mode)) return true;
+      if (!['once', 'repeat', 'wipe'].includes(mode)) return true;
       if (session.draft.schedule !== mode) {
         session.scheduleInputs = null;
         session.validationError = false;
