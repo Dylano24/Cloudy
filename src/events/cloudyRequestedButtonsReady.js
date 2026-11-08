@@ -26,6 +26,7 @@ const TARGETS = Object.freeze([
     channelId: '1554538650761691260',
     messageId: '1568543862908129352',
     buttons: { 'Start chat': { id: '1568808462782177280', name: 'white_bubble' } },
+    linkRename: { 'Support assistant': 'Cloudy assistant' },
   },
 ]);
 
@@ -46,6 +47,14 @@ export async function reconcileRequestedButtonEmojis(client) {
         if (button.type !== 2) continue;
         if (target.rename?.[button.label] && button.custom_id === 'faq_ai_question') {
           button.label = target.rename[button.label];
+          dirty = true;
+        }
+        // Rename only the existing contact-us link to the Cloudy assistant.
+        // The FAQ channel URL, button type and position remain unchanged.
+        const updatedLabel = target.linkRename?.[button.label];
+        if (updatedLabel && button.style === 5
+          && String(button.url || '').includes('/1554538586001645679')) {
+          button.label = updatedLabel;
           dirty = true;
         }
         const emoji = target.buttons[button.label];

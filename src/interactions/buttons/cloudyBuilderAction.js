@@ -16,7 +16,16 @@ export function isBoostInstructionsAction(interaction, actionId) {
     && String(actionId) === '8ff2465c22214a11b01ad798';
 }
 
-function buildButtonResponseEmbed(responseText, { hideThumbnail = false } = {}) {
+export function buildButtonResponseEmbed(responseText, { hideThumbnail = false } = {}) {
+  // The owner's Reward boost Instructions reply must keep its existing text,
+  // branding/footer and colour while carrying no Cloudy C thumbnail.
+  // The global fluent setFooter override strips ordinary footer text, so
+  // supply explicit trusted data for this one owner-authored reply.
+  if (hideThumbnail) return new EmbedBuilder({
+    description: String(responseText || '').slice(0, 4096),
+    color: 0xFFFFFF,
+    footer: { text: CLOUDY_BRANDING },
+  });
   const embed = new EmbedBuilder()
     .setDescription(String(responseText || '').slice(0, 4096))
     .setColor(0xFFFFFF)
