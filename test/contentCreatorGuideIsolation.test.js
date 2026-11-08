@@ -45,7 +45,7 @@ test('Search lists all three live guides even when title and body are identical'
   const choices = buildSearchChoices(matches);
   assert.equal(choices.length, 3);
   assert.deepEqual(choices.map(c => c.name).sort(), [
-    'Content creators — TikTok', 'Content creators — Twitch', 'Content creators — Youtube',
+    'Content creators — TikTok', 'Content creators — Twitch', 'Content creators — YouTube',
   ]);
   assert.equal(new Set(choices.map(c => c.value)).size, 3);
 
@@ -59,7 +59,7 @@ test('Search lists all three live guides even when title and body are identical'
   records[0].snapshot.title = '<:Z94tiktok:1543280394508701857>My YouTube embed';
   const newOptions = buildSearchChoices(buildMatches(guild, records, 'embed'));
   assert.equal(newOptions.length, 1);
-  assert.equal(newOptions[0].name, 'My YouTube embed — Youtube');
+  assert.equal(newOptions[0].name, 'My YouTube embed — YouTube');
   const updatedChannel = buildEmbedPayload(guild, records, channels[0].id);
   assert.equal(updatedChannel.components[0].toJSON().components[0].options[0].label, 'My YouTube embed');
 });

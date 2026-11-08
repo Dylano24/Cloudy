@@ -1711,7 +1711,7 @@ export function buildSearchChoices(matches) {
         const creatorTitle = String(document?.title || 'Content creators')
             .replace(/<a?:[^:>]+:\d+>/g, ' ').replace(/\s+/g, ' ').trim();
         const title = creatorId
-            ? clean(`${creatorTitle || 'Content creators'} — ${creatorChannel.charAt(0).toUpperCase() + creatorChannel.slice(1)}`, 100)
+            ? clean(`${creatorTitle || 'Content creators'} — ${({ youtube: 'YouTube', twitch: 'Twitch', tiktok: 'TikTok' })[creatorChannel] || creatorChannel}`, 100)
             : explicitTitle
                 ? humanSearchChoiceTitle(document?.title || 'Embed')
                 : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
