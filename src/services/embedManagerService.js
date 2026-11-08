@@ -624,18 +624,41 @@ function bestBuilderSourceRecord(records, fallback = null) {
 
 // Content creator guides are three separate physical messages. The Builder
 // must not group them into one global template just because the titles match.
-export function contentCreatorGuideRecordIdentity(record) {
-    const channel = String(record?.channelName || '')
+// These are the actual Cloudy Inc. creator channels (not emoji IDs). The
+// channel's current Discord message is the editable identity; labels are not.
+const CLOUDY_CREATOR_CHANNEL_IDS = Object.freeze({
+    '1554538629102309416': 'youtube',
+    '1554538630129778702': 'twitch',
+    '1554538632323272755': 'tiktok',
+});
+
+export function contentCreatorGuidePlatform(record) {
+    const channelId = String(record?.channelId || record?.backingChannelId || '');
+    if (!channelId) return null;
+    // System catalogs are definitions stored in other physical channels, not
+    // the creator guide. They must never take ownership of a real message.
+    if (String(record?.source || '').toLowerCase() === 'system-catalog'
+        || (record?.backingChannelId && String(record.backingChannelId) !== channelId)) return null;
+    const channelName = String(record?.channelName || '')
         .split('│').at(-1).trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-    if (!['youtube', 'twitch', 'tiktok'].includes(channel)) return null;
-    const source = String(record?.source || '');
+    const platform = CLOUDY_CREATOR_CHANNEL_IDS[channelId]
+        || (['youtube', 'twitch', 'tiktok'].includes(channelName) ? channelName : null);
+    if (!platform) return null;
+    const source = String(record?.source || '').toLowerCase();
     const title = String(recordEmbedData(record)?.title || record?.title || '');
     const subscribeButton = (record?.components || []).some(row =>
-        (row.components || []).some(button =>
-            String(button.label || '').toLowerCase() === 'subscribe' && Number(button.style) === 5));
+        (row.components || []).some(button => {
+            const value = button?.toJSON?.() || button;
+            return String(value?.label || '').toLowerCase() === 'subscribe'
+                && Number(value?.style) === 5;
+        }));
     if (source !== 'content-creators' && !/content\s+creators/i.test(title) && !subscribeButton) return null;
+    return platform;
+}
+
+export function contentCreatorGuideRecordIdentity(record) {
     const channelId = String(record?.channelId || record?.backingChannelId || '');
-    return channelId ? `content-creators:${channelId}` : null;
+    return contentCreatorGuidePlatform(record) ? `content-creators:${channelId}` : null;
 }
 
 export function templateIdentity(channelId, value) {
