@@ -466,7 +466,19 @@ function field(interaction, id) {
 
 function applyModal(session, interaction, action) {
   if (action === 'schedule') {
-    if (session.kind === 'giveaway') {
+    if (session.kind === 'giveaway' && session.draft.giveawayType === 'wipe') {
+      // Preserve invalid entries so Schedule can be reopened for correction.
+      session.scheduleInputs = { server: field(interaction, 'server'),
+        before: field(interaction, 'before'), duration: field(interaction, 'duration') };
+      const before = parseAutomationDuration(session.scheduleInputs.before, 'Before wipe');
+      const duration = parseAutomationDuration(session.scheduleInputs.duration, 'Duration');
+      const server = session.scheduleInputs.server;
+      if (!server || server.length > 60 || before < 2 || before > 10080 || duration >= before) {
+        throw new RangeError('Enter a Rust server and a duration that ends before the wipe.');
+      }
+      Object.assign(session.draft, { schedule: 'wipe', server, beforeMinutes: before, durationMinutes: duration });
+      session.scheduleInputs = null;
+    } else if (session.kind === 'giveaway') {
       // Keep invalid fields for corrections; do not save or activate them.
       const scheduleType = interaction.fields.getStringSelectValues('scheduleType')?.[0];
       session.scheduleInputs = {
@@ -534,8 +546,31 @@ function applyModal(session, interaction, action) {
     }
     session.scheduleInputs = null;
     }
+  } else if (session.kind === 'giveaway' && action === 'type') {
+    const type = interaction.fields.getStringSelectValues('giveawayType')?.[0];
+    if (!['standard', 'wipe'].includes(type)) throw new RangeError('Choose Standard or Rust wipe.');
+    if (session.draft.giveawayType !== type) {
+      if (session.draft.state === 'running') throw new RangeError('Pause this automation before changing its type.');
+      session.draft.giveawayType = type;
+      session.draft.schedule = type === 'wipe' ? 'wipe' : 'repeat';
+      session.draft.startAt = null;
+      session.draft.nextRunAt = null;
+      session.draft.completedAt = null;
+      session.draft.randomize = false;
+      session.scheduleInputs = null;
+    }
+  } else if (session.kind === 'giveaway' && action === 'kit') {
+    if (session.draft.giveawayType !== 'wipe') throw new RangeError('Kit & role is only for Rust wipe giveaways.');
+    const kit = field(interaction, 'kit');
+    const roleId = interaction.fields.getField('winnerRole')?.values?.[0];
+    if (!kit || kit.length > 150 || !/^\d{17,20}$/.test(roleId || '')) {
+      throw new RangeError('Choose a Rust kit name and temporary winner role.');
+    }
+    Object.assign(session.draft, { kit, prizes: [kit], winnerRoleId: roleId });
   } else if (session.kind === 'giveaway' && action === 'text') {
-    const prizes = field(interaction, 'prizes').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    const prizes = session.draft.giveawayType === 'wipe'
+      ? [session.draft.kit].filter(Boolean)
+      : field(interaction, 'prizes').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
     if (!prizes.length || prizes.length > 20 || prizes.some(x => x.length > 150)) {
       throw new RangeError('Enter 1–20 prizes, each up to 150 characters.');
     }
@@ -556,7 +591,8 @@ function applyModal(session, interaction, action) {
   } else if (session.kind === 'giveaway' && action === 'timing') {
     const duration = parseAutomationDuration(field(interaction, 'duration'));
     const winnerCount = Number(field(interaction, 'winners'));
-    const randomize = field(interaction, 'randomize').toLowerCase();
+    const randomize = session.draft.giveawayType === 'wipe'
+      ? 'no' : field(interaction, 'randomize').toLowerCase();
     if (!Number.isInteger(winnerCount) || winnerCount < 1 || winnerCount > 10
       || !['yes', 'no'].includes(randomize) || duration > 43200) {
       throw new RangeError('Enter a valid duration, 1–10 winners and yes/no for randomize.');
@@ -620,7 +656,7 @@ async function validateDestination(interaction, session) {
     throw new RangeError('Cloudy needs Send Messages and Embed Links permissions in that channel.');
   }
   if (session.kind !== 'giveaway') return;
-  if (session.draft.schedule !== 'wipe') {
+  if (session.draft.giveawayType !== 'wipe') {
     if (session.draft.ping?.type === 'role') {
       const roleId = session.draft.ping.roleId;
       const role = interaction.guild?.roles?.cache?.get(roleId)
@@ -629,22 +665,19 @@ async function validateDestination(interaction, session) {
     }
     return;
   }
-  if (!session.draft.winnerRoleId) return;
+  if (!session.draft.winnerRoleId) throw new RangeError('Choose a temporary winner role in Kit & role.');
   const role = interaction.guild?.roles?.cache?.get(session.draft.winnerRoleId)
     || await interaction.guild?.roles?.fetch?.(session.draft.winnerRoleId).catch(() => null);
   if (!role || role.managed || role.id === interaction.guildId
     || !botMember?.permissions?.has?.(PermissionFlagsBits.ManageRoles)
     || !botMember.roles?.highest || botMember.roles.highest.comparePositionTo(role) <= 0) {
-    throw new RangeError('Choose a winner role below Cloudy’s highest role, or leave it empty.');
+    throw new RangeError('Choose a manageable winner role below Cloudy’s highest role.');
   }
 }
 
 async function saveSession(interaction, session) {
   if (session.scheduleInputs || session.validationError) throw new RangeError('Correct the information first.');
   await validateDestination(interaction, session);
-  if (session.kind === 'giveaway' && session.draft.schedule === 'wipe') {
-    throw new RangeError('Choose Repeat or Once for automatic giveaways.');
-  }
   if (session.draft.schedule !== 'wipe' && !session.draft.startAt) {
     throw new RangeError('Set a future start date and time in Schedule before saving.');
   }
@@ -816,7 +849,8 @@ export async function handleAutomationBuilderInteraction(interaction) {
       return true;
     }
     if (action === 'details' || action === 'schedule'
-      || (session.kind === 'giveaway' && ['text', 'claim', 'timing', 'code'].includes(action))
+      || (session.kind === 'giveaway' && ['type', 'text', 'kit', 'claim', 'timing', 'code'].includes(action)
+        && (session.draft.giveawayType !== 'wipe' || !['claim', 'code'].includes(action)))
       || (action === 'media' && session.kind === 'vote')) {
       await interaction.showModal(buildAutomationModal(session, action));
       return true;
