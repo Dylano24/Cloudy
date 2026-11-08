@@ -19,7 +19,6 @@ export const SERVICE_REVIEW_TYPES = Object.freeze({
   website: 'Cloudy website',
   store: 'Game store',
   development: 'Website development',
-  services: 'Services',
   other: 'Other',
 });
 
@@ -29,7 +28,7 @@ const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 // these are intentionally absent from the menu for NEW reviews.
 const HISTORICAL_SERVICE_REVIEW_LABELS = new Set([
   ...Object.values(SERVICE_REVIEW_TYPES),
-  'Game servers', 'Website', 'Products & services',
+  'Game servers', 'Website', 'Products & services', 'Services',
 ]);
 
 export function serviceReviewChoiceRow(selectedType = null) {
