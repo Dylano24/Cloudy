@@ -409,7 +409,7 @@ test('Rust wipe auto giveaway saves as independent no-claim kit job and syncs te
   } };
   assert.equal((await syncWipePrize(f.client, member)).status, 'synced');
   assert.ok(assigned.has(roleId));
-  assert.match(f.posts[0].embeds[0].data.description, /\/wipe sync/);
+  assert.match(f.posts[0].embeds[0].description, /\/wipe sync/);
 });
 
 test('another user cannot operate someone else’s automation dashboard', async () => {
