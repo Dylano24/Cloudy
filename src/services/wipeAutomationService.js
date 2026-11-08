@@ -223,9 +223,6 @@ export async function setWipeAutomationState(client, guildId, kind, state) {
     }
     const restart = state === 'running' && setting.state === 'stopped';
     let nextRunAt = setting.nextRunAt;
-    if (state === 'running' && setting.state !== 'running' && setting.schedule === 'random_weekly') {
-      nextRunAt = nextWeeklySlotAfter(setting, Date.now()).nextRunAt;
-    }
     if (restart && setting.schedule === 'repeat') {
       const interval = setting.repeatMinutes * MINUTE;
       const first = setting.startAt || Date.now() + interval;
@@ -273,8 +270,9 @@ export async function saveAutomaticVoteJob(client, guildId, draft, jobId = null)
       && existing.repeatMinutes === configured.repeatMinutes
       && existing.beforeMinutes === configured.beforeMinutes
       && existing.durationMinutes === configured.durationMinutes
-      && existing.weeklyMin === configured.weeklyMin
-      && existing.weeklyMax === configured.weeklyMax;
+      && (configured.schedule !== 'random_weekly'
+        || (existing.weeklyMin === configured.weeklyMin
+          && existing.weeklyMax === configured.weeklyMax));
     const updated = {
       ...configured, id,
       state: existing?.state || 'stopped',
