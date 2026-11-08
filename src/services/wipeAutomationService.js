@@ -230,6 +230,8 @@ export async function setWipeAutomationState(client, guildId, kind, state) {
     config[kind] = {
       ...setting, state,
       ...(setting.schedule === 'repeat' && restart ? { nextRunAt } : {}),
+      ...(setting.schedule === 'weekly' && state === 'running'
+        ? planWeeklyVoteRuns(setting) : {}),
     };
     await saveConfig(client, guildId, config);
     return config[kind];
@@ -265,11 +267,14 @@ export async function saveAutomaticVoteJob(client, guildId, draft, jobId = null)
       && existing.startAt === configured.startAt
       && existing.repeatMinutes === configured.repeatMinutes
       && existing.beforeMinutes === configured.beforeMinutes
-      && existing.durationMinutes === configured.durationMinutes;
+      && existing.durationMinutes === configured.durationMinutes
+      && existing.weeklyMin === configured.weeklyMin
+      && existing.weeklyMax === configured.weeklyMax;
     const updated = {
       ...configured, id,
       state: existing?.state || 'stopped',
       ...(sameTiming && existing.nextRunAt ? { nextRunAt: existing.nextRunAt } : {}),
+      ...(sameTiming && existing.weeklyPlan ? { weeklyPlan: existing.weeklyPlan } : {}),
       ...(sameTiming && existing.completedAt ? { completedAt: existing.completedAt } : {}),
       createdAt: existing?.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -302,7 +307,10 @@ export async function setAutomaticVoteJobState(client, guildId, jobId, state) {
         : first + (Math.floor((Date.now() - first) / interval) + 1) * interval;
     }
     const updated = { ...existing, state,
-      ...(existing.schedule === 'repeat' && restart ? { nextRunAt } : {}) };
+      ...(existing.schedule === 'repeat' && restart ? { nextRunAt } : {}),
+      ...(existing.schedule === 'weekly' && state === 'running'
+        ? planWeeklyVoteRuns(existing) : {}),
+    };
     config.voteJobs = config.voteJobs.map(job => job.id === jobId ? updated : job);
     await saveConfig(client, guildId, config);
     return updated;
@@ -431,8 +439,12 @@ async function createAutomaticVote(client, guild, config, id, wipeAt) {
       guildId: guild.id, channelId: channel.id, messageId: null,
       question: config.question,
       options: config.randomize ? shuffled(config.maps) : config.maps, votes: {},
+      ...(config.mediaPool?.length ? { images: [config.mediaPool[
+        config.randomize ? randomInt(config.mediaPool.length)
+          : (config.mediaCursor || 0) % config.mediaPool.length
+      ].url] } : {}),
       endsAt: Date.now() + config.durationMinutes * MINUTE, ended: false,
-      layout: 'preview', pictureOptions: config.maps.map(() => false),
+      ...(config.mediaPool?.length ? {} : { layout: 'preview', pictureOptions: config.maps.map(() => false) }),
       createdBy: client.user.id, createdAt: new Date().toISOString(),
       automationId: id, automationServer: config.server, wipeAt,
     };
@@ -557,7 +569,7 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
         : [{ setting: config.giveaway, jobId: null }];
       for (const { setting, jobId } of entries) {
       if (!setting || setting.state !== 'running') continue;
-      if (setting.schedule === 'repeat' || setting.schedule === 'once') {
+      if (setting.schedule === 'repeat' || setting.schedule === 'once' || setting.schedule === 'weekly') {
         let dueAt = null;
         let dueSetting = null;
         await Mutex.runExclusive(`wipeauto:config:${guild.id}`, async () => {
@@ -567,23 +579,30 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
             if (jobId) latest.voteJobs = latest.voteJobs.map(job => job.id === jobId ? updated : job);
             else latest[kind] = updated;
           };
-          if (!['once', 'repeat'].includes(active?.schedule) || active.state !== 'running') return;
+          if (!['once', 'repeat', 'weekly'].includes(active?.schedule) || active.state !== 'running') return;
           if (active.schedule === 'repeat'
             && !validRepeat(active.repeatMinutes, active.durationMinutes)) return;
+          if (active.schedule === 'weekly'
+            && !validWeeklyCounts(active.weeklyMin, active.weeklyMax)) return;
           const next = Number(active.nextRunAt);
           if (!Number.isFinite(next) || next <= 0) {
             if (active.schedule === 'once') return;
-            updateActive({ ...active, nextRunAt: now + active.repeatMinutes * MINUTE });
+            updateActive(active.schedule === 'weekly'
+              ? { ...active, ...planWeeklyVoteRuns(active, now) }
+              : { ...active, nextRunAt: now + active.repeatMinutes * MINUTE });
           } else if (next <= now) {
             dueAt = next;
             dueSetting = { ...active };
             if (active.schedule === 'once') {
               // Claim the single scheduled launch before any Discord API call.
               updateActive({ ...active, state: 'stopped', completedAt: now, lastRunAt: next });
+            } else if (active.schedule === 'weekly') {
+              updateActive({ ...active, ...planWeeklyVoteRuns(active, now),
+                lastRunAt: next, mediaCursor: (active.mediaCursor || 0) + 1 });
             } else {
               const elapsed = Math.floor((now - next) / (active.repeatMinutes * MINUTE)) + 1;
               updateActive({ ...active, nextRunAt: next + elapsed * active.repeatMinutes * MINUTE,
-                lastRunAt: next });
+                lastRunAt: next, mediaCursor: (active.mediaCursor || 0) + 1 });
             }
           } else return;
           // Persist the advance BEFORE posting so repeated ticks/crashes cannot
