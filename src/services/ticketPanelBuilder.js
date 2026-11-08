@@ -36,12 +36,12 @@ export function buildTicketPanelComponents(client, guildId, config = {}, sourceR
     .setCustomId('create_ticket').setLabel(config.ticketButtonLabel || DEFAULT_TICKET_BUTTON_LABEL)
     .setStyle(ButtonStyle.Secondary).setEmoji(TICKET_START_CHAT_EMOJI).toJSON()]}];
   const isFaqLink = button => Number(button.style) === ButtonStyle.Link
-    && /faq|support assistant/i.test(String(button.label || ''));
+    && /faq|support assistant|cloudy assistant/i.test(String(button.label || ''));
   // The former FAQ link led to the AI assistant. The owner explicitly moved
   // FAQ to this channel; preserve any different, deliberately configured ID.
   const configured = String(config.ticketFaqChannelId || '');
   const faqChannelId = configured && configured !== '1534654577385672917' ? configured : TICKET_FAQ_CHANNEL_ID;
-  const support = () => new ButtonBuilder().setLabel('Support assistant')
+  const support = () => new ButtonBuilder().setLabel('Cloudy assistant')
     .setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${resolvedGuildId}/${faqChannelId}`)
     .setEmoji(supportBotEmoji(client));
   let found = false;

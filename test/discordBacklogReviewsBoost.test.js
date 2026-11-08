@@ -13,7 +13,7 @@ import { reconcileServiceReviewsPanel, migrateLegacyServiceReviews } from '../sr
 import boostEvent, { buildGuildBoostAnnouncement } from '../src/events/guildBoostAnnouncement.js';
 import { reconcileRequestedButtonEmojis } from '../src/events/cloudyRequestedButtonsReady.js';
 import { buildTicketPanelComponents } from '../src/services/ticketPanelBuilder.js';
-import { isBoostInstructionsAction } from '../src/interactions/buttons/cloudyBuilderAction.js';
+import { isBoostInstructionsAction, buildButtonResponseEmbed } from '../src/interactions/buttons/cloudyBuilderAction.js';
 
 const GUILD_ID = '1532882647838228723';
 const BOT = '1534506224312389863';
@@ -301,6 +301,7 @@ test('only missing button emoji are added; existing owner-customized embeds stay
     ]],
     ['1554538650761691260', '1568543862908129352', [
       { type: 2, style: 2, label: 'Start chat', custom_id: 'create_ticket', emoji: { id: '1543303628159320165', name: 'W92mailmessage' } },
+      { type: 2, style: 5, label: 'Support assistant', url: 'https://discord.com/channels/1532882647838228723/1554538586001645679' },
     ]],
   ];
   for (const [channelId, messageId, buttons] of targets) {
@@ -319,6 +320,9 @@ test('only missing button emoji are added; existing owner-customized embeds stay
   assert.equal(messages.get('1568526805072216085').components[0].components[1].emoji.id, '1568706168006770719');
   assert.equal(messages.get('1568769178540707934').components[0].components[0].emoji.id, '1543287391131803749');
   assert.equal(messages.get('1568543862908129352').components[0].components[0].emoji.id, '1568808462782177280');
+  assert.equal(messages.get('1568543862908129352').components[0].components[1].label, 'Cloudy assistant');
+  assert.equal(messages.get('1568543862908129352').components[0].components[1].url,
+    'https://discord.com/channels/1532882647838228723/1554538586001645679');
   assert.equal(messages.get('1568514711941816442').components[0].components[0].label, 'Cloudy assistant');
   assert.equal(messages.get('1568514711941816442').components[0].components[0].emoji.id, '1568567297545732228');
   const second = await reconcileRequestedButtonEmojis(client);
@@ -349,10 +353,32 @@ test('Start chat supports upgraded emoji and Reward boost only removes its Instr
       emoji: { id: '123456789012345678', name: 'chosen_icon' } }],
   }])[0].toJSON().components[0];
   assert.equal(ownerCustom.emoji.id, '123456789012345678');
+  const contactRows = buildTicketPanelComponents(null, GUILD_ID, {}, [{
+    type: 1,
+    components: [
+      { type: 2, custom_id: 'create_ticket', style: 2, label: 'Start chat' },
+      { type: 2, style: 5, label: 'Cloudy assistant',
+        url: 'https://discord.com/channels/1532882647838228723/1554538586001645679' },
+    ],
+  }]);
+  assert.equal(contactRows[0].toJSON().components.length, 2, 'no duplicate assistant link');
+  assert.equal(contactRows[0].toJSON().components[1].label, 'Cloudy assistant');
   assert.equal(isBoostInstructionsAction({
     guildId: GUILD_ID, channelId: '1554538607233073182',
   }, '8ff2465c22214a11b01ad798'), true);
   assert.equal(isBoostInstructionsAction({
     guildId: GUILD_ID, channelId: '1556354678407827637',
   }, '8ff2465c22214a11b01ad798'), false);
+});
+
+
+test('boost Instructions private response omits logo but keeps text and footer', () => {
+  const text = 'Once you have boosted the server, your reward will be available.';
+  const clean = buildButtonResponseEmbed(text, { hideThumbnail: true }).toJSON();
+  assert.equal(clean.description, text);
+  assert.equal(clean.color, 0xFFFFFF);
+  assert.equal(clean.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+  assert.ok(!Object.hasOwn(clean, 'thumbnail'), 'the Cloudy C must be absent');
+  const ordinary = buildButtonResponseEmbed(text).toJSON();
+  assert.ok(ordinary.thumbnail?.url, 'other button replies keep the Cloudy C');
 });
