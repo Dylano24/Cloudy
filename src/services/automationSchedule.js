@@ -68,10 +68,10 @@ export function parseAmsterdamStart(date, time) {
   const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(rawDate);
   const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(rawTime);
   if (!match) {
-    throw new RangeError('Invalid Date: use DD-MM-YYYY, for example 10-11-2027.');
+    throw new RangeError('Invalid Date: use 10-11-2027.');
   }
   if (!timeMatch) {
-    throw new RangeError('Invalid Time: use HH:MM, for example 18:00.');
+    throw new RangeError('Invalid Time: use 18:00.');
   }
   const year = Number(match[3]);
   const month = Number(match[2]);

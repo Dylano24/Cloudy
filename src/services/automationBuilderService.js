@@ -73,9 +73,10 @@ export function formatAutomationDashboard(session) {
   const next = draft.schedule !== 'wipe' && draft.nextRunAt && status === 'running'
     ? `\n**Next run:** <t:${Math.floor(draft.nextRunAt / 1000)}:F>`
     : '';
+  const invalidInformation = session.validationError || Boolean(session.scheduleInputs);
   const embed = new EmbedBuilder()
-    .setColor(session.validationError ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
-    .setTitle(label)
+    .setColor(invalidInformation ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
+    .setTitle(invalidInformation ? 'Wrong information' : label)
     .setThumbnail(CLOUDY_LOGO_URL)
     .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}\n**Randomize:** ${draft.randomize
       ? (isVote ? 'On — shuffle voting options and media' : 'On — choose a random prize')
@@ -89,9 +90,9 @@ export function formatAutomationDashboard(session) {
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
   );
   const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
-    ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished));
+    ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished) || Boolean(session.scheduleInputs));
   const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
-  const saveButton = button(id, 'save', 'Save', ButtonStyle.Success);
+  const saveButton = button(id, 'save', 'Save', ButtonStyle.Success, Boolean(session.scheduleInputs));
   const controls = new ActionRowBuilder().addComponents(
     ...(isVote
       ? [
@@ -213,8 +214,8 @@ function input(id, label, value, {
   if (id === 'duration' || id === 'before') {
     field.setPlaceholder('1m, 1h, 1d, 1w');
   }
-  if (id === 'date') field.setPlaceholder('DD-MM-YYYY (e.g. 10-11-2027)');
-  if (id === 'time') field.setPlaceholder('HH:MM (e.g. 18:00)');
+  if (id === 'date') field.setPlaceholder('10-11-2027');
+  if (id === 'time') field.setPlaceholder('18:00');
   if (id === 'weeklyMin') field.setPlaceholder('2');
   if (id === 'weeklyMax') field.setPlaceholder('3');
   if (value !== undefined && value !== null && String(value).length) field.setValue(String(value).slice(0, maxLength));
@@ -251,10 +252,10 @@ export function buildAutomationModal(session, action) {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       modal.addLabelComponents(
         input('date', 'Date', session.scheduleInputs?.date ?? local.date, {
-          maxLength: 10, description: 'Date: DD-MM-YYYY (future date only).',
+          maxLength: 10, description: 'Future date only.',
         }),
         input('time', 'Time (EU)', session.scheduleInputs?.time ?? local.time, {
-          maxLength: 5, description: 'Time: HH:MM (24-hour clock).',
+          maxLength: 5, description: '24-hour clock.',
         }),
       );
       if (draft.schedule === 'random_weekly') {
@@ -416,6 +417,7 @@ async function validateDestination(interaction, session) {
 }
 
 async function saveSession(interaction, session) {
+  if (session.scheduleInputs) throw new RangeError('Correct the information in Schedule first.');
   await validateDestination(interaction, session);
   if (session.draft.schedule !== 'wipe' && !session.draft.startAt) {
     throw new RangeError('Set a future start date and time in Schedule before saving.');
@@ -643,6 +645,9 @@ export async function handleAutomationBuilderInteraction(interaction) {
       return true;
     } else if (action === 'start' || action === 'pause') {
       await interaction.deferUpdate();
+      if (action === 'start' && session.scheduleInputs) {
+        throw new RangeError('Correct the information in Schedule first.');
+      }
       if (session.dirty || !session.saved) {
         throw new RangeError('Save your settings before starting or pausing.');
       }
