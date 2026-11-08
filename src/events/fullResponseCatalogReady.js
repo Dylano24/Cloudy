@@ -26,6 +26,7 @@ import { logger } from '../utils/logger.js';
 import { rememberBuilderRuntimePreview } from '../services/builderRuntimePreviewService.js';
 import { isBlackjackEmbed } from '../utils/blackjackEmbedPresentation.js';
 import { CLOUDY_LOGO_URL } from '../services/cloudyLogoService.js';
+import { isBoostInstructionsAction } from '../interactions/buttons/cloudyBuilderAction.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { isBotResponsePayload } from '../utils/botResponseIntent.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
@@ -593,6 +594,12 @@ function patchInteractionCapture() {
             return original(payload, ...args);
           }
           if (isStaffRobberyProtectionPayload(payload)) return original(payload, ...args);
+          // This exact Reward boost Instructions message has no thumbnail by
+          // owner request. Do not let saved response templates reinsert the C.
+          const boostActionId = /^cloudy_builder_action:([^:]+)$/.exec(String(source.customId || ''))?.[1];
+          if (boostActionId && isBoostInstructionsAction(source, boostActionId)) {
+            return original(payload, ...args);
+          }
           if (isBuilderAuthoredInteraction(source)) {
             if (!isBotResponsePayload(payload)) return original(payload, ...args);
             outgoing = await applySavedResponsePayloadTemplates(payload, source);
