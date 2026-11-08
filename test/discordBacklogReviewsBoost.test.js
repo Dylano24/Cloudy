@@ -4,7 +4,8 @@ import { Collection, MessageFlags } from 'discord.js';
 
 import {
   SERVICE_REVIEW_TYPES, SERVICE_REVIEW_PANEL_TITLE, SERVICE_REVIEW_SELECT_ID,
-  serviceReviewChoiceRow, serviceReviewRatingRow, serviceReviewModal,
+  SERVICE_REVIEW_RATING_ID, serviceReviewChoiceRow, serviceReviewRatingRow,
+  serviceReviewPanelRows, serviceReviewModal,
 } from '../src/services/serviceReviewsService.js';
 import serviceReviewInteraction from '../src/events/serviceReviewsInteraction.js';
 import { reconcileServiceReviewsPanel } from '../src/events/serviceReviewsReady.js';
@@ -41,29 +42,37 @@ function addChannel(client, guild, id, extras = {}) {
   return channel;
 }
 
-test('review selector is limited to services the owner already described', () => {
+test('panel offers exactly five requested services in order, with rating initially disabled', () => {
   assert.deepEqual(Object.values(SERVICE_REVIEW_TYPES), [
-    'Game servers', 'Website', 'Game store', 'Products & services',
-    'Website development', 'Cloudy bot',
+    'Cloudy bot', 'Website', 'Game servers', 'Game store', 'Services',
   ]);
-  const choices = serviceReviewChoiceRow().toJSON().components[0];
-  assert.equal(choices.custom_id, SERVICE_REVIEW_SELECT_ID);
-  assert.equal(choices.options.length, 6);
-  const rating = serviceReviewRatingRow('servers').toJSON().components[0];
-  assert.equal(rating.custom_id, 'service_review_rating:servers');
-  assert.deepEqual(rating.options.map(x => x.label), ['★', '★★', '★★★', '★★★★', '★★★★★']);
+  const rows = serviceReviewPanelRows().map(row => row.toJSON());
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].components[0].custom_id, SERVICE_REVIEW_SELECT_ID);
+  assert.deepEqual(rows[0].components[0].options.map(option => option.label), Object.values(SERVICE_REVIEW_TYPES));
+  assert.equal(rows[1].components[0].custom_id, SERVICE_REVIEW_RATING_ID);
+  assert.equal(rows[1].components[0].disabled, true);
+  assert.deepEqual(rows[1].components[0].options.map(option => option.label),
+    ['★', '★★', '★★★', '★★★★', '★★★★★']);
+  assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 5);
+  assert.equal(serviceReviewRatingRow().toJSON().components[0].disabled, true);
+  const chosen = serviceReviewPanelRows('bot').map(row => row.toJSON());
+  assert.equal(chosen[1].components[0].disabled, false);
+  assert.equal(chosen[0].components[0].options.filter(option => option.default).length, 1);
+  assert.equal(chosen[0].components[0].options.find(option => option.default).label, 'Cloudy bot');
   assert.throws(() => serviceReviewRatingRow('other'), /Invalid/);
   assert.equal(serviceReviewModal('bot', 4).toJSON().custom_id, 'service_review_modal:bot:4');
   assert.throws(() => serviceReviewModal('servers', 6), /Invalid/);
 });
 
-test('reconciliation adds selectors to owner-authored service review embed in place and once', async () => {
+test('reconciliation migrates existing embed to two menus in-place, without duplicates or copy changes', async () => {
   const { guild, client } = mockClient();
   const originalEmbed = { title: SERVICE_REVIEW_PANEL_TITLE, description: 'Custom owner text must never change.' };
   let edits = 0;
   const message = {
     id: '1568560974548697170',
-    author: { id: BOT }, embeds: [originalEmbed], components: [],
+    author: { id: BOT }, embeds: [originalEmbed],
+    components: [serviceReviewChoiceRow()],
     async edit(payload) {
       edits += 1;
       assert.ok(!Object.hasOwn(payload, 'embeds'), 'must not overwrite owner-authored embed');
@@ -80,15 +89,16 @@ test('reconciliation adds selectors to owner-authored service review embed in pl
   assert.equal(first.action, 'updated');
   assert.equal(message.id, '1568560974548697170');
   assert.equal(message.embeds[0], originalEmbed);
+  assert.equal(message.components.length, 2);
+  assert.equal(message.components[1].toJSON().components[0].disabled, true);
   assert.equal(edits, 1);
   const again = await reconcileServiceReviewsPanel(client);
   assert.equal(again.action, 'preserved');
   assert.equal(edits, 1, 'must never duplicate or overwrite the existing review embed');
 });
 
-test('category selection -> private stars -> comment modal -> posted review', async () => {
+test('selection enables rating on same panel, never sends repetitive ephemeral dropdowns, then opens modal', async () => {
   const { guild, client } = mockClient();
-  // The live guild has the same custom star as Staff Reviews.
   guild.emojis = { cache: new Collection([['1543289625035022346', {
     toString: () => '<:W84starwhite:1543289625035022346>',
   }]]) };
@@ -97,24 +107,47 @@ test('category selection -> private stars -> comment modal -> posted review', as
     async send(payload) { sent.push(payload); return { id: 'published' }; },
   });
   const user = { id: 'member', username: 'Listener', displayAvatarURL: () => 'https://example.com/avatar.png' };
-  let reply;
+  const publicMessage = {
+    id: '1568560974548697170',
+    components: serviceReviewPanelRows(),
+    edits: 0,
+    async edit(payload) {
+      this.components = payload.components;
+      this.edits += 1;
+    },
+  };
+  let deferCount = 0;
+  let replyCount = 0;
+  let editCount = 0;
   const choose = {
     customId: SERVICE_REVIEW_SELECT_ID, channelId: REVIEWS, guildId: GUILD_ID,
     isStringSelectMenu: () => true, values: ['bot'],
-    user, guild, client,
-    reply: async payload => { reply = payload; },
+    user, guild, client, message: publicMessage,
+    deferUpdate: async () => { deferCount += 1; },
+    editReply: async payload => {
+      editCount += 1;
+      publicMessage.components = payload.components;
+    },
+    reply: async () => { replyCount += 1; },
   };
-  await serviceReviewInteraction.execute(choose);
-  assert.equal(reply.flags, MessageFlags.Ephemeral);
-  assert.equal(reply.components[0].toJSON().components[0].custom_id, 'service_review_rating:bot');
+  for (let i = 0; i < 4; i += 1) {
+    await serviceReviewInteraction.execute(choose);
+  }
+  assert.equal(deferCount, 4);
+  assert.equal(editCount, 4);
+  assert.equal(replyCount, 0, 'no ephemeral rating dropdown spam');
+  assert.equal(publicMessage.components.length, 2);
+  assert.equal(publicMessage.components[1].toJSON().components[0].disabled, false);
 
   let shown;
   await serviceReviewInteraction.execute({
-    ...choose, customId: 'service_review_rating:bot', values: ['4'],
+    ...choose, customId: SERVICE_REVIEW_RATING_ID, values: ['4'],
     showModal: async modal => { shown = modal.toJSON(); },
   });
   assert.equal(shown.custom_id, 'service_review_modal:bot:4');
   assert.equal(shown.components[0].components[0].custom_id, 'service_review_comment');
+  assert.equal(publicMessage.edits, 1, 'reset original message rather than add another one');
+  assert.equal(publicMessage.components[1].toJSON().components[0].disabled, true);
 
   let deferred, result;
   await serviceReviewInteraction.execute({
@@ -130,10 +163,26 @@ test('category selection -> private stars -> comment modal -> posted review', as
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   const embed = sent[0].embeds[0].toJSON();
-  assert.match(embed.description, /\*\*Product or service\*\*\nCloudy bot/);
+  assert.match(embed.description, /\\*\\*Product or service\\*\\*\\nCloudy bot/);
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
   assert.match(embed.description, /Excellent experience/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+});
+
+test('rating cannot open a modal before this reviewer selects a service', async () => {
+  const { guild, client } = mockClient();
+  let shown = false;
+  let reply;
+  await serviceReviewInteraction.execute({
+    customId: SERVICE_REVIEW_RATING_ID, channelId: REVIEWS, guildId: GUILD_ID,
+    isStringSelectMenu: () => true, values: ['5'],
+    user: { id: 'different-user' }, guild, client,
+    showModal: async () => { shown = true; },
+    reply: async payload => { reply = payload; },
+  });
+  assert.equal(shown, false);
+  assert.equal(reply.flags, MessageFlags.Ephemeral);
+  assert.match(reply.content, /Choose a product or service first/);
 });
 
 test('boost embed contains exact requested wording and never invents counts', async () => {
