@@ -69,10 +69,11 @@ test('staff-posted-reviews receives the review and original dropdowns reset only
   await staffReviewsInteraction.execute({
     isStringSelectMenu: () => true, customId: STAFF_REVIEW_MEMBER_ID, guildId, guild, client,
     message, user, values: [memberId],
-    update: async ({ components }) => { message.components = components; },
+    deferUpdate: async () => {},
+    update: async () => { throw new Error('Member selection must not change shared menu'); },
   });
-  assert.equal(message.components[1].components[0].disabled, false);
-  assert.ok(message.components[0].components[0].options.every(option => !option.default));
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
+  assert.ok(message.components[0].toJSON().components[0].options.every(option => !option.default));
   assert.equal(panelEdits, 0, 'opening rating does not create an extra public edit');
 
   let modal;
@@ -82,7 +83,7 @@ test('staff-posted-reviews receives the review and original dropdowns reset only
     showModal: async value => { modal = value.toJSON(); },
   });
   assert.equal(modal.custom_id, `staff_review_modal:${memberId}:5`);
-  assert.equal(message.components[1].components[0].disabled, false);
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
 
   let result;
   await staffReviewsInteraction.execute({
@@ -96,7 +97,7 @@ test('staff-posted-reviews receives the review and original dropdowns reset only
   assert.match(sent[0].embeds[0].toJSON().description, /Excellent support/);
   assert.equal(result, 'Your staff review has been published. Thank you!');
   assert.equal(panelEdits, 1, 'reset original panel exactly once after successful posting');
-  assert.equal(message.components[1].components[0].disabled, true);
+  assert.equal(message.components[1].components[0].disabled, false);
   assert.ok(message.components[0].components[0].options.every(option => !option.default));
   assert.ok(message.components[1].components[0].options.every(option => !option.default));
   assert.deepEqual(message.embeds, [originalEmbed]);

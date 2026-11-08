@@ -154,7 +154,10 @@ export function buildStaffReviewsPanel(ownerMembers = [], communityReviewsChanne
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(buildMemberMenu(ownerMembers)),
-      new ActionRowBuilder().addComponents(buildRatingMenu(true)),
+      // Discord cannot privately enable a component on a shared message.
+      // Keep the rating available, but the interaction handler requires this
+      // particular user to choose a member before any rating opens a modal.
+      new ActionRowBuilder().addComponents(buildRatingMenu(false)),
     ],
   };
 }
