@@ -32,8 +32,13 @@ export async function refreshPrivateGiveawayClaimNoteSpacing(client) {
       for (const record of records) {
         if (record?.closedAt || !record?.channelId || !record?.panelMessageId) continue;
         try {
+          // A claim channel that no longer exists has no panel to adjust; skip it
+          // quietly instead of logging an Unknown Channel warning on every start.
           const channel = guild.channels?.cache?.get?.(record.channelId)
-            || await guild.channels?.fetch?.(record.channelId);
+            || await guild.channels?.fetch?.(record.channelId).catch(error => {
+              if (error?.code === 10003) return null;
+              throw error;
+            });
           if (!channel?.messages?.fetch) continue;
           const message = await channel.messages.fetch(record.panelMessageId).catch(() => null);
           if (!message?.edit || !message.embeds?.length

@@ -62,6 +62,7 @@ const deployedNames = [
   "massban",
   "masskick",
   "music",
+  "now",
   "nowplaying",
   "pay",
   "ping",
@@ -102,11 +103,12 @@ const deployedNames = [
   "warnings",
   "weather",
   "welcome",
+  "wipe",
   "withdraw",
   "work"
 ];
 
-test('all 97 deployed routes survive removal of the 12 retired implementation files', async () => {
+test('all 99 deployed routes (incl. /now and /wipe) survive removal of the 12 retired implementation files', async () => {
   const client = {};
   await loadCommands(client);
   assert.deepEqual([...client.commands.keys()].sort(), deployedNames);

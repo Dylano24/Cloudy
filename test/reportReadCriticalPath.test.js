@@ -322,3 +322,38 @@ test('legacy Read logs a staff presentation failure even while its private confi
     release(); await pending;
   }
 });
+
+test('restore cleans legacy report-log controls once and skips them on later starts', async () => {
+  const f = deleteFixture();
+  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID);
+  let edits = 0;
+  const created = { id: 'created-log', author: f.client.user, content: '<#case>', components: [{ type: 1 }],
+    edit: async update => { edits += 1; Object.assign(created, update); return created; } };
+  logs.messages.cache.set(created.id, created);
+  f.record.cases.target.createdLogId = created.id;
+  f.record.closedAt = 1;
+  f.storage.list = async () => [f.key];
+  f.client.guilds = { cache: new Collection([[f.guild.id, f.guild]]) };
+
+  await restoreReportCaseTimers(f.client);
+  assert.equal(edits, 1);
+  assert.deepEqual(created.components, []);
+  assert.equal(f.values.get(f.key).cases.target.logControlsCleaned, true);
+
+  await restoreReportCaseTimers(f.client);
+  assert.equal(edits, 1, 'a second start must not edit the same old log again');
+});
+
+test('restore stops quietly once the client was destroyed during a deploy', async t => {
+  const f = deleteFixture();
+  const warnings = [];
+  t.mock.method(logger, 'warn', message => { warnings.push(message); });
+  let listed = false;
+  f.storage.list = async () => { listed = true; return [f.key]; };
+  f.client.guilds = { cache: new Collection([[f.guild.id, f.guild]]) };
+  f.client.token = null;
+  f.storage.get = async () => assert.fail('no case may be read after the client was destroyed');
+  await restoreReportCaseTimers(f.client);
+  assert.equal(listed, true);
+  assert.deepEqual(warnings, []);
+});
