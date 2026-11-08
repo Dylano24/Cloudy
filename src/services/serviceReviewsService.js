@@ -15,38 +15,44 @@ export const SERVICE_REVIEW_PANEL_MESSAGE_ID = '1568560974548697170';
 // These are exactly the offerings described in the owner-written panel.
 // Keep that panel's description, footer and logo untouched.
 export const SERVICE_REVIEW_TYPES = Object.freeze({
-  servers: 'Game servers',
-  website: 'Website',
-  store: 'Game store',
-  services: 'Products & services',
-  development: 'Website development',
   bot: 'Cloudy bot',
+  website: 'Website',
+  servers: 'Game servers',
+  store: 'Game store',
+  services: 'Services',
 });
 
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
-export function serviceReviewChoiceRow() {
+export function serviceReviewChoiceRow(selectedType = null) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(SERVICE_REVIEW_SELECT_ID)
       .setPlaceholder('Choose a product or service')
       .addOptions(Object.entries(SERVICE_REVIEW_TYPES)
-        .map(([value, label]) => ({ label, value }))),
+        .map(([value, label]) => ({ label, value, default: value === selectedType }))),
   );
 }
 
-export function serviceReviewRatingRow(type) {
-  if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid product or service');
+export function serviceReviewRatingRow(type = null) {
+  if (type !== null && !Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid product or service');
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId(`${SERVICE_REVIEW_RATING_ID}:${type}`)
+      .setCustomId(SERVICE_REVIEW_RATING_ID)
       .setPlaceholder('Choose your rating')
+      .setDisabled(type === null)
       .addOptions([1, 2, 3, 4, 5].map(rating => ({
         label: '★'.repeat(rating),
         value: String(rating),
       }))),
   );
+}
+
+// Match Staff Reviews: one public panel with a disabled rating until a service is chosen.
+// Never post a separate ephemeral rating dropdown.
+export function serviceReviewPanelRows(type = null) {
+  return [serviceReviewChoiceRow(type), serviceReviewRatingRow(type)];
 }
 
 export function serviceReviewModal(type, rating) {
