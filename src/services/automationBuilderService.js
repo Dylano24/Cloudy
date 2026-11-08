@@ -9,6 +9,8 @@ import {
   AUTO_WIPE_GUILD_ID, configureWipeAutomation, getWipeAutomationConfig,
   setWipeAutomationState, listAutomaticVotes, saveAutomaticVoteJob,
   setAutomaticVoteJobState, deleteAutomaticVoteJob,
+  listAutomaticGiveaways, saveAutomaticGiveawayJob,
+  setAutomaticGiveawayJobState, deleteAutomaticGiveawayJob,
 } from './wipeAutomationService.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { uploadVotePictures } from './voteMediaService.js';
@@ -38,7 +40,7 @@ function baseDraft(kind, saved) {
     mediaLibrary: [],
     ...(kind === 'vote'
       ? { question: '', maps: [] }
-      : { kit: '', prizes: [], winnerCount: 1, winnerRoleId: '', description: '' }),
+      : { name: '', kit: '', prizes: [], winnerCount: 1, winnerRoleId: '', description: '' }),
     ...(previous || {}),
   };
 }
@@ -59,7 +61,7 @@ export function formatAutomationDashboard(session) {
   const label = isVote ? 'Auto vote' : 'Auto giveaway';
   const content = isVote
     ? `**Name:** ${draft.name || draft.question || 'New vote'}\n**Question:** ${draft.question || 'Not configured'}\n**Options:** ${draft.maps?.join(' / ') || 'Not configured'}`
-    : `**Prizes:** ${draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Winner role:** ${draft.winnerRoleId ? `<@&${draft.winnerRoleId}>` : 'None (optional for repeats)'}`;
+    : `**Name:** ${draft.name || draft.prizes?.[0] || draft.kit || 'New giveaway'}\n**Prizes:** ${draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Winner role:** ${draft.winnerRoleId ? `<@&${draft.winnerRoleId}>` : 'None (optional for repeats)'}`;
   const schedule = draft.schedule === 'random_weekly'
     ? `Random ${draft.weeklyMin || 2}–${draft.weeklyMax || 3} times per week`
     : draft.schedule === 'repeat'
@@ -83,31 +85,24 @@ export function formatAutomationDashboard(session) {
       : 'Off'}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
-  // Keep the giveaway layout unchanged; auto vote uses Start, Pause, Save, Delete.
+  // Both automation editors now use the same Save/Start/Pause/Delete controls.
+  // Giveaways keep their role picker within Discord's five-row limit.
   const actions = new ActionRowBuilder().addComponents(
     button(id, 'details', 'Edit details', ButtonStyle.Primary),
     button(id, 'schedule', 'Schedule'),
     button(id, 'random', draft.randomize ? 'Randomize: on' : 'Randomize: off'),
+    ...(!isVote ? [button(id, 'list', 'Back')] : []),
   );
   const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
     ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished) || Boolean(session.scheduleInputs));
   const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
   const saveButton = button(id, 'save', 'Save', ButtonStyle.Success, Boolean(session.scheduleInputs));
   const controls = new ActionRowBuilder().addComponents(
-    ...(isVote
-      ? [
-        startButton,
-        pauseButton,
-        saveButton,
-        button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
-          ButtonStyle.Danger, !session.selectedJobId),
-      ] : [
-        saveButton,
-        startButton,
-        pauseButton,
-        button(id, 'stop', 'Stop', ButtonStyle.Danger, status === 'stopped'),
-        button(id, 'close', 'Cancel'),
-      ]),
+    startButton,
+    pauseButton,
+    saveButton,
+    button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
+      ButtonStyle.Danger, !session.selectedJobId),
   );
   const channelMenu = new ChannelSelectMenuBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}channel:${id}`)
@@ -146,60 +141,66 @@ export function formatAutomationDashboard(session) {
   return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
 }
 
-export function formatAutomaticVoteHome(session, votes) {
+// Shared presentation: both kinds expose Add, Manage and a saved-job picker.
+export function formatAutomaticVoteHome(session, jobs) {
+  const kind = session.kind;
+  const label = kind === 'vote' ? 'Auto vote' : 'Auto giveaway';
   const embed = new EmbedBuilder()
-    .setTitle('Auto vote')
+    .setTitle(label)
     .setColor(0xFFFFFF)
     .setThumbnail(CLOUDY_LOGO_URL)
-    .setDescription('Create automatic votes or manage the ones you have already saved.\n\u200B')
+    .setDescription(`Create automatic ${kind}s or manage the ones you have already saved.\n\u200B`)
     .setFooter({ text: CLOUDY_BRANDING });
   const actions = new ActionRowBuilder().addComponents(
-    button(session.id, 'new', 'Add vote', ButtonStyle.Success),
-    button(session.id, 'manage', 'Manage vote', ButtonStyle.Secondary, !votes.length),
+    button(session.id, 'new', `Add ${kind}`, ButtonStyle.Success),
+    button(session.id, 'manage', `Manage ${kind}`, ButtonStyle.Secondary, !jobs.length),
   );
   return { embeds: [embed], components: [actions], allowedMentions: { parse: [] } };
 }
 
-export function formatAutomaticVotesList(session, votes) {
-  const limited = votes.slice(0, 21);
-  const lines = limited.map((vote, index) => {
-    const question = String(vote.name || vote.question || 'Untitled vote').replace(/\s+/g, ' ').slice(0, 56);
-    const channel = vote.channelId ? `<#${vote.channelId}>` : 'Default vote channel';
-    const status = vote.completedAt ? 'completed' : (vote.state || 'stopped');
-    const schedule = vote.schedule === 'once' ? 'Once'
-      : vote.schedule === 'repeat'
-        ? `Every ${shortAutomationDuration(vote.repeatMinutes || 1440)}` : 'Rust wipe';
-    const next = vote.nextRunAt && vote.state === 'running'
-      ? ` · Next: <t:${Math.floor(vote.nextRunAt / 1000)}:f>` : '';
-    return `**${index + 1}. ${question}**\n${channel} · ${schedule} · **${status}**${next}`;
+export function formatAutomaticVotesList(session, jobs) {
+  const kind = session.kind;
+  const label = kind === 'vote' ? 'Auto vote' : 'Auto giveaway';
+  const limited = jobs.slice(0, 21);
+  const lines = limited.map((job, index) => {
+    const title = String(kind === 'vote'
+      ? job.name || job.question || 'Untitled vote'
+      : job.name || job.prizes?.[0] || job.kit || 'Untitled giveaway').replace(/\s+/g, ' ').slice(0, 56);
+    const channel = job.channelId ? `<#${job.channelId}>` : `Default ${kind} channel`;
+    const status = job.completedAt ? 'completed' : (job.state || 'stopped');
+    const schedule = job.schedule === 'once' ? 'Once'
+      : job.schedule === 'repeat'
+        ? `Every ${shortAutomationDuration(job.repeatMinutes || 1440)}` : 'Rust wipe';
+    const next = job.nextRunAt && job.state === 'running'
+      ? ` · Next: <t:${Math.floor(job.nextRunAt / 1000)}:f>` : '';
+    return `**${index + 1}. ${title}**\n${channel} · ${schedule} · **${status}**${next}`;
   });
   const embed = new EmbedBuilder()
-    .setTitle('Auto vote')
+    .setTitle(label)
     .setColor(0xFFFFFF)
     .setThumbnail(CLOUDY_LOGO_URL)
     .setDescription(`${limited.length
-      ? `Select the vote you want to manage.\n\n${lines.join('\n\n')}`
-      : 'No automatic votes saved. Go back and choose **Add vote**.'}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      ? `Select the ${kind} you want to manage.\n\n${lines.join('\n\n')}`
+      : `No automatic ${kind}s saved. Go back and choose **Add ${kind}**.`}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
-  const buttons = new ActionRowBuilder().addComponents(
-    button(session.id, 'back', 'Back'),
-  );
+  const buttons = new ActionRowBuilder().addComponents(button(session.id, 'back', 'Back'));
   const components = [buttons];
   if (limited.length) {
     components.unshift(new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(`${AUTOMATION_BUILDER_PREFIX}select:${session.id}`)
-        .setPlaceholder('Choose an existing auto vote')
-        .addOptions(limited.map(vote => ({
-          label: String(vote.name || vote.question || 'Untitled vote').replace(/\s+/g, ' ').slice(0, 100),
-          description: `${vote.completedAt ? 'completed' : vote.state || 'stopped'} · ${vote.schedule === 'once' ? 'Once' : vote.schedule === 'repeat' ? 'Repeat' : 'Rust wipe'}`.slice(0, 100),
-          value: String(vote.id),
+        .setPlaceholder(`Choose an existing auto ${kind}`)
+        .addOptions(limited.map(job => ({
+          label: String(kind === 'vote'
+            ? job.name || job.question || 'Untitled vote'
+            : job.name || job.prizes?.[0] || job.kit || 'Untitled giveaway').replace(/\s+/g, ' ').slice(0, 100),
+          description: `${job.completedAt ? 'completed' : job.state || 'stopped'} · ${job.schedule === 'once' ? 'Once' : job.schedule === 'repeat' ? 'Repeat' : 'Rust wipe'}`.slice(0, 100),
+          value: String(job.id),
         }))),
     ));
   }
   return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }
-
 function input(id, label, value, {
   required = true, maxLength = 250, paragraph = false, description = '',
 } = {}) {
@@ -303,6 +304,7 @@ export function buildAutomationModal(session, action) {
     );
   } else {
     modal.addComponents(
+      input('name', 'Giveaway name (optional)', draft.name, { maxLength: 64, required: false }),
       input('prizes', 'Prizes (one per line)', draft.prizes?.join('\n') || draft.kit,
         { maxLength: 1200, paragraph: true }),
       input('winners', 'Number of winners (1-10)', draft.winnerCount, { maxLength: 2 }),
@@ -379,6 +381,7 @@ function applyModal(session, interaction, action) {
       throw new RangeError('Enter 1–20 prizes (up to 150 characters each) and 1–10 winners.');
     }
     Object.assign(session.draft, {
+      name: field(interaction, 'name').slice(0, 64),
       kit: prizes[0], prizes, winnerCount: count, description: field(interaction, 'description'),
     });
   }
@@ -425,11 +428,10 @@ async function saveSession(interaction, session) {
   // Editing an active automation must not stop it as a side effect.
   const previousState = session.draft.state;
   let stored;
-  if (session.kind === 'vote' && session.selectedJobId !== 'legacy') {
-    stored = await saveAutomaticVoteJob(
-      interaction.client, session.guildId, session.draft, session.selectedJobId,
-    );
-    Object.assign(session, { selectedJobId: stored.id });
+  if (session.selectedJobId !== 'legacy') {
+    const saveJob = session.kind === 'vote' ? saveAutomaticVoteJob : saveAutomaticGiveawayJob;
+    stored = await saveJob(interaction.client, session.guildId, session.draft, session.selectedJobId);
+    session.selectedJobId = stored.id;
   } else {
     await configureWipeAutomation(interaction.client, session.guildId, session.kind, session.draft);
     stored = previousState === 'running' || previousState === 'paused'
@@ -447,21 +449,18 @@ export async function openAutomationDashboard(interaction, kind) {
       flags: MessageFlags.Ephemeral });
   }
   expiredSessions();
-  const saved = kind === 'giveaway'
-    ? (await getWipeAutomationConfig(interaction.client, interaction.guildId)).giveaway
-    : null;
   const id = randomUUID().slice(0, 12);
   const session = {
     id, kind, guildId: interaction.guildId, userId: interaction.user.id,
-    draft: baseDraft(kind, saved), dirty: false, saved: Boolean(saved),
-    view: kind === 'vote' ? 'home' : 'editor', selectedJobId: null,
+    draft: baseDraft(kind, null), dirty: false, saved: false,
+    view: 'home', selectedJobId: null,
     notice: '', expiresAt: Date.now() + SESSION_MS,
   };
   sessions.set(id, session);
-  const payload = kind === 'vote'
-    ? formatAutomaticVoteHome(session, await listAutomaticVotes(interaction.client, interaction.guildId))
-    : formatAutomationDashboard(session);
-  return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+  const jobs = kind === 'vote'
+    ? await listAutomaticVotes(interaction.client, interaction.guildId)
+    : await listAutomaticGiveaways(interaction.client, interaction.guildId);
+  return interaction.reply({ ...formatAutomaticVoteHome(session, jobs), flags: MessageFlags.Ephemeral });
 }
 
 export async function handleAutomationBuilderInteraction(interaction) {
@@ -480,11 +479,13 @@ export async function handleAutomationBuilderInteraction(interaction) {
   session.expiresAt = Date.now() + SESSION_MS;
   session.notice = '';
   try {
-    if (session.kind === 'vote' && (action === 'new' || action === 'manage'
-      || action === 'list' || action === 'refresh' || action === 'back' || action === 'select')) {
+    const listJobs = () => session.kind === 'vote'
+      ? listAutomaticVotes(interaction.client, session.guildId)
+      : listAutomaticGiveaways(interaction.client, session.guildId);
+    if (['new', 'manage', 'list', 'refresh', 'back', 'select'].includes(action)) {
       if (action === 'new') {
         session.view = 'editor';
-        session.draft = baseDraft('vote', null);
+        session.draft = baseDraft(session.kind, null);
         session.selectedJobId = null;
         session.scheduleInputs = null;
         session.validationError = false;
@@ -498,26 +499,22 @@ export async function handleAutomationBuilderInteraction(interaction) {
         session.view = 'home';
         session.dirty = false;
         session.confirmDelete = false;
-        await interaction.update(formatAutomaticVoteHome(
-          session, await listAutomaticVotes(interaction.client, session.guildId),
-        ));
+        await interaction.update(formatAutomaticVoteHome(session, await listJobs()));
         return true;
       }
-      if (action === 'manage' || action === 'list' || action === 'refresh') {
+      if (['manage', 'list', 'refresh'].includes(action)) {
         session.view = 'list';
         session.confirmDelete = false;
         session.dirty = false;
-        await interaction.update(formatAutomaticVotesList(
-          session, await listAutomaticVotes(interaction.client, session.guildId),
-        ));
+        await interaction.update(formatAutomaticVotesList(session, await listJobs()));
         return true;
       }
-      const votes = await listAutomaticVotes(interaction.client, session.guildId);
-      const choice = votes.find(vote => vote.id === interaction.values?.[0]);
-      if (!choice) throw new RangeError('This saved vote is no longer available. Refresh the list.');
+      const jobs = await listJobs();
+      const choice = jobs.find(job => job.id === interaction.values?.[0]);
+      if (!choice) throw new RangeError('This saved automation is no longer available. Refresh the list.');
       session.view = 'editor';
       session.selectedJobId = choice.id;
-      session.draft = baseDraft('vote', choice);
+      session.draft = baseDraft(session.kind, choice);
       session.scheduleInputs = null;
       session.validationError = false;
       session.dirty = false;
@@ -526,25 +523,24 @@ export async function handleAutomationBuilderInteraction(interaction) {
       await interaction.update(formatAutomationDashboard(session));
       return true;
     }
-    if (action === 'delete' && session.kind === 'vote') {
-      if (!session.selectedJobId) throw new RangeError('Select a saved vote first.');
+    if (action === 'delete') {
+      if (!session.selectedJobId) throw new RangeError('Select a saved automation first.');
       if (!session.confirmDelete) {
         session.confirmDelete = true;
-        session.notice = 'Press Confirm delete again to permanently delete this automatic vote.';
+        session.notice = `Press Confirm delete again to permanently delete this automatic ${session.kind}.`;
         await interaction.update(formatAutomationDashboard(session));
         return true;
       }
       await interaction.deferUpdate();
-      await deleteAutomaticVoteJob(interaction.client, session.guildId, session.selectedJobId);
+      const deleteJob = session.kind === 'vote' ? deleteAutomaticVoteJob : deleteAutomaticGiveawayJob;
+      await deleteJob(interaction.client, session.guildId, session.selectedJobId);
       session.selectedJobId = null;
       session.view = 'list';
       session.saved = false;
       session.dirty = false;
       session.confirmDelete = false;
-      session.notice = 'Automatic vote deleted.';
-      await interaction.editReply(formatAutomaticVotesList(
-        session, await listAutomaticVotes(interaction.client, session.guildId),
-      ));
+      session.notice = `Automatic ${session.kind} deleted.`;
+      await interaction.editReply(formatAutomaticVotesList(session, await listJobs()));
       return true;
     }
     session.confirmDelete = false;
@@ -653,16 +649,18 @@ export async function handleAutomationBuilderInteraction(interaction) {
       if (action === 'start' && session.draft.state === 'running') return true;
       if (action === 'pause' && session.draft.state !== 'running') return true;
       const state = action === 'start' ? 'running' : 'paused';
-      const stored = session.kind === 'vote' && session.selectedJobId !== 'legacy'
-        ? await setAutomaticVoteJobState(interaction.client, session.guildId, session.selectedJobId, state)
+      const stateJob = session.kind === 'vote' ? setAutomaticVoteJobState : setAutomaticGiveawayJobState;
+      const stored = session.selectedJobId !== 'legacy'
+        ? await stateJob(interaction.client, session.guildId, session.selectedJobId, state)
         : await setWipeAutomationState(interaction.client, session.guildId, session.kind, state);
       session.draft = baseDraft(session.kind, stored);
       await interaction.editReply(formatAutomationDashboard(session));
       return true;
     } else if (action === 'stop') {
       await interaction.deferUpdate();
-      const stored = session.kind === 'vote' && session.selectedJobId !== 'legacy'
-        ? await setAutomaticVoteJobState(interaction.client, session.guildId, session.selectedJobId, 'stopped')
+      const stateJob = session.kind === 'vote' ? setAutomaticVoteJobState : setAutomaticGiveawayJobState;
+      const stored = session.selectedJobId !== 'legacy'
+        ? await stateJob(interaction.client, session.guildId, session.selectedJobId, 'stopped')
         : await setWipeAutomationState(interaction.client, session.guildId, session.kind, 'stopped');
       session.draft = session.dirty
         ? { ...session.draft, state: 'stopped' } : baseDraft(session.kind, stored);
@@ -674,13 +672,14 @@ export async function handleAutomationBuilderInteraction(interaction) {
     session.validationError = true;
     session.notice = error instanceof RangeError ? error.message : 'Automation could not be updated.';
     if (!(error instanceof RangeError)) logger.warn('[AUTO_BUILDER] Unexpected dashboard error:', error);
-    const payload = session.kind === 'vote' && session.view === 'list'
-      ? formatAutomaticVotesList(
-        session, await listAutomaticVotes(interaction.client, session.guildId),
-      ) : session.kind === 'vote' && session.view === 'home'
-        ? formatAutomaticVoteHome(
-          session, await listAutomaticVotes(interaction.client, session.guildId),
-        ) : formatAutomationDashboard(session);
+    const jobs = session.kind === 'vote'
+      ? await listAutomaticVotes(interaction.client, session.guildId)
+      : await listAutomaticGiveaways(interaction.client, session.guildId);
+    const payload = session.view === 'list'
+      ? formatAutomaticVotesList(session, jobs)
+      : session.view === 'home'
+        ? formatAutomaticVoteHome(session, jobs)
+        : formatAutomationDashboard(session);
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(payload).catch(() => {});
     } else if (interaction.update) {

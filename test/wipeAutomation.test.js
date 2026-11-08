@@ -92,7 +92,7 @@ test('command definitions expose explicit settings and member sync without auto 
 
 test('both automatic systems are disabled until configured, enabled and supplied with actual wipe time', async () => {
   const f=fixture();
-  assert.deepEqual(await getWipeAutomationConfig(f.client,GUILD), { vote:null,giveaway:null,voteJobs:[],wipes:{} });
+  assert.deepEqual(await getWipeAutomationConfig(f.client,GUILD), { vote:null,giveaway:null,voteJobs:[],giveawayJobs:[],wipes:{} });
   await runWipeAutomationTick(f.client);
   assert.equal(f.allPosts.length,0);
   await configureWipeAutomation(f.client,GUILD,'vote',voteCfg);
