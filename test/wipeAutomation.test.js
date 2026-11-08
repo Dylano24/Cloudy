@@ -6,6 +6,7 @@ import {
   expirePreviousWipeRoles, getWipeAutomationConfig, observeWipeEvent,
   refreshAutoWipeEntryMessage, runWipeAutomationTick, setWipeAutomationState, syncWipePrize, wipeSessionId,
   listAutomaticVotes, saveAutomaticVoteJob, setAutomaticVoteJobState, deleteAutomaticVoteJob,
+  planRandomWeeklySlots,
 } from '../src/services/wipeAutomationService.js';
 import autoCommand from '../src/commands/Tools/auto.js';
 import wipeCommand from '../src/commands/Giveaway/wipe.js';
@@ -407,4 +408,68 @@ test('separate once-only automatic votes each run once and preserve their own co
   assert.ok(states.every(v => v.completedAt));
   await runWipeAutomationTick(f.client, startAt + MINUTE);
   assert.equal(f.votes.posts.length, 2);
+});
+
+
+test('random weekly plan schedules exactly 2 or 3 stable, dispersed slots per week', () => {
+  const startAt = Date.now() + 2 * MINUTE;
+  const pickLastCountAndFirstMinute = (low, high) => high === undefined ? 0 : high - 1;
+  for (const weekIndex of [0, 1]) {
+    const slots = planRandomWeeklySlots(startAt, weekIndex, 2, 3, pickLastCountAndFirstMinute);
+    assert.equal(slots.length, 3);
+    assert.equal(new Set(slots).size, 3);
+    for (const date of slots) {
+      assert.ok(date >= startAt + weekIndex * 7 * 24 * 60 * MINUTE);
+      assert.ok(date < startAt + (weekIndex + 1) * 7 * 24 * 60 * MINUTE);
+    }
+    assert.ok(slots[0] < slots[1] && slots[1] < slots[2]);
+  }
+});
+
+test('random weekly vote posts only at its persisted slots and never double-posts', async () => {
+  const f = fixture();
+  const startAt = Date.now() + 2 * MINUTE;
+  const job = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'random_weekly', startAt, weeklyMin: 2, weeklyMax: 3,
+    durationMinutes: 60, question: 'Weekly vote?', maps: ['Yes', 'No'],
+    channelId: f.votes.ch.id, randomize: true,
+  });
+  assert.equal(job.schedule, 'random_weekly');
+  assert.ok(job.weekTimes.length >= 2 && job.weekTimes.length <= 3);
+  const times = [...job.weekTimes];
+  await setAutomaticVoteJobState(f.client, GUILD, job.id, 'running');
+  await runWipeAutomationTick(f.client, times[0] - 1);
+  assert.equal(f.votes.posts.length, 0);
+  for (let i = 0; i < times.length; i++) {
+    await Promise.all([
+      runWipeAutomationTick(f.client, times[i] + 10),
+      runWipeAutomationTick(f.client, times[i] + 10),
+    ]);
+    assert.equal(f.votes.posts.length, i + 1, 'one post per slot, even with concurrent ticks');
+  }
+  const updated = (await listAutomaticVotes(f.client, GUILD)).find(row => row.id === job.id);
+  assert.equal(updated.weekIndex, 1, 'week plan advances after last slot');
+  assert.ok(updated.nextRunAt > times.at(-1));
+  await runWipeAutomationTick(f.client, times.at(-1) + 11);
+  assert.equal(f.votes.posts.length, times.length);
+});
+
+test('auto vote job persists more than 50 media references without truncation', async () => {
+  const f = fixture();
+  const mediaLibrary = Array.from({ length: 60 }, (_, index) => ({
+    channelId: '1569000000000000111',
+    messageId: '1569000000000000222',
+    name: `automedia_12345678_${index}.png`,
+  }));
+  const stored = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 1440, durationMinutes: 30,
+    question: 'Choose?', maps: ['A', 'B'], mediaLibrary,
+  });
+  assert.equal(stored.mediaLibrary.length, 60);
+  assert.equal((await listAutomaticVotes(f.client, GUILD))[0].mediaLibrary.length, 60);
+  await assert.rejects(() => saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'repeat', repeatMinutes: 1440, durationMinutes: 30,
+    question: 'Choose?', maps: ['A', 'B'],
+    mediaLibrary: [...mediaLibrary, { channelId: 'bad', messageId: '1', name: 'oops' }],
+  }), RangeError);
 });
