@@ -15,6 +15,8 @@ export const AUTO_WIPE_KIND = Object.freeze({ vote: 'vote', giveaway: 'giveaway'
 export const AUTO_WIPE_STATES = Object.freeze(['stopped', 'running', 'paused']);
 const HISTORY_LIMIT = 30;
 const MINUTE = 60_000;
+const WEEK_MS = 7 * 24 * 60 * MINUTE;
+export const MAX_AUTO_VOTE_MEDIA = 1000;
 
 const configKey = guildId => `guild:${guildId}:wipe-automations:v1`;
 const indexKey = guildId => `guild:${guildId}:wipe-automation:giveaways`;
@@ -55,6 +57,52 @@ function validRepeat(repeatMinutes, durationMinutes) {
     && durationMinutes <= repeatMinutes;
 }
 
+function validWeeklyCounts(min, max) {
+  return Number.isInteger(min) && Number.isInteger(max)
+    && min >= 1 && min <= max && max <= 14;
+}
+
+// Persist random posting times per start-date-anchored seven-day week.
+// A restart or another scheduler worker must not reroll pending dates.
+export function planWeeklyVoteRuns(setting, now = Date.now(), random = randomInt) {
+  const { startAt, weeklyMin, weeklyMax } = setting;
+  if (!Number.isSafeInteger(startAt) || startAt <= 0
+    || !validWeeklyCounts(weeklyMin, weeklyMax)) {
+    throw new RangeError('Choose a valid weekly start date and 1–14 posts per week.');
+  }
+  let index = Math.max(0, Math.floor((now - startAt) / WEEK_MS));
+  const known = setting.weeklyPlan;
+  for (let attempts = 0; attempts < 4; attempts++, index++) {
+    const current = known?.weekIndex === index
+      && known.min === weeklyMin && known.max === weeklyMax
+      && Array.isArray(known.slots) && known.slots.length >= weeklyMin
+      && known.slots.length <= weeklyMax ? known : null;
+    const weekStart = startAt + index * WEEK_MS;
+    const count = current ? current.slots.length : random(weeklyMin, weeklyMax + 1);
+    const slots = current ? current.slots : Array.from({ length: count }, (_, i) =>
+      weekStart + Math.floor((i + random(1000) / 1000) * WEEK_MS / count));
+    const nextRunAt = slots.find(at => Number.isSafeInteger(at)
+      && at >= weekStart && at < weekStart + WEEK_MS && at > now);
+    if (nextRunAt) {
+      return { nextRunAt, weeklyPlan: current || { weekIndex: index, min: weeklyMin, max: weeklyMax, slots } };
+    }
+  }
+  throw new RangeError('Could not choose a future weekly posting time.');
+}
+
+function validAutoVoteMedia(pool) {
+  if (!Array.isArray(pool) || pool.length > MAX_AUTO_VOTE_MEDIA) return false;
+  return pool.every(item => {
+    if (!item || typeof item.url !== 'string' || typeof item.name !== 'string') return false;
+    try {
+      const url = new URL(item.url);
+      return url.protocol === 'https:'
+        && /^\/cloudy-embed-media\/[a-f0-9]{64}\.(?:gif|png|jpg|webp)$/.test(url.pathname)
+        && !url.search && !url.hash && item.name.length <= 100;
+    } catch { return false; }
+  });
+}
+
 function shuffled(values) {
   const out = [...values];
   for (let i = out.length - 1; i > 0; i--) {
@@ -65,8 +113,9 @@ function shuffled(values) {
 }
 
 function validatedAutomationConfig(kind, configuration) {
-  const schedule = ['repeat', 'once', 'wipe'].includes(configuration?.schedule)
+  const schedule = ['repeat', 'once', 'wipe', 'weekly'].includes(configuration?.schedule)
     ? configuration.schedule : 'wipe';
+  if (schedule === 'weekly' && kind !== 'vote') throw new RangeError('Random weekly is only available for auto votes.');
   const server = String(configuration?.server || (schedule !== 'wipe' ? 'Cloudy' : '')).trim();
   const beforeMinutes = Number(configuration?.beforeMinutes);
   const durationMinutes = Number(configuration?.durationMinutes);
@@ -74,22 +123,31 @@ function validatedAutomationConfig(kind, configuration) {
   const startAt = configuration?.startAt == null ? null : Number(configuration.startAt);
   const channelId = String(configuration?.channelId || '').trim();
   const randomize = configuration?.randomize === true;
+  const weeklyMin = Number(configuration?.weeklyMin ?? 2);
+  const weeklyMax = Number(configuration?.weeklyMax ?? 3);
+  const mediaPool = configuration?.mediaPool ?? [];
+  if (kind === 'vote' && !validAutoVoteMedia(mediaPool)) {
+    throw new RangeError(`Auto vote supports up to ${MAX_AUTO_VOTE_MEDIA} stored images or GIFs.`);
+  }
   if (!server || server.length > 60
     || (schedule === 'repeat'
       ? !validRepeat(repeatMinutes, durationMinutes)
-      : schedule === 'once'
+      : schedule === 'once' || schedule === 'weekly'
         ? !Number.isSafeInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 43200
+          || (schedule === 'weekly' && !validWeeklyCounts(weeklyMin, weeklyMax))
         : !validBefore(beforeMinutes, durationMinutes))) {
     throw new RangeError(schedule === 'repeat'
       ? 'Repeat must be between 1m and 30d and no shorter than Duration'
       : schedule === 'once'
         ? 'Duration must be between 1m and 30d'
-        : 'Provide a server and duration that finishes before the Rust wipe');
+        : schedule === 'weekly'
+          ? 'Choose 1–14 random posts per week and a duration from 1m to 30d'
+          : 'Provide a server and duration that finishes before the Rust wipe');
   }
   if (schedule !== 'wipe' && startAt != null && (!Number.isSafeInteger(startAt) || startAt < 0)) {
     throw new RangeError('Choose a valid start date and time.');
   }
-  if (schedule === 'once' && (!startAt || startAt <= Date.now())) {
+  if ((schedule === 'once' || schedule === 'weekly') && (!startAt || (schedule === 'once' && startAt <= Date.now()))) {
     throw new RangeError('Choose a future start date for this one-time automation.');
   }
   if (channelId && !/^\d{17,20}$/.test(channelId)) {
@@ -104,7 +162,12 @@ function validatedAutomationConfig(kind, configuration) {
       || maps.some(x => x.length > 80) || new Set(maps.map(x => x.toLowerCase())).size !== maps.length) {
       throw new RangeError('Configure a question and two or three unique map choices');
     }
-    configured = { server, name, question, maps, beforeMinutes, durationMinutes, state: 'stopped' };
+    configured = { server, name, question, maps, beforeMinutes, durationMinutes, state: 'stopped',
+      mediaPool: mediaPool.map(item => ({ url: item.url, name: item.name })),
+      mediaCursor: Number.isSafeInteger(configuration?.mediaCursor) && configuration.mediaCursor >= 0
+        ? configuration.mediaCursor : 0,
+      ...(schedule === 'weekly' ? { weeklyMin, weeklyMax } : {}),
+    };
   } else {
     const kit = String(configuration?.kit || '').trim();
     const prizes = (Array.isArray(configuration?.prizes) ? configuration.prizes : [kit])
@@ -129,7 +192,9 @@ function validatedAutomationConfig(kind, configuration) {
         nextRunAt: startAt || Date.now() + repeatMinutes * MINUTE }
       : schedule === 'once'
         ? { startAt, nextRunAt: startAt }
-        : {}),
+        : schedule === 'weekly'
+          ? { startAt, ...planWeeklyVoteRuns({ startAt, weeklyMin, weeklyMax, weeklyPlan: configuration.weeklyPlan }) }
+          : {}),
   });
   return configured;
 }
