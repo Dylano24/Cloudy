@@ -221,7 +221,8 @@ function recordEmbedData(record) {
     const original = migrateCloudyLogoEmbedData(record?.snapshot || getEmbedRegistrySnapshot(record) || {}).data || {};
     // A manual Save has one authoritative physical snapshot; do not restore
     // old text or banners through shared bot-response template aliases.
-    const snapshot = record?.source === 'embed-builder' && record?.manualSaved
+    const snapshot = contentCreatorGuidePlatform(record)
+        || (record?.source === 'embed-builder' && record?.manualSaved)
         ? original
         : getCachedSavedEmbedTemplateData(record?.guildId, record?.channelId, original).data;
     return {
@@ -645,14 +646,17 @@ export function contentCreatorGuidePlatform(record) {
         || (['youtube', 'twitch', 'tiktok'].includes(channelName) ? channelName : null);
     if (!platform) return null;
     const source = String(record?.source || '').toLowerCase();
-    const title = String(recordEmbedData(record)?.title || record?.title || '');
+    const title = String(record?.snapshot?.title || record?.title || '');
+    // Use the actual snapshot, not recordEmbedData: that helper is also
+    // used by the preview and must never pull a shared template into this test.
     const subscribeButton = (record?.components || []).some(row =>
         (row.components || []).some(button => {
             const value = button?.toJSON?.() || button;
             return String(value?.label || '').toLowerCase() === 'subscribe'
                 && Number(value?.style) === 5;
         }));
-    if (source !== 'content-creators' && !/content\s+creators/i.test(title) && !subscribeButton) return null;
+    if (source !== 'content-creators' && record?.creatorGuideVerified !== true
+        && !/content\s+creators/i.test(title) && !subscribeButton) return null;
     return platform;
 }
 
@@ -884,7 +888,8 @@ export async function getCanonicalBuilderRecords(guild, suppliedRecords = null, 
                 || String(b.messageId).localeCompare(String(a.messageId)));
         const master = perChannel && live.length ? live[0] : bestBuilderSourceRecord(catalogs, live[0] || peers.at(-1));
         const data = recordEmbedData(master);
-        const source = getSystemSourceDefinitionPreviewForEmbed(data);
+        const creatorFromPhysical = Boolean(contentCreatorGuideRecordIdentity(master));
+        const source = creatorFromPhysical ? null : getSystemSourceDefinitionPreviewForEmbed(data);
         const hydrated = { ...(source || {}), ...data };
         const ownerPost = master.source === 'embed-builder' && master.manualSaved === true;
         const creatorGuide = Boolean(contentCreatorGuideRecordIdentity(master));
@@ -1157,8 +1162,11 @@ export function loadRecordSnapshotIntoState(
 ) {
     const snapshot = record?.snapshot || getEmbedRegistrySnapshot(record);
     if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) return false;
-    const saved = getCachedSavedEmbedTemplateData(record.guildId, record.channelId, snapshot);
-    if (isUnusedBuilderCatalogRecord(record, { saved })) return false;
+    const creatorGuide = Boolean(contentCreatorGuideRecordIdentity(record));
+    const saved = creatorGuide
+        ? { matched: false, data: snapshot }
+        : getCachedSavedEmbedTemplateData(record.guildId, record.channelId, snapshot);
+    if (!creatorGuide && isUnusedBuilderCatalogRecord(record, { saved })) return false;
 
     // Manually posted physical embeds own their exact existing logo asset.
     // Global branding migration applies to Cloudy-generated templates, not
@@ -1253,7 +1261,7 @@ export function loadRecordSnapshotIntoState(
         ...(displayImage ? { image: displayImage } : {}),
         ...(displayThumbnail ? { thumbnail: displayThumbnail } : {}),
     };
-    const savedDisplay = record.draftData || savedPhysicalBuilder
+    const savedDisplay = record.draftData || savedPhysicalBuilder || creatorGuide
         ? { matched: false, data: displaySourceData }
         : getCachedSavedEmbedTemplateData(guild.id, String(record.channelId || ''), displaySourceData);
     if (savedDisplay.matched) {
@@ -1301,7 +1309,7 @@ export function loadRecordSnapshotIntoState(
     // Search already supplies this name. A channel-selected, non-saved bot
     // response derives it from exactly the same formatter. Only state/title
     // presentation is normalized; original source/live snapshots are untouched.
-    const cleanBotTitle = unsavedBotResponse
+    const cleanBotTitle = unsavedBotResponse && !creatorGuide
         ? (previewTitle || commercialBuilderTitle(displayTitle))
         : '';
     state.title = templateKind === 'content' ? null : (cleanBotTitle || displayTitle || null);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { collapseDisplayRecords, contentCreatorGuideRecordIdentity, contentCreatorGuidePlatform, buildEmbedPayload, getCanonicalBuilderRecords } from '../src/services/embedManagerService.js';
 import {
   buildSearchChoices, buildMatches, buildAutocompleteMatches, isRetiredCreatorGuideSearchAlias,
+  resolvePhysicalCreatorGuideSelection,
 } from '../src/commands/Tools/zz_embedbuilderLiveSearchPatch.js';
 
 test('same-looking YouTube, Twitch and TikTok embeds have separate editable identities', () => {
@@ -130,4 +131,66 @@ test('real TikTok ID survives a legacy raw-emoji title and hides the external du
   assert.equal(isRetiredCreatorGuideSearchAlias({
     snapshot: {title:'<:Z94tiktok:1543280394508701857>Some other embed'}
   }), false, 'do not hide unrelated custom emoji embeds');
+});
+
+test('choosing YouTube fetches only its exact Discord message, never a stale Twitch preview', async () => {
+  const youtubeId = '1554538629102309416';
+  const twitchId = '1554538630129778702';
+  const youtubeMessageId = '1570000000000000001';
+  const twitchMessageId = '1570000000000000002';
+  const calls = [];
+  const messages = new Map([
+    [youtubeId, {
+      id: youtubeMessageId, channelId: youtubeId, author: { id: 'cloudy-bot' },
+      embeds: [{ toJSON: () => ({ title:'<:YTbrand:111111111111111111>Content creators', description:'YouTube only.' }) }],
+      components: [],
+    }],
+    [twitchId, {
+      id: twitchMessageId, channelId: twitchId, author: { id: 'cloudy-bot' },
+      embeds: [{ toJSON: () => ({ title:'<:TWbrand:222222222222222222>Content creators', description:'Twitch only.' }) }],
+      components: [],
+    }],
+  ]);
+  const guild = { channels: { cache: new Map(
+    [...messages.entries()].map(([id, message]) => [id,
+      { id, messages: { async fetch(arg) { calls.push([id,arg]); return message; } } }]),
+  ) } };
+  const record = {
+    channelId: youtubeId, messageId: youtubeMessageId, channelName:'🔗 │ youtube',
+    source:'content-creators', snapshot: { title: 'Twitch cached title', description:'Wrong cached body' },
+    previewRecord: { channelId:twitchId, messageId:twitchMessageId, snapshot:{ description:'Twitch cached preview' } },
+  };
+  const target = await resolvePhysicalCreatorGuideSelection(guild, 'cloudy-bot', record,
+    {channelId:youtubeId, messageId:youtubeMessageId, embedIndex:0});
+  assert.equal(target.snapshot.description, 'YouTube only.');
+  assert.equal(target.snapshot.title, '<:YTbrand:111111111111111111>Content creators');
+  assert.equal(target.previewRecord, null);
+  assert.equal(target.sourceRecord, null);
+  assert.deepEqual(calls, [[youtubeId, {message:youtubeMessageId, force:true}]]);
+  assert.equal(target.creatorGuideVerified, true);
+  const wrong = await resolvePhysicalCreatorGuideSelection(guild, 'cloudy-bot', record,
+    {channelId:twitchId, messageId:twitchMessageId, embedIndex:0});
+  assert.equal(wrong, null, 'channel mismatch must fail before any live fetch');
+});
+
+test('creator search keeps the custom emoji IDs in the visible titles', () => {
+  const youtube = {
+    guildId:'title-creator', channelId:'1554538629102309416',
+    channelName:'🔗 │ youtube', messageId:'1570000000000000001',
+    source:'content-creators', snapshot: {
+      title:'<:YTbrand:111111111111111111>Content creators', description:'Channel content',
+    },
+  };
+  const twitch = { ...youtube, channelId:'1554538630129778702',
+    channelName:'🔗 │ twitch', messageId:'1570000000000000002', snapshot: {
+      title:'<:TWbrand:222222222222222222>Content creators', description:'Channel content',
+    },
+  };
+  const matches = buildMatches({channels:{cache:new Map()}}, [youtube,twitch], 'content');
+  const choices = buildSearchChoices(matches);
+  assert.deepEqual(choices.map(x=>x.name).sort(), [
+    '<:TWbrand:222222222222222222>Content creators — Twitch',
+    '<:YTbrand:111111111111111111>Content creators — YouTube',
+  ]);
+  assert.equal(new Set(choices.map(x=>x.value)).size, 2);
 });

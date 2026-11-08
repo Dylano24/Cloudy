@@ -1724,8 +1724,10 @@ export function buildSearchChoices(matches) {
             : '';
         // Discord autocompletes cannot render custom emoji markup as images.
         // Show the real embed title plus its channel to make each guide unique.
-        const creatorTitle = String(document?.title || 'Content creators')
-            .replace(/<a?:[^:>]+:\d+>/g, ' ').replace(/\s+/g, ' ').trim();
+        // Keep the literal custom emoji markup (including its ID) exactly as
+        // authored in the physical embed. Discord autocomplete is text only.
+        const creatorTitle = String(record?.snapshot?.title || document?.title || 'Content creators')
+            .replace(/\s+/g, ' ').trim();
         const title = creatorId
             ? clean(`${creatorTitle || 'Content creators'} — ${({ youtube: 'YouTube', twitch: 'Twitch', tiktok: 'TikTok' })[creatorChannel] || creatorChannel}`, 100)
             : explicitTitle
@@ -1865,6 +1867,45 @@ export async function withBuilderSelectionAcknowledgement(interaction, prepare, 
     }
 }
 
+// Search choices identify the exact creator message. A same-title Twitch
+// template or another platform's preview is NEVER a valid YouTube preview.
+export async function resolvePhysicalCreatorGuideSelection(guild, botUserId, record, selection) {
+    if (!guild || !record || !selection
+        || !contentCreatorGuideRecordIdentity(record)) return null;
+    const channelId = String(selection.channelId || '');
+    const messageId = String(selection.messageId || '');
+    const embedIndex = Math.max(0, Number(selection.embedIndex) || 0);
+    if (!channelId || !messageId || String(record.channelId || '') !== channelId) return null;
+    const channel = guild.channels?.cache?.get?.(channelId)
+        || await guild.channels?.fetch?.(channelId).catch(() => null);
+    if (!channel?.messages?.fetch) return null;
+    const message = await channel.messages.fetch({ message: messageId, force: true })
+        .catch(() => null);
+    if (!message
+        || String(message.channelId || message.channel?.id || '') !== channelId
+        || String(message.id || '') !== messageId
+        || String(message.author?.id || '') !== String(botUserId || '')) return null;
+    const embed = message.embeds?.[embedIndex];
+    if (!embed) return null;
+    const physical = embed.toJSON?.() || structuredClone(embed);
+    return {
+        ...record,
+        channelId,
+        backingChannelId: channelId,
+        messageId,
+        embedIndex,
+        creatorGuideVerified: true,
+        snapshot: physical,
+        title: String(physical.title || ''),
+        name: String(physical.title || ''),
+        components: (message.components || []).map(row => row.toJSON?.() || row),
+        previewRecord: null,
+        sourceRecord: null,
+        templateMode: false,
+        canonicalIdentity: `content-creators:${channelId}`,
+    };
+}
+
 export async function loadEmbedBuilderSearchSelection(interaction) {
     const selected = parseSelection(interaction.options?.getString?.('search') || '');
     if (!selected || !interaction.guildId) return null;
@@ -1959,6 +2000,27 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
         record = completeSelectedSearchRecord(interaction.guild, records, selectedRecord);
     }
     if (isSearchDeleteHidden(record) || isUnusedBuilderSearchRecord(record)) return null;
+    // The ONLY source of creator preview content is the physical Discord
+    // message whose channel/message IDs the user clicked in autocomplete.
+    // If it cannot be verified, fail closed rather than editing Twitch.
+    if (contentCreatorGuideRecordIdentity(record)) {
+        const exact = await resolvePhysicalCreatorGuideSelection(
+            interaction.guild, interaction.client?.user?.id || interaction.guild?.client?.user?.id,
+            record, selected,
+        );
+        if (!exact) {
+            logger.warn('[EMBED_SEARCH] Creator guide source message could not be verified:',
+                selected.channelId, selected.messageId);
+            return null;
+        }
+        return {
+            record: structuredClone(exact),
+            previewRecord: null,
+            previewTitle: exact.snapshot.title || '',
+            sourceRecord: null,
+            expiresAt: Date.now() + PENDING_TTL,
+        };
+    }
     if (record.source === 'embed-builder' && record.manualSaved === true
         && !record.detached && interaction.guild) {
         // Every Save/Post/Reappear move commits its exact snapshot to the
