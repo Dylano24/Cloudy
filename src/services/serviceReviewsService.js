@@ -79,15 +79,15 @@ export function serviceReviewModal(type, rating) {
 export function normalizeLegacyServiceReviewEmbed(embed) {
   const current = embed?.toJSON?.() || embed;
   if (!current || typeof current.description !== 'string') return null;
-  const prefix = '**Product or service**\\n';
+  const prefix = '**Product or service**\n';
   if (!current.description.startsWith(prefix)) return null;
-  const category = current.description.slice(prefix.length).split('\\n', 1)[0];
+  const category = current.description.slice(prefix.length).split('\n', 1)[0];
   if (!Object.values(SERVICE_REVIEW_TYPES).includes(category)) return null;
-  const originalHeader = `${prefix}${category}\\n\\n`;
+  const originalHeader = `${prefix}${category}\n\n`;
   if (!current.description.startsWith(originalHeader)) return null;
   const updated = {
     ...current,
-    description: `**${category}**\\n\\n` + current.description.slice(originalHeader.length),
+    description: `**${category}**\n\n` + current.description.slice(originalHeader.length),
   };
   delete updated.timestamp;
   return updated;
