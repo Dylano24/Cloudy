@@ -133,7 +133,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   await f.action(id, 'channel', [CHANNEL]);
   assert.match(f.view.embeds[0].toJSON().description, new RegExp(CHANNEL));
   await f.action(id, 'details');
-  assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
+  assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
     ['name', 'question', 'option1', 'option2', 'option3']);
   await f.submit(id, 'details', {
     question: 'Best map?', option1: 'First', option2: 'Second', option3: 'Third',
@@ -141,7 +141,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.match(f.view.embeds[0].toJSON().description, /Best map/);
 
   await f.action(id, 'schedule');
-  assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
+  assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
     ['date', 'time', 'repeat', 'duration']);
   await f.submit(id, 'schedule', {
     date: futureStart.date, time: futureStart.time, repeat: '15m', duration: '5m',
@@ -190,7 +190,7 @@ test('giveaway builder supports prizes, role choice, and safe repeated schedulin
   assert.equal(f.view.components.length, 5);
   await f.action(id, 'channel', [CHANNEL]);
   await f.action(id, 'details');
-  assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
+  assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
     ['prizes', 'winners', 'description']);
   await f.submit(id, 'details', { prizes: 'Kit A\nKit B', winners: '2', description: 'Community event' });
   await f.action(id, 'schedule');
@@ -239,7 +239,7 @@ test('wipe mode is editable in the dashboard without changing the legacy wipe sc
   await f.action(id, 'details');
   await f.submit(id, 'details', { prizes: 'Wipe kit', winners: '2', description: 'New Rust wipe!' });
   await f.action(id, 'schedule');
-  assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
+  assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
     ['server', 'before', 'duration']);
   await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30', duration: '5' });
   await f.action(id, 'save');
@@ -351,7 +351,7 @@ test('both dashboards accept an actual Netherlands calendar date and 1d duration
     }
     await f.action(id, 'mode', ['once']);
     await f.action(id, 'schedule');
-    assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
+    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
       ['date', 'time', 'duration']);
     await f.submit(id, 'schedule', {
       date: futureStart.date, time: futureStart.time, duration: '1d',
@@ -392,17 +392,24 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     const id = await f.open(kind);
     await f.action(id, 'schedule');
     assert.equal(f.modal.title, 'Schedule');
-    assert.deepEqual(f.modal.components.map(row => row.components[0].label),
+    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).label),
       ['Date', 'Time (EU)', 'Repeat', 'Duration']);
-    assert.deepEqual(f.modal.components.map(row => row.components[0].placeholder),
-      ['10-11-2026', '18:00', '1d', '1m']);
+    assert.deepEqual(f.modal.components.map(row => row.description),
+      ['Type 10112026; saved as 10-11-2026.',
+        'Type 1800; saved as 18:00. Numbers only.',
+        '1m = minute, 1h = hour, 1d = day, 1w = week.',
+        '1m = minute, 1h = hour, 1d = day, 1w = week.']);
+    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).placeholder),
+      ['10-11-2026 or 10112026', '18:00 or 1800',
+        '1m = minute | 1h = hour | 1d = day | 1w = week',
+        '1m = minute | 1h = hour | 1d = day | 1w = week']);
     await f.action(id, 'mode', ['once']);
     await f.action(id, 'schedule');
-    assert.deepEqual(f.modal.components.map(row => row.components[0].label),
+    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).label),
       ['Date', 'Time (EU)', 'Duration']);
     await f.action(id, 'mode', ['wipe']);
     await f.action(id, 'schedule');
-    assert.deepEqual(f.modal.components.map(row => row.components[0].label),
+    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).label),
       ['Connected Rust server name', 'Before wipe', 'Duration']);
   }
 });
@@ -541,4 +548,119 @@ test('auto vote landing page matches the Cloudy feed Add/Manage flow', async () 
   assert.equal(f.view.components[0].toJSON().components[1].disabled, false);
   await f.action(id, 'manage');
   assert.match(f.view.embeds[0].toJSON().description, /Existing map vote/);
+});
+
+test('short date/time entries normalize and save correctly for both auto vote and auto giveaway', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'channel', [CHANNEL]);
+    if (kind === 'vote') {
+      await f.submit(id, 'details', { question: 'Test vote?', option1: 'Yes', option2: 'No' });
+    } else {
+      await f.submit(id, 'details', { prizes: 'A prize', winners: '1' });
+    }
+    await f.action(id, 'schedule');
+    const compactDate = futureStart.date.replace(/-/g, '');
+    const compactTime = futureStart.time.replace(':', '');
+    await f.submit(id, 'schedule', {
+      date: compactDate, time: compactTime, repeat: '1d', duration: '1m',
+    });
+    const expected = parseAmsterdamStart(futureStart.date, futureStart.time);
+    assert.match(f.view.embeds[0].toJSON().description, /Duration:\*\* 1m/);
+    await f.action(id, 'schedule');
+    const values = f.modal.components.map(row => (row.component || row.components[0]).value);
+    assert.deepEqual(values, [futureStart.date, futureStart.time, '1d', '1m'],
+      'reopening Schedule shows formatted date and time, not compact entry');
+    await f.action(id, 'save');
+    const saved = kind === 'vote'
+      ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+    assert.equal(saved.startAt, expected);
+    assert.equal(saved.durationMinutes, 1);
+  }
+});
+
+test('invalid schedule turns the private dashboard line red, preserves entered fields, and recovers', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    const inputValues = {
+      date: '31112027', time: '1800', repeat: '1d', duration: '1h',
+    };
+    await f.submit(id, 'schedule', inputValues);
+    assert.equal(f.view.embeds[0].toJSON().color, 0xE53935,
+      'invalid date must produce a red dashboard line');
+    assert.match(f.view.embeds[0].toJSON().description, /valid date/i);
+    assert.ok(f.view.components.length, 'invalid schedule must not close the controls');
+    await f.action(id, 'schedule');
+    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).value),
+      Object.values(inputValues), 'submitted text remains available for correction');
+    await f.submit(id, 'schedule', {
+      date: futureStart.date.replace(/-/g, ''),
+      time: futureStart.time.replace(':', ''),
+      repeat: '1d', duration: '1h',
+    });
+    assert.equal(f.view.embeds[0].toJSON().color,
+      kind === 'vote' ? 0xFFFFFF : 0xDC2626,
+      'valid correction restores the original dashboard line color');
+    assert.doesNotMatch(f.view.embeds[0].toJSON().description, /valid date/i);
+  }
+});
+
+test('invalid repeat and duration units are rejected without saving a schedule', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  const base = { date: futureStart.date, time: futureStart.time };
+  await f.submit(id, 'schedule', { ...base, repeat: '123x', duration: '1h' });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+  await f.submit(id, 'schedule', { ...base, repeat: '1d', duration: 'abc' });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+  assert.match(f.view.embeds[0].toJSON().description, /Duration: use/i);
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs.length, 0);
+});
+
+test('Time rejects letters immediately on submission for both dashboards', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.submit(id, 'schedule', {
+      date: futureStart.date, time: 'abcd', repeat: '1d', duration: '1m',
+    });
+    assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+    assert.match(f.view.embeds[0].toJSON().description,
+      /Invalid Time: type 1800 or 18:00 \(numbers only/i);
+    await f.action(id, 'schedule');
+    assert.equal(f.modal.components[1].component.value, 'abcd');
+    const cfg = await getWipeAutomationConfig(f.client, GUILD);
+    assert.equal(kind === 'vote' ? cfg.voteJobs.length : cfg.giveaway, kind === 'vote' ? 0 : null);
+  }
+});
+
+test('Repeat 1m and Duration 1m are valid and appear with explanations in the modal', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'channel', [CHANNEL]);
+    if (kind === 'vote') {
+      await f.submit(id, 'details', { question: 'Minute vote?', option1: 'A', option2: 'B' });
+    } else {
+      await f.submit(id, 'details', { prizes: 'One prize', winners: '1' });
+    }
+    await f.action(id, 'schedule');
+    assert.match(f.modal.components[2].description, /1m = minute.*1d = day.*1w = week/);
+    assert.match(f.modal.components[3].description, /1m = minute.*1d = day.*1w = week/);
+    await f.submit(id, 'schedule', {
+      date: futureStart.date.replaceAll('-', ''),
+      time: futureStart.time.replace(':', ''),
+      repeat: '1m', duration: '1m',
+    });
+    assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
+    await f.action(id, 'save');
+    const saved = kind === 'vote'
+      ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
+      : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+    assert.equal(saved.repeatMinutes, 1);
+    assert.equal(saved.durationMinutes, 1);
+  }
 });

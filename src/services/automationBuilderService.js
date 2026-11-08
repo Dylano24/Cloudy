@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ChannelSelectMenuBuilder, ChannelType, EmbedBuilder,
-  MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
+  LabelBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import {
@@ -70,7 +70,7 @@ export function formatAutomationDashboard(session) {
     ? `\n**Next run:** <t:${Math.floor(draft.nextRunAt / 1000)}:F>`
     : '';
   const embed = new EmbedBuilder()
-    .setColor(isVote ? 0xFFFFFF : 0xDC2626)
+    .setColor(session.validationError ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
     .setTitle(label)
     .setThumbnail(CLOUDY_LOGO_URL)
     .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}\n**Randomize:** ${draft.randomize
@@ -190,16 +190,22 @@ export function formatAutomaticVotesList(session, votes) {
   return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }
 
-function input(id, label, value, { required = true, maxLength = 250, paragraph = false } = {}) {
+function input(id, label, value, {
+  required = true, maxLength = 250, paragraph = false, description = '',
+} = {}) {
   const field = new TextInputBuilder().setCustomId(id).setLabel(label)
     .setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(required).setMaxLength(maxLength);
-  if (id === 'repeat') field.setPlaceholder('1d');
-  if (id === 'duration') field.setPlaceholder('1m');
-  if (id === 'date') field.setPlaceholder('10-11-2026');
-  if (id === 'time') field.setPlaceholder('18:00');
+  if (id === 'repeat') field.setPlaceholder('1m = minute | 1h = hour | 1d = day | 1w = week');
+  if (id === 'duration' || id === 'before') {
+    field.setPlaceholder('1m = minute | 1h = hour | 1d = day | 1w = week');
+  }
+  if (id === 'date') field.setPlaceholder('10-11-2026 or 10112026');
+  if (id === 'time') field.setPlaceholder('18:00 or 1800');
   if (value !== undefined && value !== null && String(value).length) field.setValue(String(value).slice(0, maxLength));
-  return new ActionRowBuilder().addComponents(field);
+  return description
+    ? new LabelBuilder().setLabel(label).setDescription(description).setTextInputComponent(field)
+    : new ActionRowBuilder().addComponents(field);
 }
 
 export function buildAutomationModal(session, action) {
@@ -210,23 +216,37 @@ export function buildAutomationModal(session, action) {
   if (action === 'schedule') {
     if (draft.schedule === 'repeat' || draft.schedule === 'once') {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
-      modal.addComponents(
-        input('date', 'Date', local.date, { maxLength: 10 }),
-        input('time', 'Time (EU)', local.time, { maxLength: 5 }),
+      modal.addLabelComponents(
+        input('date', 'Date', session.scheduleInputs?.date ?? local.date, {
+          maxLength: 10, description: 'Type 10112026; saved as 10-11-2026.',
+        }),
+        input('time', 'Time (EU)', session.scheduleInputs?.time ?? local.time, {
+          maxLength: 5, description: 'Type 1800; saved as 18:00. Numbers only.',
+        }),
       );
       if (draft.schedule === 'repeat') {
-        modal.addComponents(input('repeat', 'Repeat', shortAutomationDuration(draft.repeatMinutes),
-          { maxLength: 8 }));
+        modal.addLabelComponents(input('repeat', 'Repeat',
+          session.scheduleInputs?.repeat ?? shortAutomationDuration(draft.repeatMinutes), {
+            maxLength: 8, description: '1m = minute, 1h = hour, 1d = day, 1w = week.',
+          }));
       }
-      modal.addComponents(input('duration', 'Duration', shortAutomationDuration(draft.durationMinutes),
-        { maxLength: 8 }));
+      modal.addLabelComponents(input('duration', 'Duration',
+        session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
+          maxLength: 8, description: '1m = minute, 1h = hour, 1d = day, 1w = week.',
+        }));
     } else {
-      modal.addComponents(
-        input('server', 'Connected Rust server name', draft.server === 'Cloudy' ? '' : draft.server, { maxLength: 60 }),
-        input('before', 'Before wipe', shortAutomationDuration(draft.beforeMinutes),
-          { maxLength: 8 }),
-        input('duration', 'Duration', shortAutomationDuration(draft.durationMinutes),
-          { maxLength: 8 }),
+      modal.addLabelComponents(
+        input('server', 'Connected Rust server name', session.scheduleInputs?.server ?? (draft.server === 'Cloudy' ? '' : draft.server), {
+          maxLength: 60, description: 'The Rust server linked to your wipe schedule.',
+        }),
+        input('before', 'Before wipe',
+          session.scheduleInputs?.before ?? shortAutomationDuration(draft.beforeMinutes), {
+            maxLength: 8, description: 'Examples: 10m = minutes, 1h = hour, 1d = day.',
+          }),
+        input('duration', 'Duration',
+          session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
+            maxLength: 8, description: '1m = minute, 1h = hour, 1d = day, 1w = week.',
+          }),
       );
     }
   } else if (kind === 'vote') {
@@ -255,27 +275,38 @@ function field(interaction, id) {
 
 function applyModal(session, interaction, action) {
   if (action === 'schedule') {
+    // Keep submitted entries if validation fails so reopening Schedule does not
+    // erase what the user typed. Successful submissions clear the draft.
+    session.scheduleInputs = Object.fromEntries(
+      (session.draft.schedule === 'wipe'
+        ? ['server', 'before', 'duration']
+        : session.draft.schedule === 'repeat'
+          ? ['date', 'time', 'repeat', 'duration']
+          : ['date', 'time', 'duration'])
+        .map(id => [id, field(interaction, id)]),
+    );
     const duration = parseAutomationDuration(field(interaction, 'duration'));
     if (session.draft.schedule === 'repeat' || session.draft.schedule === 'once') {
       const startAt = parseAmsterdamStart(field(interaction, 'date'), field(interaction, 'time'));
       if (startAt <= Date.now()) throw new RangeError('Choose a future start date and time.');
       if (session.draft.schedule === 'repeat') {
-        const repeat = parseAutomationDuration(field(interaction, 'repeat'));
-        if (repeat < 15 || repeat < duration) {
-          throw new RangeError('Repeat must be at least 15m and not shorter than Duration.');
+        const repeat = parseAutomationDuration(field(interaction, 'repeat'), 'Repeat');
+        if (repeat < duration) {
+          throw new RangeError('Repeat cannot be shorter than Duration.');
         }
         Object.assign(session.draft, { repeatMinutes: repeat, durationMinutes: duration, startAt });
       } else {
         Object.assign(session.draft, { durationMinutes: duration, startAt });
       }
     } else {
-      const before = parseAutomationDuration(field(interaction, 'before'));
+      const before = parseAutomationDuration(field(interaction, 'before'), 'Before wipe');
       const server = field(interaction, 'server');
       if (!server || before < 2 || before > 10080 || duration >= before) {
         throw new RangeError('Enter a server and choose a duration that finishes before the wipe.');
       }
       Object.assign(session.draft, { server, beforeMinutes: before, durationMinutes: duration });
     }
+    session.scheduleInputs = null;
   } else if (session.kind === 'vote') {
     const name = field(interaction, 'name');
     const question = field(interaction, 'question');
@@ -297,6 +328,7 @@ function applyModal(session, interaction, action) {
     });
   }
   session.dirty = true;
+  session.validationError = false;
 }
 
 function authorized(interaction) {
@@ -519,6 +551,7 @@ export async function handleAutomationBuilderInteraction(interaction) {
     } else return true;
     await interaction.update(formatAutomationDashboard(session));
   } catch (error) {
+    session.validationError = true;
     session.notice = error instanceof RangeError ? error.message : 'Automation could not be updated.';
     if (!(error instanceof RangeError)) logger.warn('[AUTO_BUILDER] Unexpected dashboard error:', error);
     const payload = session.kind === 'vote' && session.view === 'list'

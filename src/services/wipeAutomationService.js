@@ -50,7 +50,7 @@ function validBefore(beforeMinutes, durationMinutes) {
 }
 
 function validRepeat(repeatMinutes, durationMinutes) {
-  return Number.isSafeInteger(repeatMinutes) && repeatMinutes >= 15 && repeatMinutes <= 43200
+  return Number.isSafeInteger(repeatMinutes) && repeatMinutes >= 1 && repeatMinutes <= 43200
     && Number.isSafeInteger(durationMinutes) && durationMinutes >= 1
     && durationMinutes <= repeatMinutes;
 }
@@ -81,7 +81,7 @@ function validatedAutomationConfig(kind, configuration) {
         ? !Number.isSafeInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 43200
         : !validBefore(beforeMinutes, durationMinutes))) {
     throw new RangeError(schedule === 'repeat'
-      ? 'Repeat must be at least 15m, at most 30d and no shorter than Duration'
+      ? 'Repeat must be between 1m and 30d and no shorter than Duration'
       : schedule === 'once'
         ? 'Duration must be between 1m and 30d'
         : 'Provide a server and duration that finishes before the Rust wipe');
