@@ -225,7 +225,7 @@ test('repeating automatic votes use the selected channel, never duplicate a tick
   assert.equal(f.giveaways.posts.length, 2, 'paused schedule must not publish');
 });
 
-test('repeating kit giveaways select one of the configured prizes and conclude safely', async () => {
+test('repeating auto giveaways use the normal giveaway system and existing participation buttons', async () => {
   const f = fixture();
   await configureWipeAutomation(f.client, GUILD, 'giveaway', {
     schedule: 'repeat', repeatMinutes: 30, durationMinutes: 5,
@@ -236,19 +236,19 @@ test('repeating kit giveaways select one of the configured prizes and conclude s
   await setWipeAutomationState(f.client, GUILD, 'giveaway', 'running');
   const setting = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
   await runWipeAutomationTick(f.client, setting.nextRunAt + 100);
-  assert.equal(f.votes.posts.length, 1, 'giveaway posts in the selected channel');
-  const id = wipeSessionId(GUILD, 'giveaway:repeat', setting.nextRunAt);
-  const session = await f.db.get(`guild:${GUILD}:wipe-automation:giveaway:${id}`);
-  assert.ok(['Red kit', 'Blue kit', 'Green kit'].includes(session.kit));
-  assert.equal(session.description, 'A prize for our members.');
-  assert.equal(session.winnerCount, 2);
-  assert.equal((await changeAutoWipeEntry(f.client, GUILD, id, USER, true)).status, 'entered');
-  await runWipeAutomationTick(f.client, setting.nextRunAt + 6 * MINUTE);
-  const ended = await f.db.get(`guild:${GUILD}:wipe-automation:giveaway:${id}`);
-  assert.equal(ended.status, 'ended');
-  assert.deepEqual(ended.winners, [USER]);
-  assert.equal(ended.roleId, '');
-  assert.equal(f.giveaways.posts.length, 0, 'must not post in the legacy channel');
+  assert.equal(f.votes.posts.length, 1);
+  assert.equal(f.giveaways.posts.length, 0, 'no post in the default channel');
+  const posted = f.votes.posts[0];
+  const stored = await f.db.get('guild:' + GUILD + ':giveaways');
+  const giveaway = stored[posted.id];
+  assert.ok(giveaway, 'normal giveaway record is stored');
+  assert.ok(['Red kit', 'Blue kit', 'Green kit'].includes(giveaway.prize));
+  assert.equal(giveaway.description, 'A prize for our members.');
+  assert.equal(giveaway.winnerCount, 2);
+  assert.deepEqual(posted.components[0].toJSON().components.map(b => b.custom_id),
+    ['giveaway_enter:country', 'giveaway_leave']);
+  await runWipeAutomationTick(f.client, setting.nextRunAt + 100);
+  assert.equal(f.votes.posts.length, 1, 'same scheduled launch cannot be duplicated');
 });
 
 test('repeat rejects invalid schedules and never posts until explicitly started', async () => {
@@ -373,13 +373,13 @@ test('editing one auto vote does not overwrite another or the legacy configurati
     schedule: 'repeat', repeatMinutes: 60, durationMinutes: 5,
     question: 'Vote B', maps: ['C', 'D'],
   });
-  await setAutomaticVoteJobState(f.client, GUILD, a.id, 'running');
+  const started = await setAutomaticVoteJobState(f.client, GUILD, a.id, 'running');
   const saved = await saveAutomaticVoteJob(f.client, GUILD, {
     ...a, question: 'Vote A renamed', maps: ['X', 'Y'],
   }, a.id);
   assert.equal(saved.id, a.id);
   assert.equal(saved.state, 'running');
-  assert.equal(saved.nextRunAt, a.nextRunAt);
+  assert.equal(saved.nextRunAt, started.nextRunAt);
   const votes = await listAutomaticVotes(f.client, GUILD);
   assert.deepEqual(votes.map(v => v.question), ['Legacy remains', 'Vote A renamed', 'Vote B']);
   assert.equal(votes[2].id, b.id);
