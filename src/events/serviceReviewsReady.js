@@ -3,8 +3,8 @@ import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import {
   SERVICE_REVIEWS_CHANNEL_ID, SERVICE_REVIEW_PANEL_MESSAGE_ID,
-  SERVICE_REVIEW_PANEL_TITLE,
-  serviceReviewPanelRows,
+  SERVICE_REVIEW_PANEL_TITLE, SERVICE_POSTED_REVIEWS_CHANNEL_ID,
+  serviceReviewPanelRows, normalizeLegacyServiceReviewEmbed,
 } from '../services/serviceReviewsService.js';
 
 export async function reconcileServiceReviewsPanel(client) {
@@ -36,6 +36,32 @@ export async function reconcileServiceReviewsPanel(client) {
   return { ok: true, action: 'updated', id: message.id };
 }
 
+// Make already-posted reviews match the new layout, but only for legacy
+// Service Reviews authored by this bot. Never repost or alter staff reviews.
+export async function migrateLegacyServiceReviews(client) {
+  const guild = client.guilds?.cache?.get('1532882647838228723');
+  if (!guild) return { updated: 0, reason: 'guild-missing' };
+  const channel = await resolveCloudyChannel(client, 'servicePostedReviews', { guild, textOnly: true });
+  if (!channel || channel.id !== SERVICE_POSTED_REVIEWS_CHANNEL_ID) {
+    return { updated: 0, reason: 'channel-missing' };
+  }
+  const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!messages) return { updated: 0, reason: 'messages-unavailable' };
+  let updated = 0;
+  for (const message of messages.values()) {
+    if (message.author?.id !== client.user?.id || message.embeds?.length !== 1) continue;
+    const normalized = normalizeLegacyServiceReviewEmbed(message.embeds[0]);
+    if (!normalized) continue;
+    try {
+      await message.edit({ embeds: [normalized] });
+      updated += 1;
+    } catch (error) {
+      logger.warn('[SERVICE_REVIEWS] Could not update existing review:', error);
+    }
+  }
+  return { updated };
+}
+
 export default {
   name: Events.ClientReady,
   once: true,
@@ -46,6 +72,11 @@ export default {
           if (!result.ok) logger.warn('[SERVICE_REVIEWS] Panel unavailable:', result.reason);
         })
         .catch(error => logger.error('[SERVICE_REVIEWS] Panel reconciliation failed:', error));
+      void migrateLegacyServiceReviews(client)
+        .then(({ updated }) => {
+          if (updated) logger.info(`[SERVICE_REVIEWS] Updated ${updated} existing reviews`);
+        })
+        .catch(error => logger.error('[SERVICE_REVIEWS] Legacy review migration failed:', error));
     }, 2500);
     timer.unref?.();
   },
