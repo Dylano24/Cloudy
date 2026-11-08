@@ -275,13 +275,18 @@ export async function saveAutomaticVoteJob(client, guildId, draft, jobId = null)
     }
     const id = existing?.id || randomUUID().replace(/-/g, '').slice(0, 16);
     const sameTiming = existing && existing.schedule === configured.schedule
-      && existing.startAt === configured.startAt
-      && existing.repeatMinutes === configured.repeatMinutes
-      && existing.beforeMinutes === configured.beforeMinutes
       && existing.durationMinutes === configured.durationMinutes
-      && (configured.schedule !== 'random_weekly'
-        || (existing.weeklyMin === configured.weeklyMin
-          && existing.weeklyMax === configured.weeklyMax));
+      && (configured.schedule === 'repeat'
+        ? existing.startAt === configured.startAt
+          && existing.repeatMinutes === configured.repeatMinutes
+        : configured.schedule === 'random_weekly'
+          ? existing.startAt === configured.startAt
+            && existing.weeklyMin === configured.weeklyMin
+            && existing.weeklyMax === configured.weeklyMax
+          : configured.schedule === 'once'
+            ? existing.startAt === configured.startAt
+            : existing.beforeMinutes === configured.beforeMinutes
+              && existing.server === configured.server);
     const updated = {
       ...configured, id,
       state: existing?.state || 'stopped',
