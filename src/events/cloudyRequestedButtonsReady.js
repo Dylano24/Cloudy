@@ -96,7 +96,7 @@ export default {
   execute(client) {
     const timer = setTimeout(() => {
       void reconcileRequestedButtonEmojis(client)
-        .then(({ checked, updated }) => logger.info(`[REQUESTED_BUTTONS] Checked ${checked}; updated ${updated}`))
+        .then(({ checked, updated }) => logger.warn(`[REQUESTED_BUTTONS] Checked ${checked}; updated ${updated}; Start chat emoji ${startChatEmoji(client).id}`))
         .catch(error => logger.warn('[REQUESTED_BUTTONS] Could not update buttons:', error));
     }, 4000);
     timer.unref?.();
