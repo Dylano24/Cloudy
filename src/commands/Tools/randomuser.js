@@ -82,11 +82,12 @@ export default {
 
         const user = selectedMember.user;
         const joinDate = selectedMember.joinedAt;
+        // Count every role; only the first five are listed. The count used to
+        // stop at 10, so a member with 30 roles showed "Roles (10)".
         const roles = selectedMember.roles.cache
             .filter(role => role.id !== interaction.guild.id)
             .sort((a, b) => b.position - a.position)
-            .map(role => role.toString())
-            .slice(0, 10);
+            .map(role => role.toString());
 
         const embed = successEmbed(
             '🎲 Random User Selected',
@@ -96,7 +97,7 @@ export default {
         .addFields(
             { name: 'Username', value: user.username, inline: true },
             { name: 'Bot', value: user.bot ? 'Yes' : 'No', inline: true },
-            { name: `Roles (${roles.length})`, value: roles.length > 0 ? roles.slice(0, 5).join('') + (roles.length > 5 ? `+${roles.length - 5} more` : '') : 'No roles', inline: false }
+            { name: `Roles (${roles.length})`, value: roles.length > 0 ? roles.slice(0, 5).join('') + (roles.length > 5 ? ` +${roles.length - 5} more` : '') : 'No roles', inline: false }
         )
         .setColor('primary');
 
@@ -151,8 +152,7 @@ export default {
                 const newRoles = newSelectedMember.roles.cache
                     .filter(r => r.id !== interaction.guild.id)
                     .sort((a, b) => b.position - a.position)
-                    .map(r => r.toString())
-                    .slice(0, 10);
+                    .map(r => r.toString());
 
                 const newEmbed = successEmbed(
                     '🎲 Random User Selected',
@@ -162,7 +162,7 @@ export default {
                 .addFields(
                     { name: 'Username', value: newUser.username, inline: true },
                     { name: 'Bot', value: newUser.bot ? 'Yes' : 'No', inline: true },
-                    { name: `Roles (${newRoles.length})`, value: newRoles.length > 0 ? newRoles.slice(0, 5).join('') + (newRoles.length > 5 ? `+${newRoles.length - 5} more` : '') : 'No roles', inline: false }
+                    { name: `Roles (${newRoles.length})`, value: newRoles.length > 0 ? newRoles.slice(0, 5).join('') + (newRoles.length > 5 ? ` +${newRoles.length - 5} more` : '') : 'No roles', inline: false }
                 )
                 .setColor(newSelectedMember.displayHexColor || '#3498db');
 

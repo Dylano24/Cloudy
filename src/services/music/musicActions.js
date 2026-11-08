@@ -129,10 +129,28 @@ export async function playQuery(client, interaction, query) {
 
     const { player } = await ensurePlayer(client, interaction);
 
-    const result = await client.riffy.resolve({
-        query,
-        requester: interaction.user,
-    });
+    // Riffy throws a TypeError when the music node answers without a body
+    // (e.g. while Lavalink restarts); show a clear message instead of a crash.
+    let result;
+    try {
+        result = await client.riffy.resolve({
+            query,
+            requester: interaction.user,
+        });
+    } catch (error) {
+        throw new CloudyError(
+            `Music search failed: ${error?.message || error}`,
+            ErrorTypes.NETWORK,
+            'The music server is not responding right now. Please try again in a moment.',
+        );
+    }
+    if (!result) {
+        throw new CloudyError(
+            'Music search returned no response',
+            ErrorTypes.NETWORK,
+            'The music server is not responding right now. Please try again in a moment.',
+        );
+    }
 
     const { loadType, tracks, playlistInfo } = result;
 
