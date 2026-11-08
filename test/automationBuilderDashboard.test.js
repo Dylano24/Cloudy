@@ -352,7 +352,28 @@ test('invalid date does not save or close the automation builder', async () => {
   const id = await f.open('vote');
   await f.action(id, 'mode', ['once']);
   await f.submit(id, 'schedule', { date: '31-02-2027', time: '18:00', duration: '1h' });
-  assert.match(f.view.embeds[0].toJSON().description, /valid calendar date/i);
+  assert.match(f.view.embeds[0].toJSON().description, /valid date/i);
   assert.ok(f.view.components.length, 'builder remains usable after a date validation error');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote, null);
+});
+
+test('schedule modal keeps short labels and simple examples for auto vote and giveaway', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'schedule');
+    assert.equal(f.modal.title, 'Schedule');
+    assert.deepEqual(f.modal.components.map(row => row.components[0].label),
+      ['Date', 'Time (EU)', 'Repeat', 'Duration']);
+    assert.deepEqual(f.modal.components.map(row => row.components[0].placeholder),
+      ['10-11-2026', '18:00', '1d', '1m']);
+    await f.action(id, 'mode', ['once']);
+    await f.action(id, 'schedule');
+    assert.deepEqual(f.modal.components.map(row => row.components[0].label),
+      ['Date', 'Time (EU)', 'Duration']);
+    await f.action(id, 'mode', ['wipe']);
+    await f.action(id, 'schedule');
+    assert.deepEqual(f.modal.components.map(row => row.components[0].label),
+      ['Connected Rust server name', 'Before wipe', 'Duration']);
+  }
 });
