@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collapseDisplayRecords, contentCreatorGuideRecordIdentity, contentCreatorGuidePlatform, buildEmbedPayload, getCanonicalBuilderRecords } from '../src/services/embedManagerService.js';
+import { collapseDisplayRecords, contentCreatorGuideRecordIdentity, contentCreatorGuidePlatform, buildEmbedPayload, loadRecordSnapshotIntoState } from '../src/services/embedManagerService.js';
 import {
   buildSearchChoices, buildMatches, buildAutocompleteMatches, isRetiredCreatorGuideSearchAlias,
   resolvePhysicalCreatorGuideSelection,
@@ -46,7 +46,7 @@ test('Search lists all three live guides even when title and body are identical'
   const choices = buildSearchChoices(matches);
   assert.equal(choices.length, 3);
   assert.deepEqual(choices.map(c => c.name).sort(), [
-    'Content creators — TikTok', 'Content creators — Twitch', 'Content creators — YouTube',
+    'Content creators', 'Content creators', 'Content creators',
   ]);
   assert.equal(new Set(choices.map(c => c.value)).size, 3);
 
@@ -60,7 +60,7 @@ test('Search lists all three live guides even when title and body are identical'
   records[0].snapshot.title = '<:Z94tiktok:1543280394508701857>My YouTube embed';
   const newOptions = buildSearchChoices(buildMatches(guild, records, 'embed'));
   assert.equal(newOptions.length, 1);
-  assert.equal(newOptions[0].name, '<:Z94tiktok:1543280394508701857>My YouTube embed — YouTube');
+  assert.equal(newOptions[0].name, '<:Z94tiktok:1543280394508701857>My YouTube embed');
   const updatedChannel = buildEmbedPayload(guild, records, channels[0].id);
   assert.equal(updatedChannel.components[0].toJSON().components[0].options[0].label, 'My YouTube embed');
 });
@@ -116,7 +116,7 @@ test('real TikTok ID survives a legacy raw-emoji title and hides the external du
   assert.equal(new Set(choices.map(x => x.value)).size, 3,
     'each Search selection must keep its own channel and message ID');
   assert.deepEqual(choices.map(x => x.name).sort(), [
-    '<:Z94tiktok:1543280394508701857>Content creators — TikTok', 'Content creators — Twitch', 'Content creators — YouTube',
+    '<:Z94tiktok:1543280394508701857>Content creators', 'Content creators', 'Content creators',
   ]);
   assert.equal(buildSearchChoices(buildAutocompleteMatches(guild, [...records, retired], 'con')).length, 3);
   // The obsolete entry can also appear as a title/name overlay with an older
@@ -189,8 +189,98 @@ test('creator search keeps the custom emoji IDs in the visible titles', () => {
   const matches = buildMatches({channels:{cache:new Map()}}, [youtube,twitch], 'content');
   const choices = buildSearchChoices(matches);
   assert.deepEqual(choices.map(x=>x.name).sort(), [
-    '<:TWbrand:222222222222222222>Content creators — Twitch',
-    '<:YTbrand:111111111111111111>Content creators — YouTube',
+    '<:TWbrand:222222222222222222>Content creators',
+    '<:YTbrand:111111111111111111>Content creators',
   ]);
   assert.equal(new Set(choices.map(x=>x.value)).size, 2);
+});
+
+test('stale YouTube autocomplete ID follows its current sticky message and loads the full preview', async () => {
+  const channelId = '1554538629102309416';
+  const staleId = '1570000000000000001';
+  const currentId = '1570000000000000123';
+  const requests = [];
+  const currentMessage = {
+    id: currentId, channelId, author: { id: 'cloudy-bot' }, components: [],
+    embeds: [{ toJSON: () => ({
+      title: '<:YTbrand:111111111111111111>Content creators',
+      description: 'Only the current YouTube review.',
+      color: 0xffffff,
+    }) }],
+  };
+  const channel = {
+    id: channelId, name: 'youtube',
+    client: { db: { async get(key) {
+      assert.equal(key, 'global:content-creators:guide:guild-1:' + channelId);
+      return { messageId: currentId };
+    } } },
+    messages: { async fetch(options) {
+      requests.push(options);
+      if (options.message === staleId) return null;
+      if (options.message === currentId) return currentMessage;
+      throw new Error('Unexpected fetch');
+    } },
+  };
+  const guild = { id: 'guild-1', channels: { cache: new Map([[channelId, channel]]) } };
+  const record = {
+    guildId: guild.id, channelId, channelName: 'youtube', messageId: staleId,
+    source: 'content-creators',
+    snapshot: {title: 'Outdated title', description: 'This is not the current preview.'},
+    previewRecord: {channelId: '1554538630129778702', messageId: '1570000000000000888',
+      snapshot: {description: 'Twitch should never appear'}},
+  };
+  const selected = await resolvePhysicalCreatorGuideSelection(guild, 'cloudy-bot', record,
+    {channelId, messageId: staleId, embedIndex: 0});
+  assert.equal(selected.messageId, currentId);
+  assert.equal(selected.previewRecord, null);
+  assert.equal(selected.sourceRecord, null);
+  assert.equal(selected.snapshot.description, 'Only the current YouTube review.');
+  assert.deepEqual(requests, [
+    {message:staleId,force:true}, {message:currentId,force:true},
+  ]);
+  const editor = {};
+  assert.equal(loadRecordSnapshotIntoState(editor, guild, selected), true);
+  assert.equal(editor.title, '<:YTbrand:111111111111111111>Content creators');
+  assert.equal(editor.message, 'Only the current YouTube review.');
+  assert.equal(editor.modifyTarget.channelId, channelId);
+  assert.equal(editor.modifyTarget.messageId, currentId);
+  assert.equal(editor.modifyTarget.templateMode, false);
+});
+
+test('a deleted autocomplete ID can recover a newer guide only in the same channel', async () => {
+  const channelId = '1554538629102309416';
+  const staleId = '1570000000000000001';
+  const currentId = '1570000000000000333';
+  const currentMessage = {
+    id: currentId, channelId, author: { id: 'cloudy-bot' },
+    embeds: [{title:'My own unique title', toJSON() {
+      return {title:'My own unique title', description:'Current YouTube content'};
+    }}],
+    components:[{components:[{label:'Subscribe'}]}],
+  };
+  const wrongChannelMessage = {
+    ...currentMessage, id:'1570000000000000444',
+    channelId:'1554538630129778702',
+  };
+  const channel = {id:channelId, messages:{async fetch(options) {
+    if (options.message === staleId) return null;
+    if (options.limit) return new Map([
+      [wrongChannelMessage.id, wrongChannelMessage],
+      [currentMessage.id, currentMessage],
+    ]);
+    return null;
+  }}};
+  const guild = {id:'guild-1',channels:{cache:new Map([[channelId,channel]])}};
+  const record = {guildId:guild.id,channelId,messageId:staleId,
+    channelName:'youtube',source:'content-creators',snapshot:{
+      title:'Content creators',description:'Old guide'
+    }};
+  const selected = await resolvePhysicalCreatorGuideSelection(guild,'cloudy-bot',record,
+    {channelId,messageId:staleId,embedIndex:0});
+  assert.equal(selected.messageId,currentId);
+  assert.equal(selected.snapshot.title,'My own unique title');
+  assert.equal(selected.snapshot.description,'Current YouTube content');
+  const crossChannel = await resolvePhysicalCreatorGuideSelection(guild,'cloudy-bot',record,
+    {channelId:'1554538630129778702',messageId:wrongChannelMessage.id,embedIndex:0});
+  assert.equal(crossChannel,null,'must never switch to another creator channel');
 });

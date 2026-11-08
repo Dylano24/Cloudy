@@ -24,7 +24,7 @@ import {
 } from '../../services/embedRegistryService.js';
 import {
     canonicalBuilderResponseTitle, getCanonicalBuilderRecords,
-    contentCreatorGuideRecordIdentity, contentCreatorGuidePlatform,
+    contentCreatorGuideRecordIdentity,
 } from '../../services/embedManagerService.js';
 import { refreshManualBuilderSearchRecord } from '../../services/embedBuilderPhysicalSearchService.js';
 import { warmSavedEmbedTemplateScopes, getCachedSavedEmbedTemplateData } from '../../services/embedTemplateService.js';
@@ -1719,21 +1719,17 @@ export function buildSearchChoices(matches) {
         // No description, member, ticket, channel or preview body is part of
         // the choice label; all those details remain in the live preview.
         const creatorId = contentCreatorGuideRecordIdentity(record);
-        const creatorChannel = creatorId
-            ? (contentCreatorGuidePlatform(record) || '')
-            : '';
-        // Discord autocompletes cannot render custom emoji markup as images.
-        // Show the real embed title plus its channel to make each guide unique.
-        // Keep the literal custom emoji markup (including its ID) exactly as
-        // authored in the physical embed. Discord autocomplete is text only.
-        const creatorTitle = String(record?.snapshot?.title || document?.title || 'Content creators')
-            .replace(/\s+/g, ' ').trim();
+        // The owner's literal embed title is the label. Discord may show
+        // multiple identical names; their channel:message:embed values differ.
+        // Never append platform names or strip custom emoji IDs from a title.
         const title = creatorId
-            ? clean(`${creatorTitle || 'Content creators'} — ${({ youtube: 'YouTube', twitch: 'Twitch', tiktok: 'TikTok' })[creatorChannel] || creatorChannel}`, 100)
+            ? String(record?.snapshot?.title || document?.title || 'Content creators').slice(0, 100)
             : explicitTitle
                 ? humanSearchChoiceTitle(document?.title || 'Embed')
                 : (commercialBuilderTitle(document?.title || 'Embed') || 'Embed');
-        const key = normalize(title);
+        const key = creatorId
+            ? `creator-message:${selectionValue(record)}`
+            : normalize(title);
         if (!key) continue;
         const value = selectionValue(record);
         const existing = usedNames.get(key);
@@ -1879,20 +1875,52 @@ export async function resolvePhysicalCreatorGuideSelection(guild, botUserId, rec
     const channel = guild.channels?.cache?.get?.(channelId)
         || await guild.channels?.fetch?.(channelId).catch(() => null);
     if (!channel?.messages?.fetch) return null;
-    const message = await channel.messages.fetch({ message: messageId, force: true })
-        .catch(() => null);
-    if (!message
-        || String(message.channelId || message.channel?.id || '') !== channelId
-        || String(message.id || '') !== messageId
-        || String(message.author?.id || '') !== String(botUserId || '')) return null;
-    const embed = message.embeds?.[embedIndex];
-    if (!embed) return null;
+    const fetchVerifiedMessage = async id => {
+        if (!id) return null;
+        const found = await channel.messages.fetch({ message: String(id), force: true })
+            .catch(() => null);
+        return found && String(found.channelId || found.channel?.id || '') === channelId
+            && String(found.id || '') === String(id)
+            && String(found.author?.id || '') === String(botUserId || '')
+            && found.embeds?.[embedIndex] ? found : null;
+    };
+    // The selected ID may have been replaced by the sticky-guide repost
+    // *after* the autocomplete was displayed. Recover ONLY in its original
+    // channel, never by title matches from Twitch or any other channel.
+    let message = await fetchVerifiedMessage(messageId);
+    if (!message) {
+        const db = channel.client?.db || guild.client?.db;
+        const state = db?.get
+            ? await db.get(`global:content-creators:guide:${guild.id}:${channelId}`).catch(() => null)
+            : null;
+        if (state?.messageId && String(state.messageId) !== messageId) {
+            message = await fetchVerifiedMessage(state.messageId);
+        }
+    }
+    if (!message) {
+        const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+        const candidates = [...(recent?.values?.() || [])].filter(candidate => {
+            if (String(candidate?.channelId || candidate?.channel?.id || '') !== channelId
+                || String(candidate?.author?.id || '') !== String(botUserId || '')
+                || !candidate.embeds?.[embedIndex]) return false;
+            const embedTitle = String(candidate.embeds[embedIndex]?.title || '');
+            const subscribe = (candidate.components || []).some(row =>
+                (row.components || []).some(button =>
+                    String(button.label || '').toLowerCase() === 'subscribe'));
+            return /content\s+creators/i.test(embedTitle) || subscribe;
+        });
+        candidates.sort((a, b) => String(b.id).localeCompare(String(a.id)));
+        message = candidates[0] || null;
+    }
+    if (!message) return null;
+    const currentMessageId = String(message.id);
+    const embed = message.embeds[embedIndex];
     const physical = embed.toJSON?.() || structuredClone(embed);
     return {
         ...record,
         channelId,
         backingChannelId: channelId,
-        messageId,
+        messageId: currentMessageId,
         embedIndex,
         creatorGuideVerified: true,
         snapshot: physical,
@@ -1945,6 +1973,11 @@ export async function loadEmbedBuilderSearchSelection(interaction) {
                     && String(item.messageId) === selected.messageId
                     && Number(item.embedIndex || 0) === selected.embedIndex);
                 if (!exists) candidate = null;
+            } else if (contentCreatorGuideRecordIdentity(candidate)
+                && String(candidate.channelId) === selected.channelId) {
+                // Sticky creator guides are regularly reposted with a NEW
+                // physical message ID. Retain this formerly offered channel
+                // choice long enough to resolve its current message safely.
             } else {
                 candidate = null;
             }
