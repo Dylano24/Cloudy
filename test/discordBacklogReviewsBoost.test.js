@@ -168,8 +168,11 @@ test('only missing button emoji are added; existing owner-customized embeds stay
       { type: 2, style: 5, label: 'Contact us', url: 'https://discord.test/contact' },
       { type: 2, style: 5, label: 'Rust support', url: 'https://discord.test/rust' },
     ]],
-    ['1554538607233073182', '1568741702309646388', [
+    ['1554538607233073182', '1568769178540707934', [
       { type: 2, style: 2, label: 'Instructions', custom_id: 'cloudy_builder_action:existing' },
+    ]],
+    ['1554538586001645679', '1568514711941816442', [
+      { type: 2, style: 2, label: 'Assistant', custom_id: 'faq_ai_question', emoji: { id: '1568567297545732228', name: 'cloudy_support_bot_white' } },
     ]],
     ['1554538650761691260', '1568543862908129352', [
       { type: 2, style: 2, label: 'Start chat', custom_id: 'create_ticket', emoji: { name: '💬' } },
@@ -186,13 +189,15 @@ test('only missing button emoji are added; existing owner-customized embeds stay
     addChannel(client, guild, channelId, { messages: { fetch: async () => message } });
   }
   const first = await reconcileRequestedButtonEmojis(client);
-  assert.deepEqual(first, { checked: 3, updated: 3 });
+  assert.deepEqual(first, { checked: 4, updated: 4 });
   assert.equal(messages.get('1568526805072216085').components[0].components[0].emoji.id, '1543303628159320165');
   assert.equal(messages.get('1568526805072216085').components[0].components[1].emoji.id, '1568706168006770719');
-  assert.equal(messages.get('1568741702309646388').components[0].components[0].emoji.id, '1543287391131803749');
+  assert.equal(messages.get('1568769178540707934').components[0].components[0].emoji.id, '1543287391131803749');
   assert.equal(messages.get('1568543862908129352').components[0].components[0].emoji.id, '1543303628159320165');
+  assert.equal(messages.get('1568514711941816442').components[0].components[0].label, 'Cloudy assistant');
+  assert.equal(messages.get('1568514711941816442').components[0].components[0].emoji.id, '1568567297545732228');
   const second = await reconcileRequestedButtonEmojis(client);
-  assert.deepEqual(second, { checked: 3, updated: 0 });
+  assert.deepEqual(second, { checked: 4, updated: 0 });
   for (const message of messages.values()) {
     assert.equal(message.edits, 1);
     assert.equal(message.embeds[0].description, 'Owner-provided text');
