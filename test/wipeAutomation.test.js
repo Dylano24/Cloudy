@@ -506,7 +506,7 @@ test('editing a repeat vote later never resets its existing scheduled run', asyn
     question: 'Initial question', maps: ['Yes', 'No'],
   });
   // A delayed edit must not drift by even a few milliseconds.
-  await new Promise(resolve => setTimeout(resolve, 12));
+  await new Promise(resolve => { setTimeout(resolve, 12); });
   const updated = await saveAutomaticVoteJob(f.client, GUILD, {
     ...job, question: 'Updated question', maps: ['Agree', 'Disagree'],
   }, job.id);
