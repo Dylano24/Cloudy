@@ -2,6 +2,7 @@
 
 import { pgDb } from './postgresDatabase.js';
 import { logger } from './logger.js';
+import { parseGiveawayTimestamp } from '../services/giveawayService.js';
 import { BotConfig, getDefaultApplicationQuestions } from '../config/bot.js';
 import { Mutex } from './mutex.js';
 
@@ -252,17 +253,17 @@ async function getEndedGiveawaysFromKv(client) {
                 continue;
             }
 
-            const endTime = giveaway.endsAt || giveaway.endTime;
-            if (!endTime || now < Number(endTime)) {
-                continue;
-            }
+            const endTime = parseGiveawayTimestamp(giveaway.endsAt)
+                || parseGiveawayTimestamp(giveaway.endTime);
+            // An invalid/missing date must never incorrectly expire a giveaway.
+            if (!endTime || now < endTime) continue;
 
             ended.push({
                 id: giveaway.id || giveaway.messageId,
                 guild_id: guildId,
                 message_id: giveaway.messageId,
                 data: giveaway,
-                ends_at: new Date(Number(endTime)),
+                ends_at: new Date(endTime),
             });
         }
     }
