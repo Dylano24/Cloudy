@@ -5,10 +5,11 @@ import { Collection, MessageFlags } from 'discord.js';
 import {
   SERVICE_REVIEW_TYPES, SERVICE_REVIEW_PANEL_TITLE, SERVICE_REVIEW_SELECT_ID,
   SERVICE_REVIEW_RATING_ID, serviceReviewChoiceRow, serviceReviewRatingRow,
-  serviceReviewPanelRows, serviceReviewModal,
+  serviceReviewPanelRows, serviceReviewModal, buildPublishedServiceReview,
+  normalizeLegacyServiceReviewEmbed,
 } from '../src/services/serviceReviewsService.js';
 import serviceReviewInteraction from '../src/events/serviceReviewsInteraction.js';
-import { reconcileServiceReviewsPanel } from '../src/events/serviceReviewsReady.js';
+import { reconcileServiceReviewsPanel, migrateLegacyServiceReviews } from '../src/events/serviceReviewsReady.js';
 import boostEvent, { buildGuildBoostAnnouncement } from '../src/events/guildBoostAnnouncement.js';
 import { reconcileRequestedButtonEmojis } from '../src/events/cloudyRequestedButtonsReady.js';
 import { buildTicketPanelComponents } from '../src/services/ticketPanelBuilder.js';
@@ -44,7 +45,7 @@ function addChannel(client, guild, id, extras = {}) {
 
 test('panel offers exactly five requested services in order, with rating initially disabled', () => {
   assert.deepEqual(Object.values(SERVICE_REVIEW_TYPES), [
-    'Cloudy bot', 'Website', 'Game servers', 'Game store', 'Services',
+    'Cloudy bot', 'Cloudy website', 'Game store', 'Website development', 'Services',
   ]);
   const rows = serviceReviewPanelRows().map(row => row.toJSON());
   assert.equal(rows.length, 2);
@@ -55,6 +56,10 @@ test('panel offers exactly five requested services in order, with rating initial
   assert.deepEqual(rows[1].components[0].options.map(option => option.label),
     ['★', '★★', '★★★', '★★★★', '★★★★★']);
   assert.equal(serviceReviewChoiceRow().toJSON().components[0].options.length, 5);
+  assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Game servers'));
+  assert.ok(!Object.values(SERVICE_REVIEW_TYPES).includes('Bot development'));
+  assert.equal(serviceReviewModal('development', 5).toJSON().custom_id, 'service_review_modal:development:5');
+  assert.throws(() => serviceReviewModal('servers', 5), /Invalid review details/);
   assert.equal(serviceReviewRatingRow().toJSON().components[0].disabled, true);
   const chosen = serviceReviewPanelRows('bot').map(row => row.toJSON());
   assert.equal(chosen[1].components[0].disabled, false);
@@ -163,7 +168,9 @@ test('selection enables rating on same panel, never sends repetitive ephemeral d
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   const embed = sent[0].embeds[0].toJSON();
-  assert.ok(embed.description.includes('**Product or service**\nCloudy bot'));
+  assert.ok(embed.description.startsWith('**Cloudy bot**\n\n'));
+  assert.ok(!embed.description.includes('Product or service'));
+  assert.equal(embed.timestamp, undefined, 'review footer cannot include a timestamp');
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
   assert.match(embed.description, /Excellent experience/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
@@ -183,6 +190,75 @@ test('rating cannot open a modal before this reviewer selects a service', async 
   assert.equal(shown, false);
   assert.equal(reply.flags, MessageFlags.Ephemeral);
   assert.match(reply.content, /Choose a product or service first/);
+});
+
+test('published service review uses only the selected category as heading and the Staff Reviews footer style', () => {
+  for (const [type, label] of Object.entries(SERVICE_REVIEW_TYPES)) {
+    const embed = buildPublishedServiceReview({
+      user: { username: 'Reviewer', displayAvatarURL: () => 'https://example.com/avatar.png' },
+    }, type, 5, 'Perfect!', '<:W84starwhite:1543289625035022346>').toJSON();
+    assert.ok(embed.description.startsWith(`**${label}**\n\n**Rating**`),
+      `Only the selected service heading should be shown for ${label}`);
+    assert.ok(!embed.description.includes('Product or service'));
+    assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.ok(!Object.hasOwn(embed, 'timestamp'), 'Must show footer without Today at time');
+    assert.ok(embed.description.endsWith('**Experience**\nPerfect!'));
+  }
+});
+
+test('legacy Service Reviews are corrected in their existing message, without changing rating or experience', async () => {
+  const { guild, client } = mockClient();
+  let edits = 0, skippedEdits = 0;
+  const old = {
+    color: 0xA14425,
+    description: '**Product or service**\nGame servers\n\n**Rating**\n<:W84starwhite:1543289625035022346>\n\n**Experience**\nPerfect!',
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    timestamp: '2026-11-08T02:04:00.000Z',
+    thumbnail: { url: 'https://example.com/unchanged-logo.gif' },
+  };
+  const legacy = {
+    author: { id: BOT },
+    embeds: [{ toJSON: () => old }],
+    async edit(payload) {
+      edits += 1;
+      assert.ok(!Object.hasOwn(payload, 'content'));
+      assert.ok(!Object.hasOwn(payload, 'components'));
+      this.embeds = payload.embeds;
+    },
+  };
+  const unrelated = {
+    author: { id: 'some-other-bot' },
+    embeds: [{ description: old.description }],
+    async edit() { skippedEdits += 1; },
+  };
+  const unknown = {
+    author: { id: BOT },
+    embeds: [{ description: '**Product or service**\nUnknown category\n\n**Rating**\n5' }],
+    async edit() { skippedEdits += 1; },
+  };
+  addChannel(client, guild, POSTED, {
+    messages: {
+      async fetch() {
+        return new Collection([['legacy', legacy], ['unrelated', unrelated], ['unknown', unknown]]);
+      },
+    },
+  });
+  const first = await migrateLegacyServiceReviews(client);
+  assert.deepEqual(first, { updated: 1 });
+  assert.equal(edits, 1);
+  assert.equal(skippedEdits, 0);
+  const output = legacy.embeds[0];
+  assert.ok(output.description.startsWith('**Game servers**\n\n**Rating**'));
+  assert.ok(!output.description.includes('Product or service'));
+  assert.ok(output.description.endsWith('**Experience**\nPerfect!'));
+  assert.equal(output.color, old.color);
+  assert.deepEqual(output.thumbnail, old.thumbnail);
+  assert.deepEqual(output.footer, old.footer);
+  assert.ok(!Object.hasOwn(output, 'timestamp'));
+  assert.equal(normalizeLegacyServiceReviewEmbed(output), null);
+  const second = await migrateLegacyServiceReviews(client);
+  assert.deepEqual(second, { updated: 0 });
+  assert.equal(edits, 1, 'repeat startup must not edit the same review again');
 });
 
 test('boost embed contains exact requested wording and never invents counts', async () => {

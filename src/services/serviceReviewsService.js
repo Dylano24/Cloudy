@@ -16,14 +16,20 @@ export const SERVICE_REVIEW_PANEL_MESSAGE_ID = '1568560974548697170';
 // Keep that panel's description, footer and logo untouched.
 export const SERVICE_REVIEW_TYPES = Object.freeze({
   bot: 'Cloudy bot',
-  website: 'Website',
-  servers: 'Game servers',
+  website: 'Cloudy website',
   store: 'Game store',
+  development: 'Website development',
   services: 'Services',
 });
 
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+// Keep historical categories readable when migrating previously published reviews;
+// these are intentionally absent from the menu for NEW reviews.
+const HISTORICAL_SERVICE_REVIEW_LABELS = new Set([
+  ...Object.values(SERVICE_REVIEW_TYPES),
+  'Game servers', 'Website', 'Products & services',
+]);
 
 export function serviceReviewChoiceRow(selectedType = null) {
   return new ActionRowBuilder().addComponents(
@@ -74,6 +80,25 @@ export function serviceReviewModal(type, rating) {
     ));
 }
 
+// Upgrade only reviews created with the old generic heading. Other embeds
+// and any manually edited review content are left untouched.
+export function normalizeLegacyServiceReviewEmbed(embed) {
+  const current = embed?.toJSON?.() || embed;
+  if (!current || typeof current.description !== 'string') return null;
+  const prefix = '**Product or service**\n';
+  if (!current.description.startsWith(prefix)) return null;
+  const category = current.description.slice(prefix.length).split('\n', 1)[0];
+  if (!HISTORICAL_SERVICE_REVIEW_LABELS.has(category)) return null;
+  const originalHeader = `${prefix}${category}\n\n`;
+  if (!current.description.startsWith(originalHeader)) return null;
+  const updated = {
+    ...current,
+    description: `**${category}**\n\n` + current.description.slice(originalHeader.length),
+  };
+  delete updated.timestamp;
+  return updated;
+}
+
 export function buildPublishedServiceReview(interaction, type, rating, comment, emoji = null) {
   if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid service');
   const stars = emoji ? emoji.repeat(rating) : '⭐'.repeat(rating);
@@ -88,10 +113,9 @@ export function buildPublishedServiceReview(interaction, type, rating, comment, 
       icon_url: interaction.user.displayAvatarURL(),
     },
     thumbnail: { url: LOGO },
-    description: `**Product or service**\n${SERVICE_REVIEW_TYPES[type]}\n\n`
+    description: `**${SERVICE_REVIEW_TYPES[type]}**\n\n`
       + `**Rating**\n${stars}\n\n`
       + `**Experience**\n${comment}`,
     footer: { text: FOOTER },
-    timestamp: new Date().toISOString(),
   });
 }
