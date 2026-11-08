@@ -10,6 +10,9 @@ import {
   selectWinners, DEFAULT_GIVEAWAY_INTRO, DEFAULT_GIVEAWAY_DESCRIPTION,
   DEFAULT_GIVEAWAY_CLOSING,
 } from './giveawayService.js';
+import { postGiveaway } from './giveawayActions.js';
+import { sendGiveawayCreatedLog } from './giveawayLogService.js';
+import { GIVEAWAY_CODE_TYPES, withAddedCodes, unusedAddedCodes, validDiscount } from './giveawayCodeService.js';
 
 export const AUTO_WIPE_GUILD_ID = '1532882647838228723';
 export const AUTO_WIPE_KIND = Object.freeze({ vote: 'vote', giveaway: 'giveaway' });
@@ -192,9 +195,42 @@ function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt 
       throw new RangeError('Configure 1–20 prizes, 1–10 winners and a valid optional winner role');
     }
     const description = String(configuration?.description || '').trim();
-    if (description.length > 800) throw new RangeError('Description is too long');
-    configured = { server, name, kit: prizes[0], prizes, winnerRoleId, winnerCount,
-      description, beforeMinutes, durationMinutes, state: 'stopped' };
+    if (description.length > 1000) throw new RangeError('Description is too long');
+    const pingType = configuration?.ping?.type || 'none';
+    const pingRoleId = pingType === 'role' ? String(configuration?.ping?.roleId || '') : null;
+    if (!['none', 'role', 'everyone'].includes(pingType)
+      || (pingType === 'role' && !/^\d{17,20}$/.test(pingRoleId))) {
+      throw new RangeError('Choose a valid giveaway tag.');
+    }
+    const codeType = Object.hasOwn(GIVEAWAY_CODE_TYPES, configuration?.codeType || '')
+      ? configuration.codeType : 'none';
+    const codeDiscount = codeType === 'discount' ? validDiscount(configuration.codeDiscount) : null;
+    if (codeType === 'discount' && !codeDiscount) {
+      throw new RangeError('Choose a discount between 1 and 100.');
+    }
+    const plainAddedCodes = configuration.plainAddedCodes
+      || (Array.isArray(configuration.addedCodes) ? unusedAddedCodes(configuration) : []);
+    if (codeType === 'added' && (schedule !== 'once'
+      || !Array.isArray(plainAddedCodes) || plainAddedCodes.length < winnerCount
+      || plainAddedCodes.length > 50 || plainAddedCodes.some(code => typeof code !== 'string'
+        || !code.trim() || code.length > 100))) {
+      throw new RangeError('Existing codes need a one-time giveaway with at least one code for each winner.');
+    }
+    const fields = ['introTitle', 'closingText', 'requirements', 'claimIntroduction',
+      'claimConditions', 'claimHowToGet', 'claimReview', 'claimPleaseNote'];
+    const limits = [150, 300, 500, 250, 1000, 500, 1000, 1000];
+    const textFields = Object.fromEntries(fields.map((field, index) => {
+      const value = String(configuration?.[field] || '').trim();
+      if (value.length > limits[index]) throw new RangeError('Giveaway ' + field + ' is too long.');
+      return [field, value || null];
+    }));
+    const hostId = String(configuration?.hostId || '');
+    if (hostId && !/^\d{17,20}$/.test(hostId)) throw new RangeError('Invalid giveaway host.');
+    configured = { server, name, kit: prizes[0], prizes, winnerRoleId, winnerCount, hostId,
+      description, beforeMinutes, durationMinutes, state: 'stopped',
+      ping: { type: pingType, roleId: pingRoleId }, codeType, codeDiscount,
+      addedCodes: codeType === 'added' ? withAddedCodes({}, plainAddedCodes) : [],
+      ...textFields };
   }
   Object.assign(configured, {
     schedule, channelId, randomize,
@@ -368,6 +404,9 @@ export async function listAutomaticGiveaways(client, guildId) {
 
 export async function saveAutomaticGiveawayJob(client, guildId, draft, jobId = null) {
   if (guildId !== AUTO_WIPE_GUILD_ID) throw new RangeError('Invalid automation guild');
+  if (!['repeat', 'once'].includes(draft?.schedule)) {
+    throw new RangeError('Choose Repeat or Once for automatic giveaways.');
+  }
   if (jobId === 'legacy') throw new RangeError('Legacy giveaways are managed through the existing config');
   return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
     const config = await getWipeAutomationConfig(client, guildId);
@@ -652,6 +691,43 @@ async function createAutomaticGiveaway(client, guild, config, id, wipeAt) {
   });
 }
 
+// Date-based auto giveaways run through the real /giveaway create pipeline.
+// That keeps the preview, participation, codes, claims, logging and automatic
+// expiry consistent. Legacy Rust-wipe giveaways retain their separate flow.
+async function createScheduledGiveaway(client, guild, config, id) {
+  const channel = await getTextChannel(client, guild, 'giveaway', config.channelId);
+  if (!channel) {
+    logger.warn('[WIPE_AUTO] Giveaway destination is unavailable:', config.channelId || 'giveaway');
+    return;
+  }
+  const key = sentKey(guild.id, 'giveaway', id);
+  await Mutex.runExclusive(key, async () => {
+    if (await client.db.get(key, null)) return;
+    // Reserve the slot before Discord sends anything; on uncertain failures,
+    // never create duplicate public giveaways.
+    if (await client.db.set(key, { state: 'posting', recordedAt: Date.now() }) === false) {
+      throw new Error('Could not reserve automatic giveaway schedule slot.');
+    }
+    const prize = config.randomize && config.prizes?.length > 1
+      ? config.prizes[randomInt(config.prizes.length)] : config.kit;
+    try {
+      const giveaway = await postGiveaway(client, guild, channel, {
+        ...config, prize, hostId: config.hostId || client.user.id,
+        durationMs: config.durationMinutes * MINUTE,
+        plainAddedCodes: config.codeType === 'added' ? unusedAddedCodes(config) : [],
+      });
+      await client.db.set(key, { state: 'posted', messageId: giveaway.messageId });
+      try {
+        await sendGiveawayCreatedLog(client, guild, giveaway);
+      } catch (error) {
+        logger.warn('[WIPE_AUTO] Giveaway was posted but creation log failed:', error);
+      }
+    } catch (error) {
+      logger.error('[WIPE_AUTO] Scheduled giveaway creation failed (duplicate prevented):', error);
+    }
+  });
+}
+
 export async function changeAutoWipeEntry(client, guildId, id, userId, enter, now = Date.now()) {
   if (guildId !== AUTO_WIPE_GUILD_ID || !/^\w{20}$/.test(id) || !/^\d{17,20}$/.test(userId)) {
     return { status: 'invalid' };
@@ -764,7 +840,7 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
           const id = wipeSessionId(guild.id, jobId ? `${kind}-job:${jobId}:repeat` : `${kind}:repeat`, dueAt);
           try {
             if (kind === 'vote') await createAutomaticVote(client, guild, dueSetting, id, dueAt);
-            else await createAutomaticGiveaway(client, guild, dueSetting, id, dueAt);
+            else await createScheduledGiveaway(client, guild, dueSetting, id);
           } catch (error) {
             logger.warn(`[WIPE_AUTO] Could not start scheduled ${kind}:`, error);
           }
