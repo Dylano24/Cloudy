@@ -96,7 +96,7 @@ test('staff review choices are user-private with both original dropdowns and no 
     user: { username: 'Lano' } }]);
   let publicEdits = 0;
   const message = { ...publicPanel, edit: async () => { publicEdits += 1; } };
-  let acknowledgements = 0;
+  let updates = 0;
   for (const userId of ['private-reviewer-1', 'private-reviewer-2']) {
     await staffReviewsInteraction.execute({
       customId: STAFF_REVIEW_MEMBER_ID,
@@ -106,13 +106,19 @@ test('staff review choices are user-private with both original dropdowns and no 
       message,
       isStringSelectMenu: () => true,
       reply: async () => { throw new Error('No second private rating dropdown allowed'); },
-      deferUpdate: async () => { acknowledgements += 1; },
+      update: async ({ components }) => {
+        message.components = components;
+        updates += 1;
+      },
     });
   }
   assert.equal(publicEdits, 0);
-  assert.equal(acknowledgements, 2);
-  assert.equal(message.components[1].toJSON().components[0].disabled, false);
-  assert.notEqual(message.components[0].toJSON().components[0].options[0].default, true);
+  assert.equal(updates, 2);
+  assert.equal(message.components[1].components[0].disabled, false);
+  assert.ok(message.components[0].components[0].options.every(option => !option.default),
+    'the member choice is not broadcast as a default');
+  assert.equal(publicPanel.components[1].toJSON().components[0].disabled, true,
+    'the initial rating is disabled until a member is selected');
 });
 
 test('two staff reviewers can choose different members on the same public dropdowns', async () => {
@@ -137,7 +143,7 @@ test('two staff reviewers can choose different members on the same public dropdo
       customId: STAFF_REVIEW_MEMBER_ID,
       guildId: 'private-test-guild', user: { id: users[i] }, guild, message,
       values: [ownerIds[i]], isStringSelectMenu: () => true,
-      deferUpdate: async () => {},
+      update: async ({ components }) => { message.components = components; },
       reply: async () => { throw new Error('Never send separate rating panels'); },
     });
   }
@@ -152,7 +158,8 @@ test('two staff reviewers can choose different members on the same public dropdo
   }
   assert.deepEqual(modals, ownerIds.map(id => `staff_review_modal:${id}:5`));
   assert.equal(edits, 0, 'neither selection may edit the public review panel');
-  assert.equal(message.components[1].toJSON().components[0].disabled, false);
+  assert.equal(message.components[1].components[0].disabled, false);
+  assert.ok(message.components[0].components[0].options.every(option => !option.default));
 });
 
 test('rating selection rejects stale cached Owner membership', async () => {

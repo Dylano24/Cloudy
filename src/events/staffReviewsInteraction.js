@@ -8,11 +8,14 @@ import {
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
   buildStaffReviewModal,
+  staffReviewPanelRows,
   ensureStaffReviewStarEmoji,
   isOwnerReviewTarget,
   takeReviewContext,
 } from '../services/staffReviewsService.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
+import { resetStaffReviewPanel } from './staffReviewsReady.js';
+import { logger } from '../utils/logger.js';
 
 const REVIEW_CONFIRMATION_TTL_MS = 10 * 1000;
 const OWNER_SELECTION_TTL_MS = 15 * 60 * 1000;
@@ -72,13 +75,17 @@ export default {
       const memberId = interaction.values?.[0];
       if (!memberId || memberId === 'none') return;
 
-      // Keep the original two dropdowns. Acknowledge without a public
-      // edit or a second private rating panel. The choice belongs to this user.
+      // Keep both selectors on their original message; enable the rating
+      // only after a member is chosen. Clear selected defaults immediately so
+      // nobody else sees who was picked. The choice is stored per reviewer.
+      const rows = staffReviewPanelRows(interaction.message, { ratingEnabled: true });
+      if (!rows) return;
       rememberSelectedOwner(interaction, memberId);
       try {
-        await interaction.deferUpdate();
-      } catch {
+        await interaction.update({ components: rows });
+      } catch (error) {
         clearSelectedOwner(interaction);
+        logger.warn('[STAFF_REVIEWS] Could not enable rating on the original panel:', error);
       }
       return;
     }
@@ -181,6 +188,15 @@ export default {
 
     if (publishedMessage.attachments?.size) {
       await publishedMessage.edit({ attachments: [] }).catch(() => {});
+    }
+
+    // Reset both dropdowns only after the review was actually published.
+    // Do not touch the owner-authored embed or create a replacement panel.
+    try {
+      const reset = await resetStaffReviewPanel(interaction.client, { guild: interaction.guild });
+      if (!reset) logger.warn('[STAFF_REVIEWS] Published review, but panel reset could not find the original message');
+    } catch (error) {
+      logger.warn('[STAFF_REVIEWS] Could not reset review panel:', error);
     }
 
     await interaction.editReply({

@@ -20,7 +20,7 @@ const CHANNELS = Object.freeze({
   security: { legacyId: '1533197569495142551', aliases: ['security-information'] },
   appeal: { legacyId: '1539407865318477844', aliases: ['appeal-form'] },
   staffReviews: { legacyId: '1533965979682476082', aliases: ['staff-reviews'] },
-  postedReviews: { legacyId: '1540625438601379961', aliases: ['posted-reviews'] },
+  postedReviews: { legacyId: '1540625438601379961', aliases: ['staff-posted-reviews', 'posted-reviews'] },
   serviceReviews: { legacyId: '1568553373286801450', aliases: ['service-reviews'] },
   servicePostedReviews: { legacyId: '1568553442870558720', aliases: ['service-posted-reviews'] },
   inviteLogs: { legacyId: '1539371572442435646', aliases: ['invitation-logs'] },
