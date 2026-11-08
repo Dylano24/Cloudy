@@ -256,7 +256,7 @@ test('repeat rejects invalid schedules and never posts until explicitly started'
     question: 'Test', maps: ['One', 'Two'],
   }), RangeError);
   await assert.rejects(() => configureWipeAutomation(f.client, GUILD, 'vote', {
-    schedule: 'repeat', repeatMinutes: 30, durationMinutes: 30,
+    schedule: 'repeat', repeatMinutes: 30, durationMinutes: 31,
     question: 'Test', maps: ['One', 'Two'],
   }), RangeError);
   await configureWipeAutomation(f.client, GUILD, 'vote', {
@@ -266,4 +266,50 @@ test('repeat rejects invalid schedules and never posts until explicitly started'
   const stored = (await getWipeAutomationConfig(f.client, GUILD)).vote;
   await runWipeAutomationTick(f.client, stored.nextRunAt + 15 * MINUTE);
   assert.equal(f.allPosts.length, 0, 'saving cannot automatically start a schedule');
+});
+
+test('a dated one-time vote publishes exactly once and stops itself', async () => {
+  const f = fixture();
+  const startAt = Date.now() + 3 * MINUTE;
+  await configureWipeAutomation(f.client, GUILD, 'vote', {
+    schedule: 'once', startAt, durationMinutes: 1440,
+    question: 'Once only', maps: ['A', 'B'], channelId: f.votes.ch.id,
+  });
+  let config = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(config.nextRunAt, startAt);
+  assert.equal(config.state, 'stopped');
+  await setWipeAutomationState(f.client, GUILD, 'vote', 'running');
+  await runWipeAutomationTick(f.client, startAt - 1);
+  assert.equal(f.votes.posts.length, 0, 'date must be honored');
+  await Promise.all([
+    runWipeAutomationTick(f.client, startAt + 1),
+    runWipeAutomationTick(f.client, startAt + 1),
+  ]);
+  assert.equal(f.votes.posts.length, 1);
+  config = (await getWipeAutomationConfig(f.client, GUILD)).vote;
+  assert.equal(config.state, 'stopped');
+  assert.ok(config.completedAt);
+  await runWipeAutomationTick(f.client, startAt + 10 * MINUTE);
+  assert.equal(f.votes.posts.length, 1, 'once never triggers another vote');
+  await assert.rejects(() => setWipeAutomationState(f.client, GUILD, 'vote', 'running'), RangeError);
+});
+
+test('a dated repeating giveaway waits until its selected day, then repeats on interval', async () => {
+  const f = fixture();
+  const startAt = Date.now() + 2 * MINUTE;
+  await configureWipeAutomation(f.client, GUILD, 'giveaway', {
+    schedule: 'repeat', startAt, repeatMinutes: 1440, durationMinutes: 1440,
+    kit: 'Timed kit', winnerCount: 1, channelId: f.giveaways.ch.id,
+  });
+  await setWipeAutomationState(f.client, GUILD, 'giveaway', 'running');
+  let cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+  assert.equal(cfg.nextRunAt, startAt);
+  await runWipeAutomationTick(f.client, startAt - 10);
+  assert.equal(f.giveaways.posts.length, 0);
+  await runWipeAutomationTick(f.client, startAt + 10);
+  assert.equal(f.giveaways.posts.length, 1);
+  cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
+  assert.equal(cfg.nextRunAt, startAt + 1440 * MINUTE);
+  await runWipeAutomationTick(f.client, cfg.nextRunAt + 10);
+  assert.equal(f.giveaways.posts.length, 2);
 });

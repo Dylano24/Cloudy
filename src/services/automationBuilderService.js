@@ -12,6 +12,7 @@ import {
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_BRANDING } from './cloudyBrandingService.js';
 import { logger } from '../utils/logger.js';
+import { amsterdamParts, parseAmsterdamStart, parseAutomationDuration, shortAutomationDuration } from './automationSchedule.js';
 
 export const AUTOMATION_BUILDER_PREFIX = 'auto_builder:';
 const SESSION_MS = 30 * 60_000;
@@ -36,13 +37,6 @@ function baseDraft(kind, saved) {
   };
 }
 
-function formatInterval(minutes) {
-  if (minutes % 10080 === 0) return `${minutes / 10080} week(s)`;
-  if (minutes % 1440 === 0) return `${minutes / 1440} day(s)`;
-  if (minutes % 60 === 0) return `${minutes / 60} hour(s)`;
-  return `${minutes} minutes`;
-}
-
 function button(id, action, label, style = ButtonStyle.Secondary, disabled = false) {
   return new ButtonBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}${action}:${id}`)
@@ -53,23 +47,31 @@ export function formatAutomationDashboard(session) {
   const { kind, draft, id, dirty } = session;
   const isVote = kind === 'vote';
   const status = draft.state || 'stopped';
+  const isFinished = draft.schedule === 'once'
+    && (Boolean(draft.completedAt)
+      || (status === 'stopped' && draft.startAt && draft.startAt <= Date.now()));
   const label = isVote ? 'Auto vote' : 'Auto giveaway';
   const content = isVote
     ? `**Question:** ${draft.question || 'Not configured'}\n**Options:** ${draft.maps?.join(' / ') || 'Not configured'}`
     : `**Prizes:** ${draft.prizes?.join(' / ') || draft.kit || 'Not configured'}\n**Winners:** ${draft.winnerCount || 1}\n**Winner role:** ${draft.winnerRoleId ? `<@&${draft.winnerRoleId}>` : 'None (optional for repeats)'}`;
   const schedule = draft.schedule === 'repeat'
-    ? `Every ${formatInterval(draft.repeatMinutes || 1440)}`
-    : `${draft.beforeMinutes || 120} minutes before the **${draft.server || 'Rust'}** wipe`;
-  const next = draft.schedule === 'repeat' && draft.nextRunAt && status === 'running'
+    ? `Every ${shortAutomationDuration(draft.repeatMinutes || 1440)}`
+    : draft.schedule === 'once'
+      ? 'Once (selected date)'
+      : `${draft.beforeMinutes || 120} minutes before the **${draft.server || 'Rust'}** wipe`;
+  const starts = draft.schedule !== 'wipe'
+    ? `\n**Start date:** ${draft.startAt ? `<t:${Math.floor(draft.startAt / 1000)}:F>` : 'Set in Schedule'}`
+    : '';
+  const next = draft.schedule !== 'wipe' && draft.nextRunAt && status === 'running'
     ? `\n**Next run:** <t:${Math.floor(draft.nextRunAt / 1000)}:F>`
     : '';
   const embed = new EmbedBuilder()
     .setColor(0xDC2626)
     .setTitle(label)
     .setThumbnail(CLOUDY_LOGO_URL)
-    .setDescription(`Manage automatic ${isVote ? 'votes' : 'giveaways'} from one dashboard. All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}\n**Duration:** ${draft.durationMinutes} minutes\n**Randomize:** ${draft.randomize
+    .setDescription(`Manage automatic ${isVote ? 'votes' : 'giveaways'} from one dashboard. All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}\n**Randomize:** ${draft.randomize
       ? (isVote ? 'On — shuffle voting options' : 'On — choose a random prize')
-      : 'Off'}\n**Status:** ${status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      : 'Off'}\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
   // Discord supports up to five buttons per action row. Keep the layout
@@ -82,7 +84,7 @@ export function formatAutomationDashboard(session) {
   const controls = new ActionRowBuilder().addComponents(
     button(id, 'save', 'Save', ButtonStyle.Success),
     button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
-      ButtonStyle.Success, status === 'running' || dirty || !session.saved),
+      ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished)),
     button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running'),
     button(id, 'stop', 'Stop', ButtonStyle.Danger, status === 'stopped'),
     button(id, 'close', 'Cancel'),
@@ -106,7 +108,8 @@ export function formatAutomationDashboard(session) {
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}mode:${id}`)
     .setPlaceholder('Select a schedule type')
     .addOptions(
-      { label: 'Repeat automatically', value: 'repeat', default: draft.schedule === 'repeat' },
+      { label: 'Repeat from a date', value: 'repeat', default: draft.schedule === 'repeat' },
+      { label: 'Once on a date', value: 'once', default: draft.schedule === 'once' },
       { label: 'Before a Rust wipe', value: 'wipe', default: draft.schedule === 'wipe' },
     );
   rows.push(new ActionRowBuilder().addComponents(mode));
@@ -117,7 +120,10 @@ function input(id, label, value, { required = true, maxLength = 250, paragraph =
   const field = new TextInputBuilder().setCustomId(id).setLabel(label)
     .setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(required).setMaxLength(maxLength);
-  if (id === 'repeat') field.setPlaceholder('60 = hourly, 1440 = daily, 10080 = weekly');
+  if (id === 'repeat') field.setPlaceholder('1h, 1d, 1w');
+  if (id === 'duration') field.setPlaceholder('1m, 2h, 1d');
+  if (id === 'date') field.setPlaceholder('DD-MM-YYYY e.g. 10-11-2026');
+  if (id === 'time') field.setPlaceholder('HH:MM e.g. 18:00 (NL time)');
   if (value !== undefined && value !== null && String(value).length) field.setValue(String(value).slice(0, maxLength));
   return new ActionRowBuilder().addComponents(field);
 }
@@ -128,16 +134,25 @@ export function buildAutomationModal(session, action) {
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`)
     .setTitle(action === 'schedule' ? 'Schedule automation' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
   if (action === 'schedule') {
-    if (draft.schedule === 'repeat') {
+    if (draft.schedule === 'repeat' || draft.schedule === 'once') {
+      const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };
       modal.addComponents(
-        input('repeat', 'Repeat every (minutes)', draft.repeatMinutes, { maxLength: 5 }),
-        input('duration', 'Duration (minutes)', draft.durationMinutes, { maxLength: 5 }),
+        input('date', 'Start date (DD-MM-YYYY)', local.date, { maxLength: 10 }),
+        input('time', 'Start time (HH:MM, NL time)', local.time, { maxLength: 5 }),
       );
+      if (draft.schedule === 'repeat') {
+        modal.addComponents(input('repeat', 'Repeat every (1h, 1d, 1w)', shortAutomationDuration(draft.repeatMinutes),
+          { maxLength: 8 }));
+      }
+      modal.addComponents(input('duration', 'Duration (1m, 1h, 1d)', shortAutomationDuration(draft.durationMinutes),
+        { maxLength: 8 }));
     } else {
       modal.addComponents(
         input('server', 'Connected Rust server name', draft.server === 'Cloudy' ? '' : draft.server, { maxLength: 60 }),
-        input('before', 'Minutes before the wipe', draft.beforeMinutes, { maxLength: 5 }),
-        input('duration', 'Duration (minutes)', draft.durationMinutes, { maxLength: 5 }),
+        input('before', 'Minutes before wipe (e.g. 2h)', shortAutomationDuration(draft.beforeMinutes),
+          { maxLength: 8 }),
+        input('duration', 'Duration (1m, 1h, 1d)', shortAutomationDuration(draft.durationMinutes),
+          { maxLength: 8 }),
       );
     }
   } else if (kind === 'vote') {
@@ -165,19 +180,24 @@ function field(interaction, id) {
 
 function applyModal(session, interaction, action) {
   if (action === 'schedule') {
-    const duration = Number(field(interaction, 'duration'));
-    if (!Number.isInteger(duration) || duration < 1) throw new RangeError('Duration must be a positive number of minutes.');
-    if (session.draft.schedule === 'repeat') {
-      const repeat = Number(field(interaction, 'repeat'));
-      if (!Number.isInteger(repeat) || repeat < 15 || repeat > 43200 || duration >= repeat) {
-        throw new RangeError('Repeat must be 15–43200 minutes and longer than the duration.');
+    const duration = parseAutomationDuration(field(interaction, 'duration'));
+    if (session.draft.schedule === 'repeat' || session.draft.schedule === 'once') {
+      const startAt = parseAmsterdamStart(field(interaction, 'date'), field(interaction, 'time'));
+      if (startAt <= Date.now()) throw new RangeError('Choose a future start date and time.');
+      if (session.draft.schedule === 'repeat') {
+        const repeat = parseAutomationDuration(field(interaction, 'repeat'));
+        if (repeat < 15 || repeat < duration) {
+          throw new RangeError('Repeat must be at least 15m and not shorter than Duration.');
+        }
+        Object.assign(session.draft, { repeatMinutes: repeat, durationMinutes: duration, startAt });
+      } else {
+        Object.assign(session.draft, { durationMinutes: duration, startAt });
       }
-      Object.assign(session.draft, { repeatMinutes: repeat, durationMinutes: duration });
     } else {
-      const before = Number(field(interaction, 'before'));
+      const before = parseAutomationDuration(field(interaction, 'before'));
       const server = field(interaction, 'server');
-      if (!server || !Number.isInteger(before) || before < 2 || before > 10080 || duration >= before) {
-        throw new RangeError('Enter a server, start 2–10080 minutes before wipe and end before the wipe.');
+      if (!server || before < 2 || before > 10080 || duration >= before) {
+        throw new RangeError('Enter a server and choose a duration that finishes before the wipe.');
       }
       Object.assign(session.draft, { server, beforeMinutes: before, durationMinutes: duration });
     }
@@ -310,7 +330,7 @@ export async function handleAutomationBuilderInteraction(interaction) {
       session.dirty = true;
     } else if (action === 'mode' && interaction.isStringSelectMenu?.()) {
       const mode = interaction.values?.[0];
-      if (mode !== 'repeat' && mode !== 'wipe') return true;
+      if (!['once', 'repeat', 'wipe'].includes(mode)) return true;
       session.draft.schedule = mode;
       session.dirty = true;
     } else if (action === 'random') {

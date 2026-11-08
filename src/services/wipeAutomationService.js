@@ -51,7 +51,7 @@ function validBefore(beforeMinutes, durationMinutes) {
 function validRepeat(repeatMinutes, durationMinutes) {
   return Number.isSafeInteger(repeatMinutes) && repeatMinutes >= 15 && repeatMinutes <= 43200
     && Number.isSafeInteger(durationMinutes) && durationMinutes >= 1
-    && durationMinutes < repeatMinutes;
+    && durationMinutes <= repeatMinutes;
 }
 
 function shuffled(values) {
@@ -65,20 +65,32 @@ function shuffled(values) {
 
 export async function configureWipeAutomation(client, guildId, kind, configuration) {
   if (guildId !== AUTO_WIPE_GUILD_ID || !Object.hasOwn(AUTO_WIPE_KIND, kind)) throw new RangeError('Invalid automation');
-  const schedule = configuration?.schedule === 'repeat' ? 'repeat' : 'wipe';
-  const server = String(configuration?.server || (schedule === 'repeat' ? 'Cloudy' : '')).trim();
+  const schedule = ['repeat', 'once', 'wipe'].includes(configuration?.schedule)
+    ? configuration.schedule : 'wipe';
+  const server = String(configuration?.server || (schedule !== 'wipe' ? 'Cloudy' : '')).trim();
   const beforeMinutes = Number(configuration?.beforeMinutes);
   const durationMinutes = Number(configuration?.durationMinutes);
   const repeatMinutes = Number(configuration?.repeatMinutes);
+  const startAt = configuration?.startAt == null ? null : Number(configuration.startAt);
   const channelId = String(configuration?.channelId || '').trim();
   const randomize = configuration?.randomize === true;
   if (!server || server.length > 60
     || (schedule === 'repeat'
       ? !validRepeat(repeatMinutes, durationMinutes)
-      : !validBefore(beforeMinutes, durationMinutes))) {
+      : schedule === 'once'
+        ? !Number.isSafeInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 43200
+        : !validBefore(beforeMinutes, durationMinutes))) {
     throw new RangeError(schedule === 'repeat'
-      ? 'Repeat must be 15–43200 minutes, with duration shorter than repeat'
-      : 'Provide a server name and valid before/duration minutes (duration must finish before the wipe)');
+      ? 'Repeat must be at least 15m, at most 30d and no shorter than Duration'
+      : schedule === 'once'
+        ? 'Duration must be between 1m and 30d'
+        : 'Provide a server and duration that finishes before the Rust wipe');
+  }
+  if (schedule !== 'wipe' && startAt != null && (!Number.isSafeInteger(startAt) || startAt < 0)) {
+    throw new RangeError('Choose a valid start date and time.');
+  }
+  if (schedule === 'once' && (!startAt || startAt <= Date.now())) {
+    throw new RangeError('Choose a future start date for this one-time automation.');
   }
   if (channelId && !/^\d{17,20}$/.test(channelId)) {
     throw new RangeError('Select a valid destination channel');
@@ -110,9 +122,13 @@ export async function configureWipeAutomation(client, guildId, kind, configurati
       description, beforeMinutes, durationMinutes, state: 'stopped' };
   }
   Object.assign(configured, {
-    schedule, channelId, randomize, ...(schedule === 'repeat'
-      ? { repeatMinutes, nextRunAt: Date.now() + repeatMinutes * MINUTE }
-      : {}),
+    schedule, channelId, randomize,
+    ...(schedule === 'repeat'
+      ? { repeatMinutes, ...(startAt ? { startAt } : {}),
+        nextRunAt: startAt || Date.now() + repeatMinutes * MINUTE }
+      : schedule === 'once'
+        ? { startAt, nextRunAt: startAt }
+        : {}),
   });
   return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
     const current = await getWipeAutomationConfig(client, guildId);
@@ -127,10 +143,21 @@ export async function setWipeAutomationState(client, guildId, kind, state) {
     const config = await getWipeAutomationConfig(client, guildId);
     if (!config[kind]) throw new RangeError('Configure this automation before starting it');
     const setting = config[kind];
+    if (setting.schedule === 'once' && state === 'running'
+      && (setting.completedAt || setting.startAt <= Date.now())) {
+      throw new RangeError('This date has passed. Set a new future date in Schedule first.');
+    }
+    const restart = state === 'running' && setting.state === 'stopped';
+    let nextRunAt = setting.nextRunAt;
+    if (restart && setting.schedule === 'repeat') {
+      const interval = setting.repeatMinutes * MINUTE;
+      const first = setting.startAt || Date.now() + interval;
+      nextRunAt = first > Date.now()
+        ? first : first + (Math.floor((Date.now() - first) / interval) + 1) * interval;
+    }
     config[kind] = {
       ...setting, state,
-      ...(setting.schedule === 'repeat' && state === 'running'
-        ? { nextRunAt: Date.now() + setting.repeatMinutes * MINUTE } : {}),
+      ...(setting.schedule === 'repeat' && restart ? { nextRunAt } : {}),
     };
     await saveConfig(client, guildId, config);
     return config[kind];
@@ -364,22 +391,29 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
     for (const kind of Object.keys(AUTO_WIPE_KIND)) {
       const setting = config[kind];
       if (!setting || setting.state !== 'running') continue;
-      if (setting.schedule === 'repeat') {
+      if (setting.schedule === 'repeat' || setting.schedule === 'once') {
         let dueAt = null;
         let dueSetting = null;
         await Mutex.runExclusive(`wipeauto:config:${guild.id}`, async () => {
           const latest = await getWipeAutomationConfig(client, guild.id);
           const active = latest[kind];
-          if (active?.schedule !== 'repeat' || active.state !== 'running') return;
-          if (!validRepeat(active.repeatMinutes, active.durationMinutes)) return;
+          if (!['once', 'repeat'].includes(active?.schedule) || active.state !== 'running') return;
+          if (active.schedule === 'repeat'
+            && !validRepeat(active.repeatMinutes, active.durationMinutes)) return;
           const next = Number(active.nextRunAt);
           if (!Number.isFinite(next) || next <= 0) {
+            if (active.schedule === 'once') return;
             latest[kind] = { ...active, nextRunAt: now + active.repeatMinutes * MINUTE };
           } else if (next <= now) {
             dueAt = next;
             dueSetting = { ...active };
-            const elapsed = Math.floor((now - next) / (active.repeatMinutes * MINUTE)) + 1;
-            latest[kind] = { ...active, nextRunAt: next + elapsed * active.repeatMinutes * MINUTE };
+            if (active.schedule === 'once') {
+              // Claim the single scheduled launch before any Discord API call.
+              latest[kind] = { ...active, state: 'stopped', completedAt: now };
+            } else {
+              const elapsed = Math.floor((now - next) / (active.repeatMinutes * MINUTE)) + 1;
+              latest[kind] = { ...active, nextRunAt: next + elapsed * active.repeatMinutes * MINUTE };
+            }
           } else return;
           // Persist the advance BEFORE posting so repeated ticks/crashes cannot
           // duplicate a public giveaway or vote.
