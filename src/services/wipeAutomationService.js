@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { Mutex } from '../utils/mutex.js';
@@ -48,15 +48,41 @@ function validBefore(beforeMinutes, durationMinutes) {
     && durationMinutes < beforeMinutes;
 }
 
+function validRepeat(repeatMinutes, durationMinutes) {
+  return Number.isSafeInteger(repeatMinutes) && repeatMinutes >= 15 && repeatMinutes <= 43200
+    && Number.isSafeInteger(durationMinutes) && durationMinutes >= 1
+    && durationMinutes < repeatMinutes;
+}
+
+function shuffled(values) {
+  const out = [...values];
+  for (let i = out.length - 1; i > 0; i--) {
+    const index = randomInt(i + 1);
+    [out[i], out[index]] = [out[index], out[i]];
+  }
+  return out;
+}
+
 export async function configureWipeAutomation(client, guildId, kind, configuration) {
   if (guildId !== AUTO_WIPE_GUILD_ID || !Object.hasOwn(AUTO_WIPE_KIND, kind)) throw new RangeError('Invalid automation');
-  const server = String(configuration?.server || '').trim();
+  const schedule = configuration?.schedule === 'repeat' ? 'repeat' : 'wipe';
+  const server = String(configuration?.server || (schedule === 'repeat' ? 'Cloudy' : '')).trim();
   const beforeMinutes = Number(configuration?.beforeMinutes);
   const durationMinutes = Number(configuration?.durationMinutes);
-  if (!server || server.length > 60 || !validBefore(beforeMinutes, durationMinutes)) {
-    throw new RangeError('Provide a server name and valid before/duration minutes (duration must finish before the wipe)');
+  const repeatMinutes = Number(configuration?.repeatMinutes);
+  const channelId = String(configuration?.channelId || '').trim();
+  const randomize = configuration?.randomize === true;
+  if (!server || server.length > 60
+    || (schedule === 'repeat'
+      ? !validRepeat(repeatMinutes, durationMinutes)
+      : !validBefore(beforeMinutes, durationMinutes))) {
+    throw new RangeError(schedule === 'repeat'
+      ? 'Repeat must be 15–43200 minutes, with duration shorter than repeat'
+      : 'Provide a server name and valid before/duration minutes (duration must finish before the wipe)');
   }
-  const previous = await getWipeAutomationConfig(client, guildId);
+  if (channelId && !/^\d{17,20}$/.test(channelId)) {
+    throw new RangeError('Select a valid destination channel');
+  }
   let configured;
   if (kind === 'vote') {
     const question = String(configuration?.question || '').trim();
@@ -68,15 +94,30 @@ export async function configureWipeAutomation(client, guildId, kind, configurati
     configured = { server, question, maps, beforeMinutes, durationMinutes, state: 'stopped' };
   } else {
     const kit = String(configuration?.kit || '').trim();
+    const prizes = (Array.isArray(configuration?.prizes) ? configuration.prizes : [kit])
+      .map(prize => String(prize).trim()).filter(Boolean);
     const winnerRoleId = String(configuration?.winnerRoleId || '');
     const winnerCount = Number(configuration?.winnerCount);
-    if (!kit || kit.length > 150 || !/^\d{17,20}$/.test(winnerRoleId)
+    if (!prizes.length || prizes.length > 20 || prizes.some(prize => prize.length > 150)
+      || (schedule === 'wipe' && !/^\d{17,20}$/.test(winnerRoleId))
+      || (winnerRoleId && !/^\d{17,20}$/.test(winnerRoleId))
       || !Number.isInteger(winnerCount) || winnerCount < 1 || winnerCount > 10) {
-      throw new RangeError('Configure a kit name, a winner role and 1–10 winners');
+      throw new RangeError('Configure 1–20 prizes, 1–10 winners and a valid optional winner role');
     }
-    configured = { server, kit, winnerRoleId, winnerCount, beforeMinutes, durationMinutes, state: 'stopped' };
+    const description = String(configuration?.description || '').trim();
+    if (description.length > 800) throw new RangeError('Description is too long');
+    configured = { server, kit: prizes[0], prizes, winnerRoleId, winnerCount,
+      description, beforeMinutes, durationMinutes, state: 'stopped' };
   }
-  return saveConfig(client, guildId, { ...previous, [kind]: configured });
+  Object.assign(configured, {
+    schedule, channelId, randomize, ...(schedule === 'repeat'
+      ? { repeatMinutes, nextRunAt: Date.now() + repeatMinutes * MINUTE }
+      : {}),
+  });
+  return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
+    const current = await getWipeAutomationConfig(client, guildId);
+    return saveConfig(client, guildId, { ...current, [kind]: configured });
+  });
 }
 
 export async function setWipeAutomationState(client, guildId, kind, state) {
@@ -85,7 +126,12 @@ export async function setWipeAutomationState(client, guildId, kind, state) {
   return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
     const config = await getWipeAutomationConfig(client, guildId);
     if (!config[kind]) throw new RangeError('Configure this automation before starting it');
-    config[kind] = { ...config[kind], state };
+    const setting = config[kind];
+    config[kind] = {
+      ...setting, state,
+      ...(setting.schedule === 'repeat' && state === 'running'
+        ? { nextRunAt: Date.now() + setting.repeatMinutes * MINUTE } : {}),
+    };
     await saveConfig(client, guildId, config);
     return config[kind];
   });
@@ -129,7 +175,7 @@ export function autoWipeGiveawayPayload(session) {
     prize: session.kit,
     hostId: session.hostId,
     introTitle: DEFAULT_GIVEAWAY_INTRO,
-    description: DEFAULT_GIVEAWAY_DESCRIPTION,
+    description: session.description || DEFAULT_GIVEAWAY_DESCRIPTION,
     closingText: DEFAULT_GIVEAWAY_CLOSING,
     requirements: 'None',
     winnerCount: session.winnerCount,
@@ -170,14 +216,23 @@ async function rememberSession(client, guildId, id) {
   });
 }
 
-async function getTextChannel(client, guild, key) {
+async function getTextChannel(client, guild, key, channelId = '') {
+  if (channelId) {
+    const channel = guild.channels?.cache?.get(channelId)
+      || await guild.channels?.fetch?.(channelId).catch(() => null);
+    if (channel?.guild?.id && channel.guild.id !== guild.id) return null;
+    return channel?.isTextBased?.() && channel?.isSendable?.() ? channel : null;
+  }
   const channel = await resolveCloudyChannel(client, key, { guild, textOnly: true });
   return channel?.isSendable?.() ? channel : null;
 }
 
 async function createAutomaticVote(client, guild, config, id, wipeAt) {
-  const channel = await getTextChannel(client, guild, 'votes');
-  if (!channel) return;
+  const channel = await getTextChannel(client, guild, 'votes', config.channelId);
+  if (!channel) {
+    logger.warn('[WIPE_AUTO] Vote destination is unavailable:', config.channelId || 'votes');
+    return;
+  }
   const key = sentKey(guild.id, 'vote', id);
   await Mutex.runExclusive(key, async () => {
     if (await client.db.get(key, null)) return;
@@ -185,7 +240,8 @@ async function createAutomaticVote(client, guild, config, id, wipeAt) {
     await client.db.set(key, { state: 'posting', recordedAt: Date.now() });
     const vote = {
       guildId: guild.id, channelId: channel.id, messageId: null,
-      question: config.question, options: config.maps, votes: {},
+      question: config.question,
+      options: config.randomize ? shuffled(config.maps) : config.maps, votes: {},
       endsAt: Date.now() + config.durationMinutes * MINUTE, ended: false,
       layout: 'preview', pictureOptions: config.maps.map(() => false),
       createdBy: client.user.id, createdAt: new Date().toISOString(),
@@ -213,8 +269,11 @@ async function findExistingWipePost(channel, id) {
 }
 
 async function createAutomaticGiveaway(client, guild, config, id, wipeAt) {
-  const channel = await getTextChannel(client, guild, 'giveaway');
-  if (!channel) return;
+  const channel = await getTextChannel(client, guild, 'giveaway', config.channelId);
+  if (!channel) {
+    logger.warn('[WIPE_AUTO] Giveaway destination is unavailable:', config.channelId || 'giveaway');
+    return;
+  }
   const key = sessionKey(guild.id, id);
   await Mutex.runExclusive(key, async () => {
     let session = await getSession(client, guild.id, id);
@@ -223,8 +282,12 @@ async function createAutomaticGiveaway(client, guild, config, id, wipeAt) {
     if (session && !lookup?.lookupSucceeded) return;
     if (!session) {
       session = {
-        id, server: config.server, kit: config.kit, roleId: config.winnerRoleId,
-        winnerCount: config.winnerCount, wipeAt,
+        id, server: config.server,
+        kit: config.randomize && config.prizes?.length > 1
+          ? config.prizes[randomInt(config.prizes.length)] : config.kit,
+        roleId: config.winnerRoleId,
+        winnerCount: config.winnerCount, description: config.description || '',
+        wipeAt,
         endsAt: Date.now() + config.durationMinutes * MINUTE,
         hostId: client.user.id, channelId: channel.id,
         participants: [], winners: [], synced: [], roleGranted: [],
@@ -301,6 +364,38 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
     for (const kind of Object.keys(AUTO_WIPE_KIND)) {
       const setting = config[kind];
       if (!setting || setting.state !== 'running') continue;
+      if (setting.schedule === 'repeat') {
+        let dueAt = null;
+        let dueSetting = null;
+        await Mutex.runExclusive(`wipeauto:config:${guild.id}`, async () => {
+          const latest = await getWipeAutomationConfig(client, guild.id);
+          const active = latest[kind];
+          if (active?.schedule !== 'repeat' || active.state !== 'running') return;
+          if (!validRepeat(active.repeatMinutes, active.durationMinutes)) return;
+          const next = Number(active.nextRunAt);
+          if (!Number.isFinite(next) || next <= 0) {
+            latest[kind] = { ...active, nextRunAt: now + active.repeatMinutes * MINUTE };
+          } else if (next <= now) {
+            dueAt = next;
+            dueSetting = { ...active };
+            const elapsed = Math.floor((now - next) / (active.repeatMinutes * MINUTE)) + 1;
+            latest[kind] = { ...active, nextRunAt: next + elapsed * active.repeatMinutes * MINUTE };
+          } else return;
+          // Persist the advance BEFORE posting so repeated ticks/crashes cannot
+          // duplicate a public giveaway or vote.
+          await saveConfig(client, guild.id, latest);
+        });
+        if (dueAt !== null) {
+          const id = wipeSessionId(guild.id, `${kind}:repeat`, dueAt);
+          try {
+            if (kind === 'vote') await createAutomaticVote(client, guild, dueSetting, id, dueAt);
+            else await createAutomaticGiveaway(client, guild, dueSetting, id, dueAt);
+          } catch (error) {
+            logger.warn(`[WIPE_AUTO] Could not start scheduled ${kind}:`, error);
+          }
+        }
+        continue;
+      }
       const wipeAt = Number(config.wipes[nameKey(setting.server)]);
       if (!Number.isFinite(wipeAt) || wipeAt <= now) continue;
       const startsAt = wipeAt - setting.beforeMinutes * MINUTE;
