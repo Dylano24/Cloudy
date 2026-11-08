@@ -74,6 +74,25 @@ export function serviceReviewModal(type, rating) {
     ));
 }
 
+// Upgrade only reviews created with the old generic heading. Other embeds
+// and any manually edited review content are left untouched.
+export function normalizeLegacyServiceReviewEmbed(embed) {
+  const current = embed?.toJSON?.() || embed;
+  if (!current || typeof current.description !== 'string') return null;
+  const prefix = '**Product or service**\\n';
+  if (!current.description.startsWith(prefix)) return null;
+  const category = current.description.slice(prefix.length).split('\\n', 1)[0];
+  if (!Object.values(SERVICE_REVIEW_TYPES).includes(category)) return null;
+  const originalHeader = `${prefix}${category}\\n\\n`;
+  if (!current.description.startsWith(originalHeader)) return null;
+  const updated = {
+    ...current,
+    description: `**${category}**\\n\\n` + current.description.slice(originalHeader.length),
+  };
+  delete updated.timestamp;
+  return updated;
+}
+
 export function buildPublishedServiceReview(interaction, type, rating, comment, emoji = null) {
   if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) throw new RangeError('Invalid service');
   const stars = emoji ? emoji.repeat(rating) : '⭐'.repeat(rating);
