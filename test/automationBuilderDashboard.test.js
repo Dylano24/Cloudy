@@ -125,8 +125,8 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
     ['Edit details', 'Schedule', 'Randomize: off']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
-    ['Save', 'Start', 'Pause', 'Delete']);
-  assert.equal(f.view.components[1].toJSON().components[1].disabled, true,
+    ['Start', 'Pause', 'Save', 'Delete']);
+  assert.equal(f.view.components[1].toJSON().components[0].disabled, true,
     'start cannot run before the automation has been saved');
   assert.match(f.view.embeds[0].toJSON().title, /Auto vote/i);
 
@@ -156,7 +156,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(saved.durationMinutes, 5);
   assert.equal(saved.startAt, parseAmsterdamStart(futureStart.date, futureStart.time));
   assert.equal(saved.randomize, true);
-  assert.equal(f.view.components[1].toJSON().components[1].disabled, false,
+  assert.equal(f.view.components[1].toJSON().components[0].disabled, false,
     'start becomes available only after saving');
 
   await f.action(id, 'start');
@@ -164,18 +164,18 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(saved.state, 'running', f.view.embeds[0].toJSON().description);
   await runWipeAutomationTick(f.client, saved.nextRunAt + 10);
   assert.equal(f.posts.length, 1);
-  assert.equal(f.view.components[1].toJSON().components[1].disabled, true,
+  assert.equal(f.view.components[1].toJSON().components[0].disabled, true,
     'start is disabled while running');
-  assert.equal(f.view.components[1].toJSON().components[2].disabled, false,
+  assert.equal(f.view.components[1].toJSON().components[1].disabled, false,
     'pause is enabled while running');
   await f.action(id, 'pause');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'paused');
-  assert.equal(f.view.components[1].toJSON().components[1].label, 'Resume');
+  assert.equal(f.view.components[1].toJSON().components[0].label, 'Resume');
   await f.action(id, 'start');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running');
   await f.action(id, 'delete');
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
-    ['Save', 'Start', 'Pause', 'Confirm delete']);
+    ['Start', 'Pause', 'Save', 'Confirm delete']);
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running',
     'first delete press only asks for confirmation');
   await f.action(id, 'delete');
@@ -274,13 +274,13 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     assert.deepEqual(rows[0].map(item => item.label),
       ['Edit details', 'Schedule', 'Randomize: off']);
     assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Save', 'Start', 'Pause', 'Delete']
+      ? ['Start', 'Pause', 'Save', 'Delete']
       : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
     assert.equal(rows[0].length, 3);
     assert.equal(rows[1].length, kind === 'vote' ? 4 : 5,
       'management controls fit on one Discord action row');
     assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [false, true, true, true] : [false, true, true, true, false],
+      kind === 'vote' ? [true, true, false, true] : [false, true, true, true, false],
       'delete cannot be used until a vote is saved');
 
     await f.action(id, 'channel', [CHANNEL]);
@@ -292,24 +292,24 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     await f.action(id, 'save');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Save', 'Start', 'Pause', 'Delete']
+      ? ['Start', 'Pause', 'Save', 'Delete']
       : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
     assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [false, false, true, false]
+      kind === 'vote' ? [false, true, false, false]
         : [false, false, true, true, false]);
 
     await f.action(id, 'start');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [false, true, false, false] : [false, true, false, false, false]);
+      kind === 'vote' ? [true, false, false, false] : [false, true, false, false, false]);
 
     await f.action(id, 'pause');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Save', 'Resume', 'Pause', 'Delete']
+      ? ['Resume', 'Pause', 'Save', 'Delete']
       : ['Save', 'Resume', 'Pause', 'Stop', 'Cancel']);
     assert.deepEqual(rows[1].map(item => item.disabled),
-      kind === 'vote' ? [false, false, true, false] : [false, false, true, false, false]);
+      kind === 'vote' ? [false, true, false, false] : [false, false, true, false, false]);
 
     if (kind === 'vote') {
       await f.action(id, 'list');
@@ -332,7 +332,7 @@ test('Save does not stop a running vote and Start never implicitly saves edits',
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running');
   await f.action(id, 'random');
   const buttons = f.view.components[1].toJSON().components;
-  assert.equal(buttons[1].disabled, true, 'Start cannot silently save pending edits');
+  assert.equal(buttons[0].disabled, true, 'Start cannot silently save pending edits');
   await f.action(id, 'save');
   const updated = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
   assert.equal(updated.state, 'running', 'saving an active configuration must not stop it');
