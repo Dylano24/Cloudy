@@ -5,6 +5,7 @@ import {
   EmbedBuilder,
 } from 'discord.js';
 import { supportBotEmoji } from './supportBotEmojiService.js';
+import { startChatEmoji, ORIGINAL_START_CHAT_EMOJI } from './startChatEmojiService.js';
 import {
   CLOUDY_TICKET_FOOTER,
   forceCloudyTicketFooter,
@@ -16,7 +17,7 @@ export const DEFAULT_TICKET_PANEL_MESSAGE = `If you need assistance or have some
 Before submitting a request, please make sure the answer to your question cannot already be found in our **FAQ** section using the button at the bottom right.`;
 export const DEFAULT_TICKET_BUTTON_LABEL = 'Start Chat';
 export const TICKET_FAQ_CHANNEL_ID = '1554538586001645679';
-export const TICKET_START_CHAT_EMOJI = { id: '1568808462782177280', name: 'white_bubble' };
+export const TICKET_START_CHAT_EMOJI = ORIGINAL_START_CHAT_EMOJI;
 export { CLOUDY_TICKET_FOOTER };
 
 function resolveGuildId(client, guildId = null) {
@@ -34,7 +35,7 @@ export function buildTicketPanelComponents(client, guildId, config = {}, sourceR
     return {type: 1, components: data.components.map(button => button.toJSON?.() || button)};
   }) : [{type: 1, components: [new ButtonBuilder()
     .setCustomId('create_ticket').setLabel(config.ticketButtonLabel || DEFAULT_TICKET_BUTTON_LABEL)
-    .setStyle(ButtonStyle.Secondary).setEmoji(TICKET_START_CHAT_EMOJI).toJSON()]}];
+    .setStyle(ButtonStyle.Secondary).setEmoji(startChatEmoji(client)).toJSON()]}];
   const isFaqLink = button => Number(button.style) === ButtonStyle.Link
     && /faq|support assistant|cloudy assistant/i.test(String(button.label || ''));
   // The former FAQ link led to the AI assistant. The owner explicitly moved
@@ -49,9 +50,12 @@ export function buildTicketPanelComponents(client, guildId, config = {}, sourceR
     if (!isFaqLink(button)) {
       // Upgrade only the old default mail / generic emoji; preserve other custom icons.
       const isStartChat = button.custom_id === 'create_ticket';
+      const desired = startChatEmoji(client);
       const oldEmoji = (!button.emoji?.id && (!button.emoji || button.emoji.name === '💬'))
-        || button.emoji?.id === '1543303628159320165';
-      return new ButtonBuilder(isStartChat && oldEmoji ? { ...button, emoji: TICKET_START_CHAT_EMOJI } : button);
+        || button.emoji?.id === '1543303628159320165'
+        || (desired.id !== TICKET_START_CHAT_EMOJI.id
+          && button.emoji?.id === TICKET_START_CHAT_EMOJI.id);
+      return new ButtonBuilder(isStartChat && oldEmoji ? { ...button, emoji: desired } : button);
     }
     found = true;
     return support();

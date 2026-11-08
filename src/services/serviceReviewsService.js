@@ -47,7 +47,7 @@ export function serviceReviewRatingRow(type = null, privateRating = false) {
     new StringSelectMenuBuilder()
       .setCustomId(privateRating && type ? `${SERVICE_REVIEW_RATING_ID}:${type}` : SERVICE_REVIEW_RATING_ID)
       .setPlaceholder('Choose your rating')
-      .setDisabled(type === null)
+      .setDisabled(false)
       .addOptions([1, 2, 3, 4, 5].map(rating => ({
         label: '★'.repeat(rating),
         value: String(rating),
@@ -55,8 +55,8 @@ export function serviceReviewRatingRow(type = null, privateRating = false) {
   );
 }
 
-// Match Staff Reviews: one public panel with a disabled rating until a service is chosen.
-// Never post a separate ephemeral rating dropdown.
+// Both original dropdowns stay on the same public message. Rating remains
+// enabled so each reviewer can select privately without a public component edit.
 export function serviceReviewPanelRows(type = null) {
   return [serviceReviewChoiceRow(type), serviceReviewRatingRow(type)];
 }

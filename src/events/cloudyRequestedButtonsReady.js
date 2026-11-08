@@ -1,5 +1,6 @@
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { ensureLargeStartChatEmoji, startChatEmoji, ORIGINAL_START_CHAT_EMOJI } from '../services/startChatEmojiService.js';
 
 const GUILD_ID = '1532882647838228723';
 const TARGETS = Object.freeze([
@@ -57,14 +58,27 @@ export async function reconcileRequestedButtonEmojis(client) {
           button.label = updatedLabel;
           dirty = true;
         }
+        const isStartChat = button.custom_id === 'create_ticket' && button.label === 'Start chat';
+        if (isStartChat) {
+          // Keep the original button/message, but use the larger image inside
+          // a new application emoji. Other user-chosen button emojis stay intact.
+          const replaceable = !button.emoji?.id
+            || [ORIGINAL_START_CHAT_EMOJI.id, '1543303628159320165'].includes(button.emoji.id)
+            || button.emoji.name === 'cloudy_start_chat_large';
+          if (!replaceable) continue;
+          let emoji = startChatEmoji(client);
+          if (emoji.id === ORIGINAL_START_CHAT_EMOJI.id) {
+            try { emoji = await ensureLargeStartChatEmoji(client); }
+            catch (error) { logger.warn('[REQUESTED_BUTTONS] Could not create larger Start chat emoji:', error); }
+          }
+          if (button.emoji?.id === emoji.id) continue;
+          button.emoji = emoji;
+          dirty = true;
+          continue;
+        }
         const emoji = target.buttons[button.label];
         if (!emoji) continue;
-        // Replace the previous default mail icon on Start chat only. Preserve
-        // all other custom emojis and the original embed/message id.
-        const previousStartChatIcon = button.custom_id === 'create_ticket'
-          && button.emoji?.id === '1543303628159320165';
-        if (!previousStartChatIcon
-          && (button.emoji?.id || (button.emoji && button.emoji.name !== '💬'))) continue;
+        if (button.emoji?.id || (button.emoji && button.emoji.name !== '💬')) continue;
         button.emoji = emoji;
         dirty = true;
       }

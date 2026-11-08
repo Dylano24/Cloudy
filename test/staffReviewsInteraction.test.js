@@ -91,12 +91,12 @@ test('staff review is not published when deferReply rejects', async () => {
   assert.equal(channelFetches, 0);
 });
 
-test('staff review choices send independent private rating menus, never changing the public panel', async () => {
+test('staff review choices are user-private with both original dropdowns and no new message', async () => {
   const publicPanel = buildStaffReviewsPanel([{ id: 'owner-member-id', displayName: 'Lano',
     user: { username: 'Lano' } }]);
   let publicEdits = 0;
   const message = { ...publicPanel, edit: async () => { publicEdits += 1; } };
-  const privatePrompts = [];
+  let acknowledgements = 0;
   for (const userId of ['private-reviewer-1', 'private-reviewer-2']) {
     await staffReviewsInteraction.execute({
       customId: STAFF_REVIEW_MEMBER_ID,
@@ -105,18 +105,54 @@ test('staff review choices send independent private rating menus, never changing
       values: ['owner-member-id'],
       message,
       isStringSelectMenu: () => true,
-      reply: async payload => { privatePrompts.push(payload); },
-      deferUpdate: async () => { throw new Error('Must not change public message'); },
+      reply: async () => { throw new Error('No second private rating dropdown allowed'); },
+      deferUpdate: async () => { acknowledgements += 1; },
     });
   }
   assert.equal(publicEdits, 0);
-  assert.equal(privatePrompts.length, 2);
-  assert.ok(privatePrompts.every(prompt => prompt.flags === 64));
-  assert.ok(privatePrompts.every(prompt => prompt.components.length === 1));
-  assert.ok(privatePrompts.every(prompt =>
-    prompt.components[0].toJSON().components[0].custom_id === 'staff_review_rating:owner-member-id'));
-  assert.equal(message.components[1].toJSON().components[0].disabled, true);
+  assert.equal(acknowledgements, 2);
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
   assert.notEqual(message.components[0].toJSON().components[0].options[0].default, true);
+});
+
+test('two staff reviewers can choose different members on the same public dropdowns', async () => {
+  const ownerRole = { id: 'role-owner', name: 'Owner' };
+  const ownerIds = ['111111111111111111', '222222222222222222'];
+  const members = new Map(ownerIds.map(id => [id, {
+    id, user: { bot: false },
+    roles: { cache: { has: roleId => roleId === ownerRole.id } },
+  }]));
+  const guild = {
+    roles: { cache: { find: predicate => predicate(ownerRole) ? ownerRole : null } },
+    members: { fetch: async ({ user }) => members.get(user) || null },
+  };
+  const panel = buildStaffReviewsPanel(ownerIds.map(id => ({
+    id, displayName: id, user: { username: id },
+  })));
+  let edits = 0;
+  const message = { components: panel.components, async edit() { edits += 1; } };
+  const users = ['staff-reviewer-first', 'staff-reviewer-second'];
+  for (let i = 0; i < 2; i++) {
+    await staffReviewsInteraction.execute({
+      customId: STAFF_REVIEW_MEMBER_ID,
+      guildId: 'private-test-guild', user: { id: users[i] }, guild, message,
+      values: [ownerIds[i]], isStringSelectMenu: () => true,
+      deferUpdate: async () => {},
+      reply: async () => { throw new Error('Never send separate rating panels'); },
+    });
+  }
+  const modals = [];
+  for (let i = 0; i < 2; i++) {
+    await staffReviewsInteraction.execute({
+      customId: STAFF_REVIEW_RATING_ID,
+      guildId: 'private-test-guild', user: { id: users[i] }, guild, message,
+      values: ['5'], isStringSelectMenu: () => true,
+      showModal: async modal => { modals.push(modal.toJSON().custom_id); },
+    });
+  }
+  assert.deepEqual(modals, ownerIds.map(id => `staff_review_modal:${id}:5`));
+  assert.equal(edits, 0, 'neither selection may edit the public review panel');
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
 });
 
 test('rating selection rejects stale cached Owner membership', async () => {
