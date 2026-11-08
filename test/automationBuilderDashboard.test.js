@@ -96,11 +96,15 @@ function fixture() {
   }
 
   async function submit(id, kind, fields) {
+    const savedMode = modal?.components?.find(row => row.component?.custom_id === 'scheduleType')
+      ?.component?.options?.find(option => option.default)?.value || 'repeat';
     await action(id, 'modal', [], {
       customId: `auto_builder:modal:${id}:${kind}`,
       isModalSubmit: () => true,
       fields: { getTextInputValue: key => fields[key] || '',
-        getStringSelectValues: key => Array.isArray(fields[key]) ? fields[key] : [],
+        getStringSelectValues: key => key === 'scheduleType'
+          ? [fields.scheduleType || savedMode]
+          : Array.isArray(fields[key]) ? fields[key] : [],
         getField: key => ({ values: fields[key] ? [fields[key]] : [] }) },
     });
   }
@@ -194,11 +198,18 @@ test('auto giveaway matches the normal giveaway preview, editing and posting flo
   assert.match(f.view.embeds[1].description, /Your prize/);
   assert.match(f.view.embeds[2].description, /Prize conditions/);
   assert.deepEqual(f.view.components[0].toJSON().components.map(b => b.label),
-    ['Edit text', 'Edit claim', 'Duration & winners', 'Code', 'Schedule']);
+    ['Edit text', 'Edit claim', 'Duration & winners']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(b => b.label),
-    ['Start', 'Pause', 'Save', 'Delete', 'Back']);
-  const modeOptions = f.view.components[4].toJSON().components[0].options.map(x => x.value);
-  assert.deepEqual(modeOptions, ['repeat', 'once'], 'Rust wipe belongs only in Auto Vote');
+    ['Code', 'Schedule', 'Start', 'Pause']);
+  assert.deepEqual(f.view.components[2].toJSON().components.map(b => b.label),
+    ['Save', 'Delete', 'Back']);
+  assert.equal(f.view.components[3].toJSON().components[0].type, 8,
+    'posting channel stays in the fourth row');
+  assert.equal(f.view.components[4].toJSON().components[0].type, 3,
+    'tag picker stays in the fifth row');
+  await f.action(id, 'schedule');
+  assert.deepEqual(f.modal.components[0].component.options.map(x => x.value),
+    ['repeat', 'once'], 'Rust wipe belongs only in Auto Vote');
   assert.doesNotMatch(JSON.stringify(f.view), /Before a Rust wipe|Connected Rust server name/);
 
   await f.action(id, 'channel', [CHANNEL]);
@@ -228,7 +239,7 @@ test('auto giveaway matches the normal giveaway preview, editing and posting flo
     winners: '2', randomize: 'yes' });
   await f.action(id, 'schedule');
   assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
-    ['date', 'time', 'repeat']);
+    ['scheduleType', 'date', 'time', 'repeat']);
   await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time, repeat: '1h' });
   await f.action(id, 'save');
   await f.action(id, 'start');
@@ -251,6 +262,30 @@ test('auto giveaway matches the normal giveaway preview, editing and posting flo
     ['Enter giveaway', 'Leave giveaway']);
 });
 
+test('Auto Giveaway can switch to Once directly inside Schedule without a separate menu', async () => {
+  const f = fixture();
+  const id = await f.open('giveaway');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'text', {
+    introTitle: 'Giveaway time!', prizes: 'One-time prize', closingText: 'Good luck!',
+  });
+  await f.action(id, 'schedule');
+  assert.equal(f.modal.components[0].component.options.find(o => o.value === 'repeat').default, true);
+  await f.submit(id, 'schedule', {
+    scheduleType: 'once', date: futureStart.date, time: futureStart.time, repeat: 'invalid',
+  });
+  assert.match(f.view.embeds[0].toJSON().description, /Once \(selected date\)/);
+  assert.notEqual(f.view.embeds[0].toJSON().title, 'Wrong information',
+    'Repeat is ignored for Once');
+  await f.action(id, 'save');
+  await f.action(id, 'start');
+  const config = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
+  assert.equal(config.schedule, 'once');
+  await runWipeAutomationTick(f.client, config.startAt + 5);
+  assert.equal(f.posts.length, 1);
+  assert.match(f.posts[0].embeds[0].description, /One-time prize/);
+});
+
 test('auto giveaway preserves tag, code and claim options in the posted giveaway', async () => {
   const f = fixture();
   const id = await f.open('giveaway');
@@ -263,7 +298,7 @@ test('auto giveaway preserves tag, code and claim options in the posted giveaway
   assert.equal(f.modal.title, 'Giveaway code');
   await f.submit(id, 'code', { codeType: ['kit'] });
   await f.action(id, 'mode', ['once']);
-  await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time });
+  await f.submit(id, 'schedule', { scheduleType: 'once', date: futureStart.date, time: futureStart.time });
   await f.action(id, 'save');
   const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
   assert.equal(cfg.codeType, 'kit');
@@ -305,10 +340,11 @@ test('Rust wipe cannot be selected in Auto Giveaway; historical wipe config rema
   const id = await f.open('giveaway', { showList: true });
   await f.action(id, 'select', ['legacy']);
   assert.deepEqual(f.view.components[4].toJSON().components[0].options.map(x => x.value),
+    ['everyone', 'role', 'none']);
+  await f.action(id, 'schedule');
+  assert.deepEqual(f.modal.components[0].component.options.map(x => x.value),
     ['repeat', 'once']);
   assert.doesNotMatch(f.view.embeds[0].toJSON().description, /Rust|wipe/i);
-  await f.action(id, 'mode', ['wipe']);
-  assert.equal(f.view.components[4].toJSON().components[0].options.some(x => x.default), false);
   assert.deepEqual((await getWipeAutomationConfig(f.client, GUILD)).giveaway, original);
 });
 
@@ -325,17 +361,29 @@ test('another user cannot operate someone else’s automation dashboard', async 
   assert.match(f.view.embeds[0].toJSON().description, /Randomize:\*\* Off/);
 });
 
-test('vote and giveaway keep Start, Pause, Save and Delete in the same positions', async () => {
+test('Auto Giveaway uses the approved three button rows while vote stays unchanged', async () => {
   for (const kind of ['vote', 'giveaway']) {
     const f = fixture();
     const id = await f.open(kind);
-    let rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[0].map(item => item.label), kind === 'vote'
-      ? ['Edit details', 'Schedule', 'Randomize: off']
-      : ['Edit text', 'Edit claim', 'Duration & winners', 'Code', 'Schedule']);
-    assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
-      ? ['Start', 'Pause', 'Save', 'Delete'] : ['Start', 'Pause', 'Save', 'Delete', 'Back']);
-    assert.deepEqual(rows[1].slice(0, 4).map(item => item.disabled), [true, true, false, true]);
+    const rows = f.view.components.slice(0, kind === 'vote' ? 2 : 3)
+      .map(row => row.toJSON().components);
+    if (kind === 'vote') {
+      assert.deepEqual(rows[0].map(item => item.label),
+        ['Edit details', 'Schedule', 'Randomize: off']);
+      assert.deepEqual(rows[1].map(item => item.label),
+        ['Start', 'Pause', 'Save', 'Delete']);
+    } else {
+      assert.deepEqual(rows[0].map(item => item.label),
+        ['Edit text', 'Edit claim', 'Duration & winners']);
+      assert.deepEqual(rows[1].map(item => item.label),
+        ['Code', 'Schedule', 'Start', 'Pause']);
+      assert.deepEqual(rows[2].map(item => item.label),
+        ['Save', 'Delete', 'Back']);
+      assert.equal(rows[1][2].disabled, true, 'Start disabled until saved');
+      assert.equal(rows[1][3].disabled, true, 'Pause disabled until running');
+      assert.equal(rows[2][0].disabled, false, 'Save available');
+      assert.equal(rows[2][1].disabled, true, 'Delete disabled until saved');
+    }
     await f.action(id, 'channel', [CHANNEL]);
     if (kind === 'vote') {
       await f.submit(id, 'details', { question: 'Your map?', option1: 'A', option2: 'B' });
@@ -343,17 +391,19 @@ test('vote and giveaway keep Start, Pause, Save and Delete in the same positions
       await f.submit(id, 'text', { introTitle: 'Giveaway time!', prizes: 'Kit A',
         closingText: 'Good luck!' });
     }
-    await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
-      repeat: '1d', duration: '1h' });
+    await f.submit(id, 'schedule', {
+      scheduleType: 'repeat', date: futureStart.date, time: futureStart.time,
+      repeat: '1d', duration: '1h',
+    });
     await f.action(id, 'save');
-    rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].slice(0, 4).map(item => item.disabled), [false, true, false, false]);
+    const saved = f.view.components.flatMap(row => row.toJSON().components);
+    assert.equal(saved.find(item => item.custom_id === `auto_builder:start:${id}`).disabled, false);
     await f.action(id, 'start');
-    rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[1].slice(0, 4).map(item => item.disabled), [true, false, false, false]);
+    const started = f.view.components.flatMap(row => row.toJSON().components);
+    assert.equal(started.find(item => item.custom_id === `auto_builder:pause:${id}`).disabled, false);
     await f.action(id, 'pause');
-    rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.equal(rows[1][0].label, 'Resume');
+    const paused = f.view.components.flatMap(row => row.toJSON().components);
+    assert.equal(paused.find(item => item.custom_id === `auto_builder:start:${id}`).label, 'Resume');
     await f.action(id, 'list');
     assert.equal(f.view.embeds[0].toJSON().title, kind === 'vote' ? 'Auto vote' : 'Auto giveaway');
   }
@@ -391,8 +441,8 @@ test('both dashboards accept an actual Netherlands calendar date and 1d duration
     await f.action(id, 'mode', ['once']);
     await f.action(id, 'schedule');
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
-      kind === 'vote' ? ['date', 'time', 'duration'] : ['date', 'time']);
-    await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time, duration: '1d' });
+      kind === 'vote' ? ['date', 'time', 'duration'] : ['scheduleType', 'date', 'time', 'repeat']);
+    await f.submit(id, 'schedule', { scheduleType: 'once', date: futureStart.date, time: futureStart.time, duration: '1d' });
     assert.match(f.view.embeds[0].toJSON().description, /Duration:\*\* 1d/);
     const expected = parseAmsterdamStart(futureStart.date, futureStart.time);
     await f.action(id, 'save');
@@ -419,16 +469,20 @@ test('invalid date does not save or close the automation builder', async () => {
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote, null);
 });
 
-test('auto vote retains its schedule, while auto giveaway schedules only when a new giveaway starts', async () => {
+test('Auto Giveaway keeps schedule modes inside the Schedule modal', async () => {
   for (const kind of ['vote', 'giveaway']) {
     const f = fixture();
     const id = await f.open(kind);
     await f.action(id, 'schedule');
     assert.equal(f.modal.title, 'Schedule');
     assert.deepEqual(f.modal.components.map(row => row.label),
-      kind === 'vote' ? ['Date', 'Time (EU)', 'Repeat', 'Duration'] : ['Date', 'Time (EU)', 'Repeat']);
-    assert.match(f.modal.components[2].description, new RegExp('How often a new ' + kind + ' starts'));
+      kind === 'vote'
+        ? ['Date', 'Time (EU)', 'Repeat', 'Duration']
+        : ['Schedule type', 'Date', 'Time (EU)', 'Repeat (only for Repeat)']);
     if (kind === 'giveaway') {
+      assert.deepEqual(f.modal.components[0].component.options.map(o => o.value),
+        ['repeat', 'once']);
+      assert.equal(f.modal.components[0].component.type, 3);
       await f.action(id, 'timing');
       assert.equal(f.modal.title, 'Duration & winners');
       assert.equal(f.modal.components.length, 4);
@@ -438,15 +492,15 @@ test('auto vote retains its schedule, while auto giveaway schedules only when a 
     await f.action(id, 'mode', ['once']);
     await f.action(id, 'schedule');
     assert.deepEqual(f.modal.components.map(row => row.label),
-      kind === 'vote' ? ['Date', 'Time (EU)', 'Duration'] : ['Date', 'Time (EU)']);
+      kind === 'vote' ? ['Date', 'Time (EU)', 'Duration']
+        : ['Schedule type', 'Date', 'Time (EU)', 'Repeat (only for Repeat)']);
     if (kind === 'vote') {
       await f.action(id, 'mode', ['wipe']);
       await f.action(id, 'schedule');
       assert.deepEqual(f.modal.components.map(row => row.label),
         ['Connected Rust server name', 'Before wipe', 'Duration']);
     } else {
-      assert.deepEqual(f.view.components[4].toJSON().components[0].options.map(o => o.value),
-        ['repeat', 'once']);
+      assert.equal(f.modal.components[0].component.options.find(o => o.value === 'once').default, true);
     }
   }
 });
@@ -614,7 +668,7 @@ test('explicit EU date and time separators save correctly for vote and giveaway'
     const values = f.modal.components.map(row => (row.component || row.components[0]).value);
     assert.deepEqual(values, kind === 'vote'
       ? [futureStart.date, futureStart.time, '1d', '1m']
-      : [futureStart.date, futureStart.time, '1d']);
+      : [undefined, futureStart.date, futureStart.time, '1d']);
     await f.action(id, 'save');
     const saved = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
@@ -634,7 +688,7 @@ test('invalid schedule turns the private dashboard line red, preserves entered f
     assert.match(f.view.embeds[0].toJSON().description, /valid date/i);
     await f.action(id, 'schedule');
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).value),
-      kind === 'vote' ? Object.values(inputValues) : [inputValues.date, inputValues.time, inputValues.repeat]);
+      kind === 'vote' ? Object.values(inputValues) : [undefined, inputValues.date, inputValues.time, inputValues.repeat]);
     await f.submit(id, 'schedule', {
       date: futureStart.date, time: futureStart.time, repeat: '1d', duration: '1h',
     });
@@ -666,7 +720,7 @@ test('Time rejects letters immediately on submission for both dashboards', async
     assert.match(f.view.embeds[0].toJSON().description,
       /Invalid Time: use 18:00/i);
     await f.action(id, 'schedule');
-    assert.equal(f.modal.components[1].component.value, 'abcd');
+    assert.equal(f.modal.components[kind === 'vote' ? 1 : 2].component.value, 'abcd');
     const cfg = await getWipeAutomationConfig(f.client, GUILD);
     assert.equal(kind === 'vote' ? cfg.voteJobs.length : cfg.giveaway, kind === 'vote' ? 0 : null);
   }
@@ -686,11 +740,11 @@ test('Repeat 1m and Duration 1m are valid with separate giveaway duration contro
       await f.submit(id, 'timing', { duration: '1m', winners: '1', randomize: 'no' });
     }
     await f.action(id, 'schedule');
-    assert.match(f.modal.components[2].description, /How often.*1m.*1d.*1w/);
+    assert.match(f.modal.components[kind === 'vote' ? 2 : 3].description, /1m.*1d.*1w/);
     if (kind === 'vote') {
       assert.match(f.modal.components[3].description, /How long.*stays open.*1m.*1d.*1w/);
     } else {
-      assert.equal(f.modal.components.length, 3);
+      assert.equal(f.modal.components.length, 4);
     }
     await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
       repeat: '1m', duration: '1m' });
@@ -713,11 +767,11 @@ test('Schedule modals keep valid Discord Label components for each supported mod
       await f.action(id, 'mode', [mode]);
       await f.action(id, 'schedule');
       assert.equal(f.modal.title, 'Schedule');
-      const expected = kind === 'vote' ? (mode === 'repeat' ? 4 : 3) : (mode === 'repeat' ? 3 : 2);
+      const expected = kind === 'vote' ? (mode === 'repeat' ? 4 : 3) : 4;
       assert.equal(f.modal.components.length, expected);
-      for (const label of f.modal.components) {
+      for (const [index, label] of f.modal.components.entries()) {
         assert.equal(label.type, 18);
-        assert.equal(label.component.type, 4);
+        assert.equal(label.component.type, kind === 'giveaway' && index === 0 ? 3 : 4);
         assert.ok(label.label);
         assert.ok(label.description);
         assert.equal(Object.hasOwn(label.component, 'label'), false);
@@ -761,7 +815,8 @@ test('schedule instructions describe only relevant options for each automation t
     const f = fixture();
     const id = await f.open(kind);
     await f.action(id, 'schedule');
-    assert.match(f.modal.components[2].description, new RegExp('new ' + kind + ' starts'));
+    assert.match(f.modal.components[kind === 'vote' ? 2 : 3].description,
+      kind === 'vote' ? /new vote starts/ : /Interval between giveaways/);
     if (kind === 'vote') {
       assert.match(f.modal.components[3].description, /stays open/);
       await f.action(id, 'mode', ['wipe']);
@@ -769,7 +824,7 @@ test('schedule instructions describe only relevant options for each automation t
       assert.match(f.modal.components[1].description, /starts before the wipe/);
       assert.match(f.modal.components[2].description, /stays open/);
     } else {
-      assert.deepEqual(f.view.components[4].toJSON().components[0].options.map(x => x.value),
+      assert.deepEqual(f.modal.components[0].component.options.map(x => x.value),
         ['repeat', 'once']);
       await f.action(id, 'timing');
       assert.equal(f.modal.title, 'Duration & winners');
