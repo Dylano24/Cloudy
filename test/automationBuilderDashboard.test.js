@@ -839,5 +839,5 @@ test('Add media accepts 60 pictures in six uploads and preserves them after Save
   await f.action(id, 'clear_media');
   assert.match(f.view.embeds[0].toJSON().description, /Confirm clear/);
   await f.action(id, 'clear_media');
-  assert.match(f.view.embeds[0].toJSON().description, /Media:\\*\\* 0 saved/);
+  assert.ok(f.view.embeds[0].toJSON().description.includes('**Media:** 0 saved'));
 });
