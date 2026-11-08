@@ -121,7 +121,7 @@ function normalizedMediaLibrary(input) {
   });
 }
 
-function validatedAutomationConfig(kind, configuration) {
+function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt = null } = {}) {
   const schedule = ['repeat', 'once', 'wipe', 'random_weekly'].includes(configuration?.schedule)
     ? configuration.schedule : 'wipe';
   const server = String(configuration?.server || (schedule !== 'wipe' ? 'Cloudy' : '')).trim();
@@ -152,8 +152,15 @@ function validatedAutomationConfig(kind, configuration) {
   if (schedule !== 'wipe' && startAt != null && (!Number.isSafeInteger(startAt) || startAt < 0)) {
     throw new RangeError('Choose a valid start date and time.');
   }
-  if ((schedule === 'once' || schedule === 'random_weekly') && (!startAt || startAt <= Date.now())) {
+  if (schedule === 'once' && (!startAt || startAt <= Date.now())) {
     throw new RangeError('Choose a future start date for this one-time automation.');
+  }
+  // An already-running weekly job keeps its historic anchor when only its
+  // question, media or other options change. A newly entered past date is
+  // still rejected, both here and in the dashboard Schedule form.
+  if (schedule === 'random_weekly' && (!startAt
+    || (startAt <= Date.now() && startAt !== existingWeeklyStartAt))) {
+    throw new RangeError('Choose a future start date for the weekly schedule.');
   }
   if (channelId && !/^\d{17,20}$/.test(channelId)) {
     throw new RangeError('Select a valid destination channel');
@@ -255,11 +262,13 @@ export async function listAutomaticVotes(client, guildId) {
 
 export async function saveAutomaticVoteJob(client, guildId, draft, jobId = null) {
   if (guildId !== AUTO_WIPE_GUILD_ID) throw new RangeError('Invalid automation guild');
-  const configured = validatedAutomationConfig('vote', draft);
   if (jobId === 'legacy') throw new RangeError('Legacy votes are managed through the existing config');
   return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
     const config = await getWipeAutomationConfig(client, guildId);
     const existing = jobId ? config.voteJobs.find(job => job.id === jobId) : null;
+    const configured = validatedAutomationConfig('vote', draft, {
+      existingWeeklyStartAt: existing?.schedule === 'random_weekly' ? existing.startAt : null,
+    });
     if (jobId && !existing) throw new RangeError('This automatic vote no longer exists.');
     if (!existing && config.voteJobs.length >= 20) {
       throw new RangeError('Maximum 20 additional automatic votes reached.');
