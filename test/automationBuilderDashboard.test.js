@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import autoCommand from '../src/commands/Tools/auto.js';
 import { amsterdamParts, parseAmsterdamStart } from '../src/services/automationSchedule.js';
 import {
@@ -775,4 +775,69 @@ test('starting another auto vote clears unsaved Schedule values from the previou
   assert.equal(f.modal.components[0].component.value, undefined);
   assert.equal(f.modal.components[1].component.value, undefined);
   assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
+});
+
+
+test('Add media accepts 60 pictures in six uploads and preserves them after Save', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { question: 'Media test?', option1: 'A', option2: 'B' });
+  await f.submit(id, 'schedule', {
+    date: futureStart.date, time: futureStart.time, repeat: '1d', duration: '1h',
+  });
+  const thread = {
+    id: '1569000000000222000',
+    async send({ files }) {
+      return {
+        id: String(1569000000000333000n + BigInt(posted.length)),
+        attachments: new Collection(files.map(file =>
+          [file.name, { name: file.name, url: `https://cdn.discordapp.com/attachments/111/222/${file.name}` }])),
+      };
+    },
+  };
+  const posted = [];
+  const originalSend = thread.send;
+  thread.send = async data => {
+    const message = await originalSend(data);
+    posted.push(message);
+    return message;
+  };
+  f.guild.channels.cache.set('1569000000000333444', {
+    id: '1569000000000333444', type: ChannelType.GuildText,
+    name: 'botlog', threads: { create: async () => thread },
+  });
+  f.client.channels.fetch = async channelId => channelId === thread.id ? thread : null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true, arrayBuffer: async () => Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10).buffer,
+  });
+  try {
+    for (let batch = 0; batch < 6; batch++) {
+      await f.action(id, 'media');
+      const modalId = f.modal.custom_id;
+      const uploads = new Collection(Array.from({ length: 10 }, (_, index) =>
+        [String(index), {
+          url: `https://cdn.discordapp.com/attachments/test/${batch}/${index}.png`,
+          contentType: 'image/png', size: 8,
+        }]));
+      await f.action(id, 'media', [], {
+        customId: modalId, isModalSubmit: () => true,
+        fields: { getUploadedFiles: () => uploads },
+      });
+      assert.match(f.view.embeds[0].toJSON().description,
+        new RegExp(`\\*\\*Media:\\*\\* ${(batch + 1) * 10} saved`));
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(posted.length, 6);
+  await f.action(id, 'save');
+  const stored = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
+  assert.equal(stored.mediaLibrary.length, 60);
+  assert.equal(new Set(stored.mediaLibrary.map(item => item.name)).size, 60);
+  await f.action(id, 'clear_media');
+  assert.match(f.view.embeds[0].toJSON().description, /Confirm clear/);
+  await f.action(id, 'clear_media');
+  assert.match(f.view.embeds[0].toJSON().description, /Media:\\*\\* 0 saved/);
 });
