@@ -16,14 +16,20 @@ export const SERVICE_REVIEW_PANEL_MESSAGE_ID = '1568560974548697170';
 // Keep that panel's description, footer and logo untouched.
 export const SERVICE_REVIEW_TYPES = Object.freeze({
   bot: 'Cloudy bot',
-  website: 'Website',
-  servers: 'Game servers',
+  website: 'Cloudy website',
   store: 'Game store',
+  development: 'Website development',
   services: 'Services',
 });
 
 const LOGO = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
+// Keep historical categories readable when migrating previously published reviews;
+// these are intentionally absent from the menu for NEW reviews.
+const HISTORICAL_SERVICE_REVIEW_LABELS = new Set([
+  ...Object.values(SERVICE_REVIEW_TYPES),
+  'Game servers', 'Website', 'Products & services',
+]);
 
 export function serviceReviewChoiceRow(selectedType = null) {
   return new ActionRowBuilder().addComponents(
@@ -82,7 +88,7 @@ export function normalizeLegacyServiceReviewEmbed(embed) {
   const prefix = '**Product or service**\n';
   if (!current.description.startsWith(prefix)) return null;
   const category = current.description.slice(prefix.length).split('\n', 1)[0];
-  if (!Object.values(SERVICE_REVIEW_TYPES).includes(category)) return null;
+  if (!HISTORICAL_SERVICE_REVIEW_LABELS.has(category)) return null;
   const originalHeader = `${prefix}${category}\n\n`;
   if (!current.description.startsWith(originalHeader)) return null;
   const updated = {
