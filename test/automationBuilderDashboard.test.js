@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import autoCommand from '../src/commands/Tools/auto.js';
+import { amsterdamParts, parseAmsterdamStart } from '../src/services/automationSchedule.js';
 import {
   openAutomationDashboard, handleAutomationBuilderInteraction,
 } from '../src/services/automationBuilderService.js';
@@ -10,6 +11,7 @@ import { getWipeAutomationConfig, runWipeAutomationTick } from '../src/services/
 const GUILD = '1532882647838228723';
 const CHANNEL = '1569000000000000999';
 const USER = '1569000000000000900';
+const futureStart = amsterdamParts(Date.now() + 3 * 24 * 60 * 60_000);
 
 function fixture() {
   const store = new Map(), posts = [];
@@ -133,8 +135,10 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
 
   await f.action(id, 'schedule');
   assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
-    ['repeat', 'duration']);
-  await f.submit(id, 'schedule', { repeat: '15', duration: '5' });
+    ['date', 'time', 'repeat', 'duration']);
+  await f.submit(id, 'schedule', {
+    date: futureStart.date, time: futureStart.time, repeat: '15m', duration: '5m',
+  });
   await f.action(id, 'random');
   assert.match(f.view.embeds[0].toJSON().description, /Randomize:\*\* On/);
   await f.action(id, 'save');
@@ -142,6 +146,8 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(saved.state, 'stopped');
   assert.equal(saved.channelId, CHANNEL);
   assert.equal(saved.repeatMinutes, 15);
+  assert.equal(saved.durationMinutes, 5);
+  assert.equal(saved.startAt, parseAmsterdamStart(futureStart.date, futureStart.time));
   assert.equal(saved.randomize, true);
   assert.equal(f.view.components[1].toJSON().components[1].disabled, false,
     'start becomes available only after saving');
@@ -174,7 +180,9 @@ test('giveaway builder supports prizes, role choice, and safe repeated schedulin
     ['prizes', 'winners', 'description']);
   await f.submit(id, 'details', { prizes: 'Kit A\nKit B', winners: '2', description: 'Community event' });
   await f.action(id, 'schedule');
-  await f.submit(id, 'schedule', { repeat: '60', duration: '15' });
+  await f.submit(id, 'schedule', {
+    date: futureStart.date, time: futureStart.time, repeat: '1h', duration: '15m',
+  });
   await f.action(id, 'random');
   await f.action(id, 'save');
   await f.action(id, 'start');
@@ -304,4 +312,47 @@ test('Save does not stop a running vote and Start never implicitly saves edits',
   const updated = (await getWipeAutomationConfig(f.client, GUILD)).vote;
   assert.equal(updated.state, 'running', 'saving an active configuration must not stop it');
   assert.equal(updated.randomize, true);
+});
+
+test('both dashboards accept an actual Netherlands calendar date and 1d duration', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'channel', [CHANNEL]);
+    if (kind === 'vote') {
+      await f.submit(id, 'details', { question: 'What next?', option1: 'Option A', option2: 'Option B' });
+    } else {
+      await f.submit(id, 'details', { prizes: 'Special prize', winners: '1' });
+    }
+    await f.action(id, 'mode', ['once']);
+    await f.action(id, 'schedule');
+    assert.deepEqual(f.modal.components.map(row => row.components[0].custom_id),
+      ['date', 'time', 'duration']);
+    await f.submit(id, 'schedule', {
+      date: futureStart.date, time: futureStart.time, duration: '1d',
+    });
+    assert.match(f.view.embeds[0].toJSON().description, /Duration:\*\* 1d/);
+    const expected = parseAmsterdamStart(futureStart.date, futureStart.time);
+    assert.match(f.view.embeds[0].toJSON().description,
+      new RegExp(`Start date:\\*\\* <t:${Math.floor(expected / 1000)}:F>`));
+    await f.action(id, 'save');
+    let config = (await getWipeAutomationConfig(f.client, GUILD))[kind];
+    assert.equal(config.schedule, 'once');
+    assert.equal(config.startAt, expected);
+    assert.equal(config.durationMinutes, 1440);
+    await f.action(id, 'start');
+    config = (await getWipeAutomationConfig(f.client, GUILD))[kind];
+    assert.equal(config.nextRunAt, expected);
+    assert.equal(config.state, 'running');
+  }
+});
+
+test('invalid date does not save or close the automation builder', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.action(id, 'mode', ['once']);
+  await f.submit(id, 'schedule', { date: '31-02-2027', time: '18:00', duration: '1h' });
+  assert.match(f.view.embeds[0].toJSON().description, /valid calendar date/i);
+  assert.ok(f.view.components.length, 'builder remains usable after a date validation error');
+  assert.equal((await getWipeAutomationConfig(f.client, GUILD)).vote, null);
 });
