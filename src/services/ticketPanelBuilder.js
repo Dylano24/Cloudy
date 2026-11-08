@@ -16,7 +16,7 @@ export const DEFAULT_TICKET_PANEL_MESSAGE = `If you need assistance or have some
 Before submitting a request, please make sure the answer to your question cannot already be found in our **FAQ** section using the button at the bottom right.`;
 export const DEFAULT_TICKET_BUTTON_LABEL = 'Start Chat';
 export const TICKET_FAQ_CHANNEL_ID = '1554538586001645679';
-export const TICKET_START_CHAT_EMOJI = { id: '1543303628159320165', name: 'W92mailmessage' };
+export const TICKET_START_CHAT_EMOJI = { id: '1568808462782177280', name: 'white_bubble' };
 export { CLOUDY_TICKET_FOOTER };
 
 function resolveGuildId(client, guildId = null) {
@@ -47,9 +47,10 @@ export function buildTicketPanelComponents(client, guildId, config = {}, sourceR
   let found = false;
   const result = rows.map(row => new ActionRowBuilder().addComponents(row.components.map(button => {
     if (!isFaqLink(button)) {
-      // Upgrade only the old generic speech bubble; keep owner-selected emojis.
+      // Upgrade only the old default mail / generic emoji; preserve other custom icons.
       const isStartChat = button.custom_id === 'create_ticket';
-      const oldEmoji = !button.emoji?.id && (!button.emoji || button.emoji.name === '💬');
+      const oldEmoji = (!button.emoji?.id && (!button.emoji || button.emoji.name === '💬'))
+        || button.emoji?.id === '1543303628159320165';
       return new ButtonBuilder(isStartChat && oldEmoji ? { ...button, emoji: TICKET_START_CHAT_EMOJI } : button);
     }
     found = true;
