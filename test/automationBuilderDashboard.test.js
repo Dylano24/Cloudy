@@ -121,9 +121,9 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(f.view.components.length, 5);
   assert.equal(f.view.components[2].toJSON().components[0].type, 8);
   assert.deepEqual(f.view.components[4].toJSON().components.map(item => item.label),
-    ['Back']);
+    ['Back', 'Add media', 'Clear media']);
   assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
-    ['Edit details', 'Schedule', 'Randomize: off', 'Add media', 'Clear media']);
+    ['Edit details', 'Schedule', 'Randomize: off']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
     ['Start', 'Pause', 'Save', 'Delete']);
   assert.equal(f.view.components[1].toJSON().components[0].disabled, true,
@@ -271,13 +271,12 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     const f = fixture();
     const id = await f.open(kind);
     let rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
-    assert.deepEqual(rows[0].map(item => item.label), kind === 'vote'
-      ? ['Edit details', 'Schedule', 'Randomize: off', 'Add media', 'Clear media']
-      : ['Edit details', 'Schedule', 'Randomize: off']);
+    assert.deepEqual(rows[0].map(item => item.label),
+      ['Edit details', 'Schedule', 'Randomize: off']);
     assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
       ? ['Start', 'Pause', 'Save', 'Delete']
       : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
-    assert.equal(rows[0].length, kind === 'vote' ? 5 : 3);
+    assert.equal(rows[0].length, 3);
     assert.equal(rows[1].length, kind === 'vote' ? 4 : 5,
       'management controls fit on one Discord action row');
     assert.deepEqual(rows[1].map(item => item.disabled),
