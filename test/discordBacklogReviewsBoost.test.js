@@ -163,7 +163,7 @@ test('selection enables rating on same panel, never sends repetitive ephemeral d
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   const embed = sent[0].embeds[0].toJSON();
-  assert.match(embed.description, /\\*\\*Product or service\\*\\*\\nCloudy bot/);
+  assert.ok(embed.description.includes('**Product or service**\nCloudy bot'));
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
   assert.match(embed.description, /Excellent experience/);
   assert.equal(embed.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
