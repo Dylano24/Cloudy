@@ -350,6 +350,37 @@ function field(interaction, id) {
   return String(interaction.fields.getTextInputValue(id) || '').trim();
 }
 
+async function addAutoVoteMedia(session, interaction) {
+  if (session.kind !== 'vote') throw new RangeError('Media are only available for auto votes.');
+  const uploads = Array.from({ length: 5 }, (_, index) => {
+    try { return interaction.fields.getUploadedFiles(`media${index + 1}`)?.first?.() || null; }
+    catch { return null; }
+  }).filter(Boolean);
+  if (!uploads.length) throw new RangeError('Select at least one image or GIF.');
+  const pool = session.draft.mediaPool || [];
+  if (pool.length + uploads.length > MAX_AUTO_VOTE_MEDIA) {
+    throw new RangeError(`You can store up to ${MAX_AUTO_VOTE_MEDIA} media per auto vote.`);
+  }
+  const stored = await Promise.all(uploads.map(async file => {
+    if (!String(file.contentType || '').toLowerCase().startsWith('image/')
+      || Number(file.size) > 25 * 1024 * 1024) {
+      throw new RangeError('Media must be an image or GIF, no larger than 25 MB each.');
+    }
+    const url = await storeExistingDiscordEmbedMedia(file.url);
+    if (!url) throw new RangeError('Cloudy media storage is unavailable. Please try again.');
+    return { url, name: String(file.name || 'Image').slice(0, 100) };
+  }));
+  const existing = new Set(pool.map(item => item.url));
+  const additions = stored.filter(item => {
+    if (existing.has(item.url)) return false;
+    existing.add(item.url); return true;
+  });
+  if (!additions.length) throw new RangeError('These media are already in the library.');
+  session.draft.mediaPool = [...pool, ...additions];
+  session.dirty = true;
+  session.notice = `${additions.length} media added. ${session.draft.mediaPool.length} stored in total.`;
+}
+
 function applyModal(session, interaction, action) {
   if (action === 'schedule') {
     // Keep submitted entries if validation fails so reopening Schedule does not
