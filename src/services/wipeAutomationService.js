@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 import { Mutex } from '../utils/mutex.js';
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { buildVoteMessage, saveVote } from './voteService.js';
+import { freshVotePictureLinks, uploadVotePictures } from './voteMediaService.js';
 import {
   createGiveawayEmbed, GIVEAWAY_EMOJIS,
   selectWinners, DEFAULT_GIVEAWAY_INTRO, DEFAULT_GIVEAWAY_DESCRIPTION,
@@ -15,6 +16,8 @@ export const AUTO_WIPE_KIND = Object.freeze({ vote: 'vote', giveaway: 'giveaway'
 export const AUTO_WIPE_STATES = Object.freeze(['stopped', 'running', 'paused']);
 const HISTORY_LIMIT = 30;
 const MINUTE = 60_000;
+const WEEK_MS = 7 * 24 * 60 * MINUTE;
+const MEDIA_LIMIT = 500;
 
 const configKey = guildId => `guild:${guildId}:wipe-automations:v1`;
 const indexKey = guildId => `guild:${guildId}:wipe-automation:giveaways`;
@@ -64,8 +67,62 @@ function shuffled(values) {
   return out;
 }
 
-function validatedAutomationConfig(kind, configuration) {
-  const schedule = ['repeat', 'once', 'wipe'].includes(configuration?.schedule)
+function validWeekly(minimum, maximum, duration) {
+  return Number.isInteger(minimum) && Number.isInteger(maximum)
+    && minimum >= 1 && maximum <= 7 && minimum <= maximum
+    && Number.isSafeInteger(duration) && duration >= 1 && duration <= 43200;
+}
+
+// Each week gets exactly min..max randomized, evenly dispersed slots; the
+// generated plan is persisted so a restart does not re-randomize or duplicate.
+export function planRandomWeeklySlots(startAt, weekIndex, minimum, maximum, pick = randomInt) {
+  if (!Number.isSafeInteger(startAt) || !Number.isSafeInteger(weekIndex)
+    || weekIndex < 0 || !validWeekly(minimum, maximum, 1)) throw new RangeError('Invalid weekly schedule');
+  const count = pick(minimum, maximum + 1);
+  const weekStart = startAt + weekIndex * WEEK_MS;
+  const slots = [];
+  for (let index = 0; index < count; index++) {
+    const segmentStart = Math.floor(WEEK_MS * index / count);
+    const segmentEnd = Math.floor(WEEK_MS * (index + 1) / count);
+    const availableMinutes = Math.floor((segmentEnd - segmentStart) / MINUTE);
+    slots.push(weekStart + segmentStart + pick(Math.max(1, availableMinutes)) * MINUTE);
+  }
+  return slots.sort((a, b) => a - b);
+}
+
+function nextWeeklySlotAfter(setting, now) {
+  const startAt = Number(setting.startAt);
+  if (!Number.isSafeInteger(startAt) || !validWeekly(setting.weeklyMin, setting.weeklyMax, setting.durationMinutes)) {
+    throw new RangeError('Invalid weekly schedule');
+  }
+  let weekIndex = Number.isSafeInteger(setting.weekIndex) && setting.weekIndex >= 0
+    ? setting.weekIndex : Math.max(0, Math.floor((now - startAt) / WEEK_MS));
+  let weekTimes = Array.isArray(setting.weekTimes) ? setting.weekTimes : [];
+  for (let tries = 0; tries < 3; tries++) {
+    if (!weekTimes.length) weekTimes = planRandomWeeklySlots(startAt, weekIndex, setting.weeklyMin, setting.weeklyMax);
+    const nextRunAt = weekTimes.find(value => Number.isSafeInteger(value) && value > now);
+    if (nextRunAt) return { weekIndex, weekTimes, nextRunAt };
+    weekIndex = Math.max(weekIndex + 1, Math.floor((now - startAt) / WEEK_MS));
+    weekTimes = [];
+  }
+  throw new RangeError('Could not calculate the next weekly posting time');
+}
+
+function normalizedMediaLibrary(input) {
+  if (input == null) return [];
+  if (!Array.isArray(input) || input.length > MEDIA_LIMIT) throw new RangeError('Too many auto vote media files');
+  return input.map(entry => {
+    const { channelId, messageId, name } = entry || {};
+    if (!/^\d{17,20}$/.test(String(channelId)) || !/^\d{17,20}$/.test(String(messageId))
+      || !/^automedia_[a-f0-9]{8}_\d+\.(?:png|jpg|gif|webp)$/.test(String(name))) {
+      throw new RangeError('Invalid saved auto vote media file');
+    }
+    return { channelId: String(channelId), messageId: String(messageId), name: String(name) };
+  });
+}
+
+function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt = null } = {}) {
+  const schedule = ['repeat', 'once', 'wipe', 'random_weekly'].includes(configuration?.schedule)
     ? configuration.schedule : 'wipe';
   const server = String(configuration?.server || (schedule !== 'wipe' ? 'Cloudy' : '')).trim();
   const beforeMinutes = Number(configuration?.beforeMinutes);
@@ -74,23 +131,36 @@ function validatedAutomationConfig(kind, configuration) {
   const startAt = configuration?.startAt == null ? null : Number(configuration.startAt);
   const channelId = String(configuration?.channelId || '').trim();
   const randomize = configuration?.randomize === true;
+  const weeklyMin = Number(configuration?.weeklyMin ?? 2);
+  const weeklyMax = Number(configuration?.weeklyMax ?? 3);
   if (!server || server.length > 60
     || (schedule === 'repeat'
       ? !validRepeat(repeatMinutes, durationMinutes)
-      : schedule === 'once'
-        ? !Number.isSafeInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 43200
-        : !validBefore(beforeMinutes, durationMinutes))) {
+      : schedule === 'random_weekly'
+        ? !validWeekly(weeklyMin, weeklyMax, durationMinutes)
+        : schedule === 'once'
+          ? !Number.isSafeInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 43200
+          : !validBefore(beforeMinutes, durationMinutes))) {
     throw new RangeError(schedule === 'repeat'
       ? 'Repeat must be between 1m and 30d and no shorter than Duration'
-      : schedule === 'once'
-        ? 'Duration must be between 1m and 30d'
-        : 'Provide a server and duration that finishes before the Rust wipe');
+      : schedule === 'random_weekly'
+        ? 'Weekly posts must be 1–7 per week, minimum <= maximum, and Duration between 1m and 30d'
+        : schedule === 'once'
+          ? 'Duration must be between 1m and 30d'
+          : 'Provide a server and duration that finishes before the Rust wipe');
   }
   if (schedule !== 'wipe' && startAt != null && (!Number.isSafeInteger(startAt) || startAt < 0)) {
     throw new RangeError('Choose a valid start date and time.');
   }
   if (schedule === 'once' && (!startAt || startAt <= Date.now())) {
     throw new RangeError('Choose a future start date for this one-time automation.');
+  }
+  // An already-running weekly job keeps its historic anchor when only its
+  // question, media or other options change. A newly entered past date is
+  // still rejected, both here and in the dashboard Schedule form.
+  if (schedule === 'random_weekly' && (!startAt
+    || (startAt <= Date.now() && startAt !== existingWeeklyStartAt))) {
+    throw new RangeError('Choose a future start date for the weekly schedule.');
   }
   if (channelId && !/^\d{17,20}$/.test(channelId)) {
     throw new RangeError('Select a valid destination channel');
@@ -100,11 +170,13 @@ function validatedAutomationConfig(kind, configuration) {
     const name = String(configuration?.name || '').trim();
     const question = String(configuration?.question || '').trim();
     const maps = Array.isArray(configuration?.maps) ? configuration.maps.map(x => String(x).trim()).filter(Boolean) : [];
+    const mediaLibrary = normalizedMediaLibrary(configuration.mediaLibrary);
     if (name.length > 64 || !question || question.length > 250 || maps.length < 2 || maps.length > 3
       || maps.some(x => x.length > 80) || new Set(maps.map(x => x.toLowerCase())).size !== maps.length) {
       throw new RangeError('Configure a question and two or three unique map choices');
     }
-    configured = { server, name, question, maps, beforeMinutes, durationMinutes, state: 'stopped' };
+    configured = { server, name, question, maps, mediaLibrary, weeklyMin, weeklyMax,
+      beforeMinutes, durationMinutes, state: 'stopped' };
   } else {
     const kit = String(configuration?.kit || '').trim();
     const prizes = (Array.isArray(configuration?.prizes) ? configuration.prizes : [kit])
@@ -129,7 +201,9 @@ function validatedAutomationConfig(kind, configuration) {
         nextRunAt: startAt || Date.now() + repeatMinutes * MINUTE }
       : schedule === 'once'
         ? { startAt, nextRunAt: startAt }
-        : {}),
+        : schedule === 'random_weekly'
+          ? { startAt, ...nextWeeklySlotAfter({ startAt, weeklyMin, weeklyMax, durationMinutes }, Date.now()) }
+          : {}),
   });
   return configured;
 }
@@ -165,6 +239,8 @@ export async function setWipeAutomationState(client, guildId, kind, state) {
     config[kind] = {
       ...setting, state,
       ...(setting.schedule === 'repeat' && restart ? { nextRunAt } : {}),
+      ...(setting.schedule === 'random_weekly' && state === 'running' && setting.state !== 'running'
+        ? nextWeeklySlotAfter(setting, Date.now()) : {}),
     };
     await saveConfig(client, guildId, config);
     return config[kind];
@@ -186,11 +262,13 @@ export async function listAutomaticVotes(client, guildId) {
 
 export async function saveAutomaticVoteJob(client, guildId, draft, jobId = null) {
   if (guildId !== AUTO_WIPE_GUILD_ID) throw new RangeError('Invalid automation guild');
-  const configured = validatedAutomationConfig('vote', draft);
   if (jobId === 'legacy') throw new RangeError('Legacy votes are managed through the existing config');
   return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
     const config = await getWipeAutomationConfig(client, guildId);
     const existing = jobId ? config.voteJobs.find(job => job.id === jobId) : null;
+    const configured = validatedAutomationConfig('vote', draft, {
+      existingWeeklyStartAt: existing?.schedule === 'random_weekly' ? existing.startAt : null,
+    });
     if (jobId && !existing) throw new RangeError('This automatic vote no longer exists.');
     if (!existing && config.voteJobs.length >= 20) {
       throw new RangeError('Maximum 20 additional automatic votes reached.');
@@ -200,11 +278,17 @@ export async function saveAutomaticVoteJob(client, guildId, draft, jobId = null)
       && existing.startAt === configured.startAt
       && existing.repeatMinutes === configured.repeatMinutes
       && existing.beforeMinutes === configured.beforeMinutes
-      && existing.durationMinutes === configured.durationMinutes;
+      && existing.durationMinutes === configured.durationMinutes
+      && (configured.schedule !== 'random_weekly'
+        || (existing.weeklyMin === configured.weeklyMin
+          && existing.weeklyMax === configured.weeklyMax));
     const updated = {
       ...configured, id,
       state: existing?.state || 'stopped',
       ...(sameTiming && existing.nextRunAt ? { nextRunAt: existing.nextRunAt } : {}),
+      ...(sameTiming && existing.weekTimes ? {
+        weekIndex: existing.weekIndex, weekTimes: existing.weekTimes,
+      } : {}),
       ...(sameTiming && existing.completedAt ? { completedAt: existing.completedAt } : {}),
       createdAt: existing?.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -237,7 +321,10 @@ export async function setAutomaticVoteJobState(client, guildId, jobId, state) {
         : first + (Math.floor((Date.now() - first) / interval) + 1) * interval;
     }
     const updated = { ...existing, state,
-      ...(existing.schedule === 'repeat' && restart ? { nextRunAt } : {}) };
+      ...(existing.schedule === 'repeat' && restart ? { nextRunAt } : {}),
+      ...(existing.schedule === 'random_weekly' && state === 'running' && existing.state !== 'running'
+        ? nextWeeklySlotAfter(existing, Date.now()) : {}),
+    };
     config.voteJobs = config.voteJobs.map(job => job.id === jobId ? updated : job);
     await saveConfig(client, guildId, config);
     return updated;
@@ -351,6 +438,32 @@ async function getTextChannel(client, guild, key, channelId = '') {
   return channel?.isSendable?.() ? channel : null;
 }
 
+async function loadAutomaticVoteMedia(client, guild, channel, config) {
+  const all = config.mediaLibrary || [];
+  if (!all.length) return null;
+  const selected = (config.randomize ? shuffled(all) : all).slice(0, config.maps.length);
+  const pictures = await Promise.all(selected.map(async (item, position) => {
+    try {
+      const url = (await freshVotePictureLinks(client, {
+        channelId: item.channelId, messageId: item.messageId, names: [item.name],
+      }))?.[0];
+      if (!url) return null;
+      const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) return null;
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!bytes.length || bytes.length > 10 * 1024 * 1024) return null;
+      const extension = item.name.split('.').at(-1);
+      return { attachment: bytes, name: `option${position + 1}.${extension}` };
+    } catch (error) {
+      logger.warn(`[WIPE_AUTO] Skipping missing vote media: ${error?.message || error}`);
+      return null;
+    }
+  }));
+  const files = Array.from({ length: config.maps.length }, (_, i) => pictures[i] || null);
+  if (!files.some(Boolean)) return null;
+  return uploadVotePictures(client, guild, channel, files);
+}
+
 async function createAutomaticVote(client, guild, config, id, wipeAt) {
   const channel = await getTextChannel(client, guild, 'votes', config.channelId);
   if (!channel) {
@@ -362,12 +475,14 @@ async function createAutomaticVote(client, guild, config, id, wipeAt) {
     if (await client.db.get(key, null)) return;
     // Record BEFORE posting: on a crash never duplicate an automatic vote.
     await client.db.set(key, { state: 'posting', recordedAt: Date.now() });
+    const optionMedia = await loadAutomaticVoteMedia(client, guild, channel, config);
     const vote = {
       guildId: guild.id, channelId: channel.id, messageId: null,
       question: config.question,
       options: config.randomize ? shuffled(config.maps) : config.maps, votes: {},
       endsAt: Date.now() + config.durationMinutes * MINUTE, ended: false,
-      layout: 'preview', pictureOptions: config.maps.map(() => false),
+      layout: 'preview', pictureOptions: config.maps.map((_, index) => Boolean(optionMedia?.links?.[index])),
+      ...(optionMedia ? { optionLinks: optionMedia.links, optionMedia: optionMedia.media } : {}),
       createdBy: client.user.id, createdAt: new Date().toISOString(),
       automationId: id, automationServer: config.server, wipeAt,
     };
@@ -492,7 +607,8 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
         : [{ setting: config.giveaway, jobId: null }];
       for (const { setting, jobId } of entries) {
       if (!setting || setting.state !== 'running') continue;
-      if (setting.schedule === 'repeat' || setting.schedule === 'once') {
+      if (setting.schedule === 'repeat' || setting.schedule === 'once'
+        || setting.schedule === 'random_weekly') {
         let dueAt = null;
         let dueSetting = null;
         await Mutex.runExclusive(`wipeauto:config:${guild.id}`, async () => {
@@ -502,19 +618,28 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
             if (jobId) latest.voteJobs = latest.voteJobs.map(job => job.id === jobId ? updated : job);
             else latest[kind] = updated;
           };
-          if (!['once', 'repeat'].includes(active?.schedule) || active.state !== 'running') return;
+          if (!['once', 'repeat', 'random_weekly'].includes(active?.schedule)
+            || active.state !== 'running') return;
           if (active.schedule === 'repeat'
             && !validRepeat(active.repeatMinutes, active.durationMinutes)) return;
+          if (active.schedule === 'random_weekly'
+            && !validWeekly(active.weeklyMin, active.weeklyMax, active.durationMinutes)) return;
           const next = Number(active.nextRunAt);
           if (!Number.isFinite(next) || next <= 0) {
             if (active.schedule === 'once') return;
-            updateActive({ ...active, nextRunAt: now + active.repeatMinutes * MINUTE });
+            if (active.schedule === 'random_weekly') {
+              updateActive({ ...active, ...nextWeeklySlotAfter(active, now) });
+            } else {
+              updateActive({ ...active, nextRunAt: now + active.repeatMinutes * MINUTE });
+            }
           } else if (next <= now) {
             dueAt = next;
             dueSetting = { ...active };
             if (active.schedule === 'once') {
               // Claim the single scheduled launch before any Discord API call.
               updateActive({ ...active, state: 'stopped', completedAt: now, lastRunAt: next });
+            } else if (active.schedule === 'random_weekly') {
+              updateActive({ ...active, ...nextWeeklySlotAfter(active, now), lastRunAt: next });
             } else {
               const elapsed = Math.floor((now - next) / (active.repeatMinutes * MINUTE)) + 1;
               updateActive({ ...active, nextRunAt: next + elapsed * active.repeatMinutes * MINUTE,

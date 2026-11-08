@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, Collection, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import autoCommand from '../src/commands/Tools/auto.js';
 import { amsterdamParts, parseAmsterdamStart } from '../src/services/automationSchedule.js';
 import {
@@ -121,7 +121,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.equal(f.view.components.length, 5);
   assert.equal(f.view.components[2].toJSON().components[0].type, 8);
   assert.deepEqual(f.view.components[4].toJSON().components.map(item => item.label),
-    ['Back']);
+    ['Back', 'Add media', 'Clear media']);
   assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
     ['Edit details', 'Schedule', 'Randomize: off']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
@@ -241,7 +241,7 @@ test('wipe mode is editable in the dashboard without changing the legacy wipe sc
   await f.action(id, 'schedule');
   assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
     ['server', 'before', 'duration']);
-  await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30', duration: '5' });
+  await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30m', duration: '5m' });
   await f.action(id, 'save');
   await f.action(id, 'start');
   const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
@@ -289,6 +289,8 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     } else {
       await f.submit(id, 'details', { prizes: 'Kit A', winners: '1' });
     }
+    await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
+      repeat: '1d', duration: '1h' });
     await f.action(id, 'save');
     rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
@@ -327,6 +329,8 @@ test('Save does not stop a running vote and Start never implicitly saves edits',
   const id = await f.open('vote');
   await f.action(id, 'channel', [CHANNEL]);
   await f.submit(id, 'details', { question: 'Your map?', option1: 'A', option2: 'B' });
+  await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
+    repeat: '1d', duration: '1h' });
   await f.action(id, 'save');
   await f.action(id, 'start');
   assert.equal((await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0].state, 'running');
@@ -395,12 +399,12 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
       ['Date', 'Time (EU)', 'Repeat', 'Duration']);
     assert.deepEqual(f.modal.components.map(row => row.description),
-      ['Type 10112026; saved as 10-11-2026.',
-        'Type 1800; saved as 18:00. Numbers only.',
+      ['Date: DD-MM-YYYY (future date only).',
+        'Time: HH:MM (24-hour clock).',
         `How often a new ${kind} starts. E.g. 1m, 1h, 1d, 1w.`,
         `How long the ${kind} stays open. E.g. 1m, 1h, 1d, 1w.`]);
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).placeholder),
-      ['10-11-2026 or 10112026', '18:00 or 1800',
+      ['DD-MM-YYYY (e.g. 10-11-2027)', 'HH:MM (e.g. 18:00)',
         '1m, 1h, 1d, 1w',
         '1m, 1h, 1d, 1w']);
     await f.action(id, 'mode', ['once']);
@@ -422,6 +426,8 @@ test('/auto vote opens a Feed-style flow and can create, select, edit, and delet
   await f.submit(id, 'details', {
     name: 'Daily map vote', question: 'First vote question', option1: 'One', option2: 'Two',
   });
+  await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
+    repeat: '1d', duration: '1h' });
   await f.action(id, 'save');
   const first = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
   await f.action(id, 'list');
@@ -436,6 +442,8 @@ test('/auto vote opens a Feed-style flow and can create, select, edit, and delet
   await f.action(id, 'new');
   await f.action(id, 'channel', [CHANNEL]);
   await f.submit(id, 'details', { question: 'Second vote question', option1: 'A', option2: 'B' });
+  await f.submit(id, 'schedule', { date: futureStart.date, time: futureStart.time,
+    repeat: '1d', duration: '1h' });
   await f.action(id, 'save');
   await f.action(id, 'list');
   assert.match(f.view.embeds[0].toJSON().description, /Select the vote you want to manage/);
@@ -489,6 +497,8 @@ test('auto vote list can be reopened and reflects saved statuses without needing
   await f.submit(originalId, 'details', {
     question: 'Recurring question', option1: 'Red', option2: 'Blue',
   });
+  await f.submit(originalId, 'schedule', { date: futureStart.date, time: futureStart.time,
+    repeat: '1d', duration: '1h' });
   await f.action(originalId, 'save');
   await f.action(originalId, 'start');
   const id = await f.open('vote', { showList: true });
@@ -550,7 +560,7 @@ test('auto vote landing page matches the Cloudy feed Add/Manage flow', async () 
   assert.match(f.view.embeds[0].toJSON().description, /Existing map vote/);
 });
 
-test('short date/time entries normalize and save correctly for both auto vote and auto giveaway', async () => {
+test('explicit EU date and time separators save correctly for vote and giveaway', async () => {
   for (const kind of ['vote', 'giveaway']) {
     const f = fixture();
     const id = await f.open(kind);
@@ -561,17 +571,15 @@ test('short date/time entries normalize and save correctly for both auto vote an
       await f.submit(id, 'details', { prizes: 'A prize', winners: '1' });
     }
     await f.action(id, 'schedule');
-    const compactDate = futureStart.date.replace(/-/g, '');
-    const compactTime = futureStart.time.replace(':', '');
     await f.submit(id, 'schedule', {
-      date: compactDate, time: compactTime, repeat: '1d', duration: '1m',
+      date: futureStart.date, time: futureStart.time, repeat: '1d', duration: '1m',
     });
     const expected = parseAmsterdamStart(futureStart.date, futureStart.time);
     assert.match(f.view.embeds[0].toJSON().description, /Duration:\*\* 1m/);
     await f.action(id, 'schedule');
     const values = f.modal.components.map(row => (row.component || row.components[0]).value);
     assert.deepEqual(values, [futureStart.date, futureStart.time, '1d', '1m'],
-      'reopening Schedule shows formatted date and time, not compact entry');
+      'reopening Schedule shows the validated date and time');
     await f.action(id, 'save');
     const saved = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
@@ -597,8 +605,8 @@ test('invalid schedule turns the private dashboard line red, preserves entered f
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).value),
       Object.values(inputValues), 'submitted text remains available for correction');
     await f.submit(id, 'schedule', {
-      date: futureStart.date.replace(/-/g, ''),
-      time: futureStart.time.replace(':', ''),
+      date: futureStart.date,
+      time: futureStart.time,
       repeat: '1d', duration: '1h',
     });
     assert.equal(f.view.embeds[0].toJSON().color,
@@ -629,7 +637,7 @@ test('Time rejects letters immediately on submission for both dashboards', async
     });
     assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
     assert.match(f.view.embeds[0].toJSON().description,
-      /Invalid Time: type 1800 or 18:00 \(numbers only/i);
+      /Invalid Time: use HH:MM/i);
     await f.action(id, 'schedule');
     assert.equal(f.modal.components[1].component.value, 'abcd');
     const cfg = await getWipeAutomationConfig(f.client, GUILD);
@@ -651,8 +659,8 @@ test('Repeat 1m and Duration 1m are valid and appear with explanations in the mo
     assert.match(f.modal.components[2].description, /How often.*1m.*1d.*1w/);
     assert.match(f.modal.components[3].description, /How long.*stays open.*1m.*1d.*1w/);
     await f.submit(id, 'schedule', {
-      date: futureStart.date.replaceAll('-', ''),
-      time: futureStart.time.replace(':', ''),
+      date: futureStart.date,
+      time: futureStart.time,
       repeat: '1m', duration: '1m',
     });
     assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
@@ -767,4 +775,69 @@ test('starting another auto vote clears unsaved Schedule values from the previou
   assert.equal(f.modal.components[0].component.value, undefined);
   assert.equal(f.modal.components[1].component.value, undefined);
   assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
+});
+
+
+test('Add media accepts 60 pictures in six uploads and preserves them after Save', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.action(id, 'channel', [CHANNEL]);
+  await f.submit(id, 'details', { question: 'Media test?', option1: 'A', option2: 'B' });
+  await f.submit(id, 'schedule', {
+    date: futureStart.date, time: futureStart.time, repeat: '1d', duration: '1h',
+  });
+  const thread = {
+    id: '1569000000000222000',
+    async send({ files }) {
+      return {
+        id: String(1569000000000333000n + BigInt(posted.length)),
+        attachments: new Collection(files.map(file =>
+          [file.name, { name: file.name, url: `https://cdn.discordapp.com/attachments/111/222/${file.name}` }])),
+      };
+    },
+  };
+  const posted = [];
+  const originalSend = thread.send;
+  thread.send = async data => {
+    const message = await originalSend(data);
+    posted.push(message);
+    return message;
+  };
+  f.guild.channels.cache.set('1569000000000333444', {
+    id: '1569000000000333444', type: ChannelType.GuildText,
+    name: 'botlog', threads: { create: async () => thread },
+  });
+  f.client.channels.fetch = async channelId => channelId === thread.id ? thread : null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true, arrayBuffer: async () => Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10).buffer,
+  });
+  try {
+    for (let batch = 0; batch < 6; batch++) {
+      await f.action(id, 'media');
+      const modalId = f.modal.custom_id;
+      const uploads = new Collection(Array.from({ length: 10 }, (_, index) =>
+        [String(index), {
+          url: `https://cdn.discordapp.com/attachments/test/${batch}/${index}.png`,
+          contentType: 'image/png', size: 8,
+        }]));
+      await f.action(id, 'media', [], {
+        customId: modalId, isModalSubmit: () => true,
+        fields: { getUploadedFiles: () => uploads },
+      });
+      assert.match(f.view.embeds[0].toJSON().description,
+        new RegExp(`\\*\\*Media:\\*\\* ${(batch + 1) * 10} saved`));
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(posted.length, 6);
+  await f.action(id, 'save');
+  const stored = (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0];
+  assert.equal(stored.mediaLibrary.length, 60);
+  assert.equal(new Set(stored.mediaLibrary.map(item => item.name)).size, 60);
+  await f.action(id, 'clear_media');
+  assert.match(f.view.embeds[0].toJSON().description, /Confirm clear/);
+  await f.action(id, 'clear_media');
+  assert.ok(f.view.embeds[0].toJSON().description.includes('**Media:** 0 saved'));
 });

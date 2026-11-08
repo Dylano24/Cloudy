@@ -8,7 +8,7 @@ const LOCAL_PARTS = new Intl.DateTimeFormat('en-GB', {
 
 export function parseAutomationDuration(input, fieldName = 'Duration') {
   const raw = String(input ?? '').trim().toLowerCase();
-  const match = /^(\d{1,6})\s*([mhdw])?$/.exec(raw);
+  const match = /^(\d{1,6})([mhdw])$/.exec(raw);
   if (!match) {
     throw new RangeError(`${fieldName}: use 1m, 1h, 1d or 1w. Other letters are not allowed.`);
   }
@@ -61,21 +61,21 @@ export function normalizeAutomationTime(input) {
 }
 
 export function parseAmsterdamStart(date, time) {
-  const rawDate = normalizeAutomationDate(date);
-  const rawTime = normalizeAutomationTime(time);
-  const match = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(rawDate)
-    || /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawDate);
-  const timeMatch = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(rawTime);
+  // Only explicit EU separators are accepted: there are no implicit / auto
+  // corrected dates that could schedule something the user did not intend.
+  const rawDate = String(date ?? '').trim();
+  const rawTime = String(time ?? '').trim();
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(rawDate);
+  const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(rawTime);
   if (!match) {
-    throw new RangeError('Invalid Date: type 10112026 or 10-11-2026 (numbers only).');
+    throw new RangeError('Invalid Date: use DD-MM-YYYY, for example 10-11-2027.');
   }
   if (!timeMatch) {
-    throw new RangeError('Invalid Time: type 1800 or 18:00 (numbers only, 24-hour clock).');
+    throw new RangeError('Invalid Time: use HH:MM, for example 18:00.');
   }
-  const iso = /^\d{4}-/.test(rawDate);
-  const year = Number(iso ? match[1] : match[3]);
+  const year = Number(match[3]);
   const month = Number(match[2]);
-  const day = Number(iso ? match[3] : match[1]);
+  const day = Number(match[1]);
   const hours = Number(timeMatch[1]);
   const minutes = Number(timeMatch[2]);
   const naive = Date.UTC(year, month - 1, day, hours, minutes);
