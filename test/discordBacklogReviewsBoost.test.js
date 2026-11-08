@@ -300,7 +300,7 @@ test('only missing button emoji are added; existing owner-customized embeds stay
       { type: 2, style: 2, label: 'Assistant', custom_id: 'faq_ai_question', emoji: { id: '1568567297545732228', name: 'cloudy_support_bot_white' } },
     ]],
     ['1554538650761691260', '1568543862908129352', [
-      { type: 2, style: 2, label: 'Start chat', custom_id: 'create_ticket', emoji: { name: '💬' } },
+      { type: 2, style: 2, label: 'Start chat', custom_id: 'create_ticket', emoji: { id: '1543303628159320165', name: 'W92mailmessage' } },
     ]],
   ];
   for (const [channelId, messageId, buttons] of targets) {
@@ -318,7 +318,7 @@ test('only missing button emoji are added; existing owner-customized embeds stay
   assert.equal(messages.get('1568526805072216085').components[0].components[0].emoji.id, '1543303628159320165');
   assert.equal(messages.get('1568526805072216085').components[0].components[1].emoji.id, '1568706168006770719');
   assert.equal(messages.get('1568769178540707934').components[0].components[0].emoji.id, '1543287391131803749');
-  assert.equal(messages.get('1568543862908129352').components[0].components[0].emoji.id, '1543303628159320165');
+  assert.equal(messages.get('1568543862908129352').components[0].components[0].emoji.id, '1568808462782177280');
   assert.equal(messages.get('1568514711941816442').components[0].components[0].label, 'Cloudy assistant');
   assert.equal(messages.get('1568514711941816442').components[0].components[0].emoji.id, '1568567297545732228');
   const second = await reconcileRequestedButtonEmojis(client);
@@ -336,7 +336,19 @@ test('Start chat supports upgraded emoji and Reward boost only removes its Instr
   }]);
   const chat = rows[0].toJSON().components[0];
   assert.equal(chat.custom_id, 'create_ticket');
-  assert.equal(chat.emoji.id, '1543303628159320165');
+  assert.equal(chat.emoji.id, '1568808462782177280');
+  const oldMail = buildTicketPanelComponents(null, GUILD_ID, {}, [{
+    type: 1,
+    components: [{ type: 2, custom_id: 'create_ticket', style: 2, label: 'Start chat',
+      emoji: { id: '1543303628159320165', name: 'W92mailmessage' } }],
+  }])[0].toJSON().components[0];
+  assert.equal(oldMail.emoji.id, '1568808462782177280');
+  const ownerCustom = buildTicketPanelComponents(null, GUILD_ID, {}, [{
+    type: 1,
+    components: [{ type: 2, custom_id: 'create_ticket', style: 2, label: 'Start chat',
+      emoji: { id: '123456789012345678', name: 'chosen_icon' } }],
+  }])[0].toJSON().components[0];
+  assert.equal(ownerCustom.emoji.id, '123456789012345678');
   assert.equal(isBoostInstructionsAction({
     guildId: GUILD_ID, channelId: '1554538607233073182',
   }, '8ff2465c22214a11b01ad798'), true);

@@ -25,7 +25,7 @@ const TARGETS = Object.freeze([
   {
     channelId: '1554538650761691260',
     messageId: '1568543862908129352',
-    buttons: { 'Start chat': { id: '1543303628159320165', name: 'W92mailmessage' } },
+    buttons: { 'Start chat': { id: '1568808462782177280', name: 'white_bubble' } },
   },
 ]);
 
@@ -50,9 +50,12 @@ export async function reconcileRequestedButtonEmojis(client) {
         }
         const emoji = target.buttons[button.label];
         if (!emoji) continue;
-        // Respect any already-chosen custom emoji. Only replace absent or
-        // generic chat bubble; never reword or move an existing button.
-        if (button.emoji?.id || (button.emoji && button.emoji.name !== '💬')) continue;
+        // Replace the previous default mail icon on Start chat only. Preserve
+        // all other custom emojis and the original embed/message id.
+        const previousStartChatIcon = button.custom_id === 'create_ticket'
+          && button.emoji?.id === '1543303628159320165';
+        if (!previousStartChatIcon
+          && (button.emoji?.id || (button.emoji && button.emoji.name !== '💬'))) continue;
         button.emoji = emoji;
         dirty = true;
       }
