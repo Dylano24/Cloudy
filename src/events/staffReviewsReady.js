@@ -1,4 +1,5 @@
 import { Events } from 'discord.js';
+import { randomUUID } from 'node:crypto';
 import {
   COMMUNITY_REVIEWS_CHANNEL_ID,
   STAFF_REVIEW_MEMBER_ID,
@@ -67,6 +68,23 @@ async function refreshStaffReviewsPanel(client) {
     // each reviewer's local selection, even when nothing actually changed.
     const oldRows = lookup.message.components.map(row => row.toJSON?.() || row);
     const newRows = payload.components.map(row => row.toJSON?.() || row);
+    // Preserve the rotated rating ID between scheduled refreshes. Otherwise
+    // the five-minute refresh needlessly redraws a member's active selection.
+    const oldRating = oldRows.flatMap(row => row.components || [])
+      .find(component => String(component.custom_id || '').startsWith(`${STAFF_REVIEW_RATING_ID}:reset:`));
+    const newRating = newRows.flatMap(row => row.components || [])
+      .find(component => component.custom_id === STAFF_REVIEW_RATING_ID);
+    if (oldRating && newRating) newRating.custom_id = oldRating.custom_id;
+    // Keep the same explicit unselected defaults that the post-reset rows use.
+    // Otherwise a five-minute refresh can redraw a still-active review for no reason.
+    for (const row of newRows) {
+      for (const component of row.components || []) {
+        if (component.custom_id === STAFF_REVIEW_MEMBER_ID
+          || String(component.custom_id || '').startsWith(STAFF_REVIEW_RATING_ID)) {
+          component.options = (component.options || []).map(option => ({ ...option, default: false }));
+        }
+      }
+    }
     const oldEmbeds = lookup.message.embeds.map(embed => embed.toJSON?.() || embed);
     if (JSON.stringify(oldRows) !== JSON.stringify(newRows)
       || JSON.stringify(oldEmbeds) !== JSON.stringify(migratedEmbeds)) {
@@ -94,6 +112,12 @@ export async function resetStaffReviewPanel(client, { guild = null } = {}) {
   if (!message) return false;
   const components = staffReviewPanelRows(message, { ratingEnabled: true });
   if (!components) return false;
+  // A fresh custom ID makes Discord forget the previous user's locally
+  // selected stars. The visible controls and their default values stay the same.
+  const rating = components.flatMap(row => row.components || [])
+    .find(component => component.custom_id === STAFF_REVIEW_RATING_ID);
+  if (!rating) return false;
+  rating.custom_id = `${STAFF_REVIEW_RATING_ID}:reset:${randomUUID()}`;
   await message.edit({ components });
   return true;
 }
