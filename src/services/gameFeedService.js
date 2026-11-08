@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import { CLOUDY_GREEN_COLOR, CLOUDY_NEUTRAL_COLOR, CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from './cloudyChannelResolver.js';
 import { recordKill, recordServerStatus, resetLeaderboard } from './gameServerBoardsService.js';
+import { observeWipeEvent } from './wipeAutomationService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -319,6 +320,10 @@ export async function postGameFeedEvents(client, rawEvents) {
       if (event.type === 'status') {
         if (!guild) fail('server not found');
         await recordServerStatus(client, guild, event);
+        // Run opt-in wipe automation only after a real authenticated server
+        // status event. Never hold up the Rust feed API response.
+        void observeWipeEvent(client, guild, event)
+          .catch(error => logger.warn('[WIPE_AUTO] Could not process status:', error));
         accepted += 1;
         continue;
       }
@@ -329,6 +334,10 @@ export async function postGameFeedEvents(client, rawEvents) {
       // The leaderboard counts kills and starts again after a wipe.
       if (event.type === 'pvp') await recordKill(client, guild, event);
       if (event.type === 'wipe' && event.state === 'done') await resetLeaderboard(client, guild, event.server);
+      if (event.type === 'wipe') {
+        void observeWipeEvent(client, guild, event)
+          .catch(error => logger.warn('[WIPE_AUTO] Could not process wipe:', error));
+      }
     } catch (error) {
       rejected.push({ index, error: error instanceof GameFeedError ? error.message : 'could not be posted' });
     }
