@@ -9,12 +9,20 @@ import { getBuilderButtonAction } from '../../services/embedBuilderButtonEditorS
 import { CLOUDY_BRANDING } from '../../services/cloudyBrandingService.js';
 import { CLOUDY_LOGO_URL } from '../../services/cloudyLogoService.js';
 
-function buildButtonResponseEmbed(responseText) {
-  return new EmbedBuilder()
+export function isBoostInstructionsAction(interaction, actionId) {
+  // Only the named, owner-authored Reward boost Instructions action gets no logo.
+  return interaction?.guildId === '1532882647838228723'
+    && interaction?.channelId === '1554538607233073182'
+    && String(actionId) === '8ff2465c22214a11b01ad798';
+}
+
+function buildButtonResponseEmbed(responseText, { hideThumbnail = false } = {}) {
+  const embed = new EmbedBuilder()
     .setDescription(String(responseText || '').slice(0, 4096))
     .setColor(0xFFFFFF)
-    .setThumbnail(CLOUDY_LOGO_URL)
     .setFooter({ text: CLOUDY_BRANDING });
+  if (!hideThumbnail) embed.setThumbnail(CLOUDY_LOGO_URL);
+  return embed;
 }
 
 function scheduleReplyDeletion(interaction, delayMs) {
@@ -43,7 +51,7 @@ export default {
     }
 
     const payload = {
-      embeds: [buildButtonResponseEmbed(action.responseText)],
+      embeds: [buildButtonResponseEmbed(action.responseText, { hideThumbnail: isBoostInstructionsAction(interaction, actionId) })],
     };
 
     const actionUrl = String(action.url || '').trim();

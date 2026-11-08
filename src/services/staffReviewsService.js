@@ -60,7 +60,7 @@ function colorDistanceSquared(left, right) {
     + ((leftBlue - rightBlue) ** 2);
 }
 
-function nextReviewSideColor() {
+export function nextReviewSideColor() {
   if (!recentReviewColors.length) {
     const firstColor = randomInt(0x1000000);
     recentReviewColors.push(firstColor);
