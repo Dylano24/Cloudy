@@ -1,6 +1,7 @@
 import { Events, MessageFlags } from 'discord.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import { ensureStaffReviewStarEmoji } from '../services/staffReviewsService.js';
+import { resetServiceReviewsPanel } from './serviceReviewsReady.js';
 import {
   SERVICE_REVIEWS_CHANNEL_ID, SERVICE_REVIEW_MODAL_ID,
   SERVICE_REVIEW_RATING_ID, SERVICE_REVIEW_SELECT_ID,
@@ -45,6 +46,7 @@ export default {
   async execute(interaction) {
     const customId = interaction.customId || '';
     if (customId !== SERVICE_REVIEW_SELECT_ID
+      && !customId.startsWith(`${SERVICE_REVIEW_SELECT_ID}:reset:`)
       && customId !== SERVICE_REVIEW_RATING_ID
       && !customId.startsWith(`${SERVICE_REVIEW_RATING_ID}:`)
       && !customId.startsWith(`${SERVICE_REVIEW_MODAL_ID}:`)) return;
@@ -53,7 +55,8 @@ export default {
       || interaction.channelId !== SERVICE_REVIEWS_CHANNEL_ID) return;
 
     const isSelect = interaction.isStringSelectMenu?.();
-    if (isSelect && customId === SERVICE_REVIEW_SELECT_ID) {
+    if (isSelect && (customId === SERVICE_REVIEW_SELECT_ID
+      || customId.startsWith(`${SERVICE_REVIEW_SELECT_ID}:reset:`))) {
       const type = interaction.values?.[0];
       if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) return;
 
@@ -73,8 +76,9 @@ export default {
       || customId.startsWith(`${SERVICE_REVIEW_RATING_ID}:`))) {
       // Legacy private rating controls can finish an already-started review,
       // but new choices always use the two controls on the public panel.
-      const legacyType = customId.startsWith(`${SERVICE_REVIEW_RATING_ID}:`)
+      const suffix = customId.startsWith(`${SERVICE_REVIEW_RATING_ID}:`)
         ? customId.slice(SERVICE_REVIEW_RATING_ID.length + 1) : null;
+      const legacyType = suffix && Object.hasOwn(SERVICE_REVIEW_TYPES, suffix) ? suffix : null;
       const type = legacyType || selectedService(interaction);
       if (!type || !Object.hasOwn(SERVICE_REVIEW_TYPES, type)) {
         await interaction.reply({
@@ -125,6 +129,13 @@ export default {
         embeds: [buildPublishedServiceReview(interaction, type, rating, comment, emoji, title)],
         allowedMentions: { parse: [] },
       });
+      // Only reset after publishing. Keep the original embed and message ID.
+      try {
+        const reset = await resetServiceReviewsPanel(interaction.client, { guild: interaction.guild });
+        if (!reset) logger.warn('[SERVICE_REVIEWS] Posted review, but existing panel was not found for reset');
+      } catch (error) {
+        logger.warn('[SERVICE_REVIEWS] Could not reset review menus:', error);
+      }
       await interaction.editReply({ content: 'Your review has been published. Thank you!' });
       const timer = setTimeout(() => { void interaction.deleteReply().catch(() => {}); }, REVIEW_CONFIRMATION_MS);
       timer.unref?.();

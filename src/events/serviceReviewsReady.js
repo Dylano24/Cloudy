@@ -1,11 +1,35 @@
 import { Events } from 'discord.js';
+import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import {
   SERVICE_REVIEWS_CHANNEL_ID, SERVICE_REVIEW_PANEL_MESSAGE_ID,
+  SERVICE_REVIEW_SELECT_ID, SERVICE_REVIEW_RATING_ID,
   SERVICE_REVIEW_PANEL_TITLE, SERVICE_POSTED_REVIEWS_CHANNEL_ID,
   serviceReviewPanelRows, normalizeLegacyServiceReviewEmbed,
 } from '../services/serviceReviewsService.js';
+
+// Rotate both menu IDs only AFTER a review was published. Their labels,
+ // choices, and the owner-written embed are unchanged; new IDs force Discord
+// to discard locally selected values from the completed review.
+export async function resetServiceReviewsPanel(client, { guild = null } = {}) {
+  const channel = await resolveCloudyChannel(client, 'serviceReviews', { guild, textOnly: true });
+  if (!channel || channel.id !== SERVICE_REVIEWS_CHANNEL_ID) return false;
+  let message = await channel.messages.fetch(SERVICE_REVIEW_PANEL_MESSAGE_ID).catch(() => null);
+  const isPanel = candidate => candidate?.author?.id === client.user?.id
+    && candidate.embeds?.some(embed => embed.title === SERVICE_REVIEW_PANEL_TITLE);
+  if (!isPanel(message)) {
+    const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    message = recent?.find(isPanel) || null;
+  }
+  if (!message) return false;
+  const components = serviceReviewPanelRows().map(row => row.toJSON());
+  const revision = randomUUID();
+  components[0].components[0].custom_id = `${SERVICE_REVIEW_SELECT_ID}:reset:${revision}`;
+  components[1].components[0].custom_id = `${SERVICE_REVIEW_RATING_ID}:reset:${revision}`;
+  await message.edit({ components });
+  return true;
+}
 
 export async function reconcileServiceReviewsPanel(client) {
   const guild = client.guilds?.cache?.get('1532882647838228723');

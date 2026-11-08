@@ -98,7 +98,26 @@ test('staff-posted-reviews receives the review and original dropdowns reset only
   assert.equal(result, 'Your staff review has been published. Thank you!');
   assert.equal(panelEdits, 1, 'reset original panel exactly once after successful posting');
   assert.equal(message.components[1].components[0].disabled, false);
+  assert.match(message.components[1].components[0].custom_id,
+    /^staff_review_rating:reset:/, 'rotate the rating ID so old stars disappear');
   assert.ok(message.components[0].components[0].options.every(option => !option.default));
   assert.ok(message.components[1].components[0].options.every(option => !option.default));
   assert.deepEqual(message.embeds, [originalEmbed]);
+
+  // A reviewer can use the rotated rating ID without confusing the reset
+  // nonce for a numeric member ID, and no public menu update is needed.
+  const otherUser = { id: 'staff-second-reviewer', username: 'Another reviewer' };
+  await staffReviewsInteraction.execute({
+    isStringSelectMenu: () => true, customId: STAFF_REVIEW_MEMBER_ID, guildId,
+    guild, client, message, user: otherUser, values: [memberId],
+    deferUpdate: async () => {},
+  });
+  let nextModal;
+  await staffReviewsInteraction.execute({
+    isStringSelectMenu: () => true, customId: message.components[1].components[0].custom_id,
+    guildId, guild, client, message, user: otherUser, values: ['3'],
+    showModal: async value => { nextModal = value.toJSON(); },
+  });
+  assert.equal(nextModal.custom_id, `staff_review_modal:${memberId}:3`);
+  assert.equal(panelEdits, 1);
 });

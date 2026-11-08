@@ -96,7 +96,11 @@ export default {
       const embeddedMemberId = interaction.customId.startsWith(ratingPrefix)
         ? interaction.customId.slice(ratingPrefix.length)
         : null;
-      const memberId = embeddedMemberId || getSelectedOwner(interaction);
+      // A reset ID carries no staff member; legacy suffixed IDs keep their
+      // previous behavior and are still validated against actual membership.
+      const memberId = embeddedMemberId?.startsWith('reset:')
+        ? getSelectedOwner(interaction)
+        : (embeddedMemberId || getSelectedOwner(interaction));
       if (!memberId) {
         await interaction.reply({
           content: 'Choose one of the Staff members first, then select your rating.',
