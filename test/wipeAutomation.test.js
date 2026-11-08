@@ -473,3 +473,27 @@ test('auto vote job persists more than 50 media references without truncation', 
     mediaLibrary: [...mediaLibrary, { channelId: 'bad', messageId: '1', name: 'oops' }],
   }), RangeError);
 });
+
+
+test('running weekly votes can update media after their original start date, but new past dates fail', async () => {
+  const f = fixture();
+  const original = await saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'random_weekly', startAt: Date.now() + 3 * MINUTE,
+    weeklyMin: 2, weeklyMax: 3, durationMinutes: 30,
+    question: 'First?', maps: ['A', 'B'],
+  });
+  const legacyStart = Date.now() - 8 * 24 * 60 * MINUTE;
+  const config = await getWipeAutomationConfig(f.client, GUILD);
+  config.voteJobs[0].startAt = legacyStart;
+  await f.db.set(`guild:${GUILD}:wipe-automations:v1`, config);
+  const edited = await saveAutomaticVoteJob(f.client, GUILD, {
+    ...config.voteJobs[0], question: 'Edited after first week?',
+  }, original.id);
+  assert.equal(edited.startAt, legacyStart);
+  assert.equal(edited.question, 'Edited after first week?');
+  await assert.rejects(() => saveAutomaticVoteJob(f.client, GUILD, {
+    schedule: 'random_weekly', startAt: Date.now() - 2 * MINUTE,
+    weeklyMin: 2, weeklyMax: 3, durationMinutes: 30,
+    question: 'Past?', maps: ['A', 'B'],
+  }), RangeError);
+});
