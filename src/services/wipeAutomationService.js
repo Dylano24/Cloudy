@@ -37,6 +37,7 @@ export async function getWipeAutomationConfig(client, guildId) {
     vote: config.vote || null,
     giveaway: config.giveaway || null,
     voteJobs: Array.isArray(config.voteJobs) ? config.voteJobs : [],
+    giveawayJobs: Array.isArray(config.giveawayJobs) ? config.giveawayJobs : [],
     wipes: config.wipes && typeof config.wipes === 'object' ? config.wipes : {},
   };
 }
@@ -178,12 +179,13 @@ function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt 
     configured = { server, name, question, maps, mediaLibrary, weeklyMin, weeklyMax,
       beforeMinutes, durationMinutes, state: 'stopped' };
   } else {
+    const name = String(configuration?.name || '').trim();
     const kit = String(configuration?.kit || '').trim();
     const prizes = (Array.isArray(configuration?.prizes) ? configuration.prizes : [kit])
       .map(prize => String(prize).trim()).filter(Boolean);
     const winnerRoleId = String(configuration?.winnerRoleId || '');
     const winnerCount = Number(configuration?.winnerCount);
-    if (!prizes.length || prizes.length > 20 || prizes.some(prize => prize.length > 150)
+    if (name.length > 64 || !prizes.length || prizes.length > 20 || prizes.some(prize => prize.length > 150)
       || (schedule === 'wipe' && !/^\d{17,20}$/.test(winnerRoleId))
       || (winnerRoleId && !/^\d{17,20}$/.test(winnerRoleId))
       || !Number.isInteger(winnerCount) || winnerCount < 1 || winnerCount > 10) {
@@ -191,7 +193,7 @@ function validatedAutomationConfig(kind, configuration, { existingWeeklyStartAt 
     }
     const description = String(configuration?.description || '').trim();
     if (description.length > 800) throw new RangeError('Description is too long');
-    configured = { server, kit: prizes[0], prizes, winnerRoleId, winnerCount,
+    configured = { server, name, kit: prizes[0], prizes, winnerRoleId, winnerCount,
       description, beforeMinutes, durationMinutes, state: 'stopped' };
   }
   Object.assign(configured, {
@@ -347,6 +349,110 @@ export async function deleteAutomaticVoteJob(client, guildId, jobId) {
       const length = config.voteJobs.length;
       config.voteJobs = config.voteJobs.filter(job => job.id !== jobId);
       if (length === config.voteJobs.length) return false;
+    }
+    await saveConfig(client, guildId, config);
+    return true;
+  });
+}
+
+// Independent automatic giveaway jobs mirror automatic votes. Existing single
+// giveaway configuration remains available as a legacy job.
+export async function listAutomaticGiveaways(client, guildId) {
+  if (guildId !== AUTO_WIPE_GUILD_ID) return [];
+  const config = await getWipeAutomationConfig(client, guildId);
+  return [
+    ...(config.giveaway ? [{ ...config.giveaway, id: 'legacy' }] : []),
+    ...config.giveawayJobs,
+  ];
+}
+
+export async function saveAutomaticGiveawayJob(client, guildId, draft, jobId = null) {
+  if (guildId !== AUTO_WIPE_GUILD_ID) throw new RangeError('Invalid automation guild');
+  if (jobId === 'legacy') throw new RangeError('Legacy giveaways are managed through the existing config');
+  return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
+    const config = await getWipeAutomationConfig(client, guildId);
+    const existing = jobId ? config.giveawayJobs.find(job => job.id === jobId) : null;
+    const configured = validatedAutomationConfig('giveaway', draft, {
+      existingWeeklyStartAt: existing?.schedule === 'random_weekly' ? existing.startAt : null,
+    });
+    if (jobId && !existing) throw new RangeError('This automatic giveaway no longer exists.');
+    if (!existing && config.giveawayJobs.length >= 20) {
+      throw new RangeError('Maximum 20 additional automatic giveaways reached.');
+    }
+    const id = existing?.id || randomUUID().replace(/-/g, '').slice(0, 16);
+    const sameTiming = existing && existing.schedule === configured.schedule
+      && existing.durationMinutes === configured.durationMinutes
+      && (configured.schedule === 'repeat'
+        ? existing.startAt === configured.startAt
+          && existing.repeatMinutes === configured.repeatMinutes
+        : configured.schedule === 'random_weekly'
+          ? existing.startAt === configured.startAt
+            && existing.weeklyMin === configured.weeklyMin
+            && existing.weeklyMax === configured.weeklyMax
+          : configured.schedule === 'once'
+            ? existing.startAt === configured.startAt
+            : existing.beforeMinutes === configured.beforeMinutes
+              && existing.server === configured.server);
+    const updated = {
+      ...configured, id,
+      state: existing?.state || 'stopped',
+      ...(sameTiming && existing.nextRunAt ? { nextRunAt: existing.nextRunAt } : {}),
+      ...(sameTiming && existing.weekTimes ? {
+        weekIndex: existing.weekIndex, weekTimes: existing.weekTimes,
+      } : {}),
+      ...(sameTiming && existing.completedAt ? { completedAt: existing.completedAt } : {}),
+      createdAt: existing?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+    config.giveawayJobs = existing
+      ? config.giveawayJobs.map(job => job.id === id ? updated : job)
+      : [...config.giveawayJobs, updated];
+    await saveConfig(client, guildId, config);
+    return updated;
+  });
+}
+
+export async function setAutomaticGiveawayJobState(client, guildId, jobId, state) {
+  if (guildId !== AUTO_WIPE_GUILD_ID || !AUTO_WIPE_STATES.includes(state)
+    || !/^[a-f0-9]{16}$/.test(jobId || '')) throw new RangeError('Invalid giveaway automation');
+  return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
+    const config = await getWipeAutomationConfig(client, guildId);
+    const existing = config.giveawayJobs.find(job => job.id === jobId);
+    if (!existing) throw new RangeError('This automatic giveaway no longer exists.');
+    if (existing.schedule === 'once' && state === 'running'
+      && (existing.completedAt || existing.startAt <= Date.now())) {
+      throw new RangeError('This date has passed. Set a new future date first.');
+    }
+    const restart = state === 'running' && existing.state === 'stopped';
+    let nextRunAt = existing.nextRunAt;
+    if (restart && existing.schedule === 'repeat') {
+      const interval = existing.repeatMinutes * MINUTE;
+      const first = existing.startAt || Date.now() + interval;
+      nextRunAt = first > Date.now() ? first
+        : first + (Math.floor((Date.now() - first) / interval) + 1) * interval;
+    }
+    const updated = { ...existing, state,
+      ...(existing.schedule === 'repeat' && restart ? { nextRunAt } : {}),
+      ...(existing.schedule === 'random_weekly' && state === 'running' && existing.state !== 'running'
+        ? nextWeeklySlotAfter(existing, Date.now()) : {}),
+    };
+    config.giveawayJobs = config.giveawayJobs.map(job => job.id === jobId ? updated : job);
+    await saveConfig(client, guildId, config);
+    return updated;
+  });
+}
+
+export async function deleteAutomaticGiveawayJob(client, guildId, jobId) {
+  if (guildId !== AUTO_WIPE_GUILD_ID) throw new RangeError('Invalid automation guild');
+  return Mutex.runExclusive(`wipeauto:config:${guildId}`, async () => {
+    const config = await getWipeAutomationConfig(client, guildId);
+    if (jobId === 'legacy') {
+      if (!config.giveaway) return false;
+      config.giveaway = null;
+    } else {
+      const length = config.giveawayJobs.length;
+      config.giveawayJobs = config.giveawayJobs.filter(job => job.id !== jobId);
+      if (length === config.giveawayJobs.length) return false;
     }
     await saveConfig(client, guildId, config);
     return true;
@@ -606,10 +712,8 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
       catch (error) { logger.warn('[WIPE_AUTO] Could not finish giveaway:', error); }
     }
     for (const kind of Object.keys(AUTO_WIPE_KIND)) {
-      const entries = kind === 'vote'
-        ? [{ setting: config.vote, jobId: null },
-          ...config.voteJobs.map(setting => ({ setting, jobId: setting.id }))]
-        : [{ setting: config.giveaway, jobId: null }];
+      const entries = [{ setting: config[kind], jobId: null },
+        ...config[`${kind}Jobs`].map(setting => ({ setting, jobId: setting.id }))];
       for (const { setting, jobId } of entries) {
       if (!setting || setting.state !== 'running') continue;
       if (setting.schedule === 'repeat' || setting.schedule === 'once'
@@ -618,9 +722,10 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
         let dueSetting = null;
         await Mutex.runExclusive(`wipeauto:config:${guild.id}`, async () => {
           const latest = await getWipeAutomationConfig(client, guild.id);
-          const active = jobId ? latest.voteJobs.find(job => job.id === jobId) : latest[kind];
+          const activeJobs = latest[`${kind}Jobs`];
+           const active = jobId ? activeJobs.find(job => job.id === jobId) : latest[kind];
           const updateActive = updated => {
-            if (jobId) latest.voteJobs = latest.voteJobs.map(job => job.id === jobId ? updated : job);
+            if (jobId) latest[`${kind}Jobs`] = activeJobs.map(job => job.id === jobId ? updated : job);
             else latest[kind] = updated;
           };
           if (!['once', 'repeat', 'random_weekly'].includes(active?.schedule)
@@ -656,7 +761,7 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
           await saveConfig(client, guild.id, latest);
         });
         if (dueAt !== null) {
-          const id = wipeSessionId(guild.id, jobId ? `vote-job:${jobId}:repeat` : `${kind}:repeat`, dueAt);
+          const id = wipeSessionId(guild.id, jobId ? `${kind}-job:${jobId}:repeat` : `${kind}:repeat`, dueAt);
           try {
             if (kind === 'vote') await createAutomaticVote(client, guild, dueSetting, id, dueAt);
             else await createAutomaticGiveaway(client, guild, dueSetting, id, dueAt);
@@ -671,7 +776,7 @@ export async function runWipeAutomationTick(client, now = Date.now()) {
       const startsAt = wipeAt - setting.beforeMinutes * MINUTE;
       if (now < startsAt || now >= wipeAt) continue;
       const id = wipeSessionId(guild.id,
-        jobId ? `vote-job:${jobId}:${setting.server}` : setting.server, wipeAt);
+        jobId ? `${kind}-job:${jobId}:${setting.server}` : setting.server, wipeAt);
       try {
         if (kind === 'vote') await createAutomaticVote(client, guild, setting, id, wipeAt);
         else await createAutomaticGiveaway(client, guild, setting, id, wipeAt);
