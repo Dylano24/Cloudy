@@ -8,7 +8,6 @@ import {
   STAFF_REVIEW_RATING_ID,
   buildPublishedReview,
   buildStaffReviewModal,
-  staffReviewPanelRows,
   ensureStaffReviewStarEmoji,
   isOwnerReviewTarget,
   takeReviewContext,
@@ -75,17 +74,16 @@ export default {
       const memberId = interaction.values?.[0];
       if (!memberId || memberId === 'none') return;
 
-      // Keep both selectors on their original message; enable the rating
-      // only after a member is chosen. Clear selected defaults immediately so
-      // nobody else sees who was picked. The choice is stored per reviewer.
-      const rows = staffReviewPanelRows(interaction.message, { ratingEnabled: true });
-      if (!rows) return;
+      // A public interaction.update() redraws the shared dropdown and erases
+      // the reviewer's visible choice. Acknowledge without editing the message:
+      // Discord keeps the local selection, while other users keep their own.
+      // The enabled rating dropdown is guarded by getSelectedOwner below.
       rememberSelectedOwner(interaction, memberId);
       try {
-        await interaction.update({ components: rows });
+        await interaction.deferUpdate();
       } catch (error) {
         clearSelectedOwner(interaction);
-        logger.warn('[STAFF_REVIEWS] Could not enable rating on the original panel:', error);
+        logger.warn('[STAFF_REVIEWS] Could not acknowledge member selection:', error);
       }
       return;
     }

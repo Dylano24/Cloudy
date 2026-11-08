@@ -18,7 +18,7 @@ function isStaffReviewsPanel(message, client) {
   return Boolean(
     message?.author?.id === client.user?.id
     && message.components?.some(row => row.components?.some(component => {
-      const id = component.customId || component.custom_id;
+      const id = component.customId || component.custom_id || component.toJSON?.().custom_id;
       return id === STAFF_REVIEW_MEMBER_ID || id === STAFF_REVIEW_RATING_ID
         || id?.startsWith(`${STAFF_REVIEW_RATING_ID}:`);
     })),
@@ -63,7 +63,15 @@ async function refreshStaffReviewsPanel(client) {
       }
       return data;
     });
-    await lookup.message.edit({ embeds: migratedEmbeds, components: payload.components }).catch(() => {});
+    // Do not redraw the public menus every five minutes. That would erase
+    // each reviewer's local selection, even when nothing actually changed.
+    const oldRows = lookup.message.components.map(row => row.toJSON?.() || row);
+    const newRows = payload.components.map(row => row.toJSON?.() || row);
+    const oldEmbeds = lookup.message.embeds.map(embed => embed.toJSON?.() || embed);
+    if (JSON.stringify(oldRows) !== JSON.stringify(newRows)
+      || JSON.stringify(oldEmbeds) !== JSON.stringify(migratedEmbeds)) {
+      await lookup.message.edit({ embeds: migratedEmbeds, components: payload.components }).catch(() => {});
+    }
     if (!lookup.message.pinned) {
       await channel.messages.pin(lookup.message, 'Cloudy staff reviews panel').catch(() => {});
     }
@@ -84,7 +92,7 @@ export async function resetStaffReviewPanel(client, { guild = null } = {}) {
   const lookup = await findStaffReviewsPanel(channel, client);
   const message = lookup.message;
   if (!message) return false;
-  const components = staffReviewPanelRows(message, { ratingEnabled: false });
+  const components = staffReviewPanelRows(message, { ratingEnabled: true });
   if (!components) return false;
   await message.edit({ components });
   return true;

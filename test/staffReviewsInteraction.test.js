@@ -96,7 +96,7 @@ test('staff review choices are user-private with both original dropdowns and no 
     user: { username: 'Lano' } }]);
   let publicEdits = 0;
   const message = { ...publicPanel, edit: async () => { publicEdits += 1; } };
-  let updates = 0;
+  let acknowledgements = 0;
   for (const userId of ['private-reviewer-1', 'private-reviewer-2']) {
     await staffReviewsInteraction.execute({
       customId: STAFF_REVIEW_MEMBER_ID,
@@ -106,19 +106,17 @@ test('staff review choices are user-private with both original dropdowns and no 
       message,
       isStringSelectMenu: () => true,
       reply: async () => { throw new Error('No second private rating dropdown allowed'); },
-      update: async ({ components }) => {
-        message.components = components;
-        updates += 1;
-      },
+      deferUpdate: async () => { acknowledgements += 1; },
+      update: async () => { throw new Error('Must not redraw the shared staff selector'); },
     });
   }
   assert.equal(publicEdits, 0);
-  assert.equal(updates, 2);
-  assert.equal(message.components[1].components[0].disabled, false);
-  assert.ok(message.components[0].components[0].options.every(option => !option.default),
+  assert.equal(acknowledgements, 2);
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
+  assert.ok(message.components[0].toJSON().components[0].options.every(option => !option.default),
     'the member choice is not broadcast as a default');
-  assert.equal(publicPanel.components[1].toJSON().components[0].disabled, true,
-    'the initial rating is disabled until a member is selected');
+  assert.equal(publicPanel.components[1].toJSON().components[0].disabled, false,
+    'rating is clickable but the handler blocks it until this user selects a member');
 });
 
 test('two staff reviewers can choose different members on the same public dropdowns', async () => {
@@ -143,7 +141,8 @@ test('two staff reviewers can choose different members on the same public dropdo
       customId: STAFF_REVIEW_MEMBER_ID,
       guildId: 'private-test-guild', user: { id: users[i] }, guild, message,
       values: [ownerIds[i]], isStringSelectMenu: () => true,
-      update: async ({ components }) => { message.components = components; },
+      deferUpdate: async () => {},
+      update: async () => { throw new Error('Never redraw the shared dropdown'); },
       reply: async () => { throw new Error('Never send separate rating panels'); },
     });
   }
@@ -158,8 +157,28 @@ test('two staff reviewers can choose different members on the same public dropdo
   }
   assert.deepEqual(modals, ownerIds.map(id => `staff_review_modal:${id}:5`));
   assert.equal(edits, 0, 'neither selection may edit the public review panel');
-  assert.equal(message.components[1].components[0].disabled, false);
-  assert.ok(message.components[0].components[0].options.every(option => !option.default));
+  assert.equal(message.components[1].toJSON().components[0].disabled, false);
+  assert.ok(message.components[0].toJSON().components[0].options.every(option => !option.default));
+});
+
+test('rating cannot open the staff modal until this reviewer selects a member', async () => {
+  const publicPanel = buildStaffReviewsPanel([{ id: '111111111111111111', displayName: 'Lano',
+    user: { username: 'Lano' } }]);
+  const responses = [];
+  let shown = false;
+  await staffReviewsInteraction.execute({
+    customId: STAFF_REVIEW_RATING_ID,
+    guildId: 'private-review-guard',
+    user: { id: 'reviewer-without-selection' }, values: ['5'],
+    isStringSelectMenu: () => true,
+    reply: async payload => { responses.push(payload); },
+    showModal: async () => { shown = true; },
+  });
+  assert.equal(shown, false);
+  assert.equal(responses.length, 1);
+  assert.match(responses[0].content, /Choose one of the Staff members first/i);
+  assert.equal(responses[0].flags, 64);
+  assert.equal(publicPanel.components[1].toJSON().components[0].disabled, false);
 });
 
 test('rating selection rejects stale cached Owner membership', async () => {
