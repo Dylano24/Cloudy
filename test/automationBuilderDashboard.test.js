@@ -123,7 +123,7 @@ test('vote builder has one private dashboard, channel chooser, modal inputs and 
   assert.deepEqual(f.view.components[4].toJSON().components.map(item => item.label),
     ['Back']);
   assert.deepEqual(f.view.components[0].toJSON().components.map(item => item.label),
-    ['Edit details', 'Schedule', 'Randomize: off']);
+    ['Edit details', 'Schedule', 'Randomize: off', 'Add media', 'Media library']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(item => item.label),
     ['Start', 'Pause', 'Save', 'Delete']);
   assert.equal(f.view.components[1].toJSON().components[0].disabled, true,
@@ -241,7 +241,7 @@ test('wipe mode is editable in the dashboard without changing the legacy wipe sc
   await f.action(id, 'schedule');
   assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).custom_id),
     ['server', 'before', 'duration']);
-  await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30', duration: '5' });
+  await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '30m', duration: '5m' });
   await f.action(id, 'save');
   await f.action(id, 'start');
   const cfg = (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
@@ -272,11 +272,11 @@ test('vote and giveaway always use the same compact two-row button layout', asyn
     const id = await f.open(kind);
     let rows = f.view.components.slice(0, 2).map(row => row.toJSON().components);
     assert.deepEqual(rows[0].map(item => item.label),
-      ['Edit details', 'Schedule', 'Randomize: off']);
+      kind === 'vote' ? ['Edit details', 'Schedule', 'Randomize: off', 'Add media', 'Media library'] : ['Edit details', 'Schedule', 'Randomize: off']);
     assert.deepEqual(rows[1].map(item => item.label), kind === 'vote'
       ? ['Start', 'Pause', 'Save', 'Delete']
       : ['Save', 'Start', 'Pause', 'Stop', 'Cancel']);
-    assert.equal(rows[0].length, 3);
+    assert.equal(rows[0].length, kind === 'vote' ? 5 : 3);
     assert.equal(rows[1].length, kind === 'vote' ? 4 : 5,
       'management controls fit on one Discord action row');
     assert.deepEqual(rows[1].map(item => item.disabled),
@@ -395,12 +395,12 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
       ['Date', 'Time (EU)', 'Repeat', 'Duration']);
     assert.deepEqual(f.modal.components.map(row => row.description),
-      ['Type 10112026; saved as 10-11-2026.',
-        'Type 1800; saved as 18:00. Numbers only.',
+      ['DD-MM-YYYY • choose a future date.',
+        'HH:MM • 24-hour clock.',
         `How often a new ${kind} starts. E.g. 1m, 1h, 1d, 1w.`,
         `How long the ${kind} stays open. E.g. 1m, 1h, 1d, 1w.`]);
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).placeholder),
-      ['10-11-2026 or 10112026', '18:00 or 1800',
+      ['10-11-2026', '18:00',
         '1m, 1h, 1d, 1w',
         '1m, 1h, 1d, 1w']);
     await f.action(id, 'mode', ['once']);
@@ -550,7 +550,7 @@ test('auto vote landing page matches the Cloudy feed Add/Manage flow', async () 
   assert.match(f.view.embeds[0].toJSON().description, /Existing map vote/);
 });
 
-test('short date/time entries normalize and save correctly for both auto vote and auto giveaway', async () => {
+test('compact date and time entries are refused; correcting to separators saves the schedule', async () => {
   for (const kind of ['vote', 'giveaway']) {
     const f = fixture();
     const id = await f.open(kind);
@@ -560,23 +560,25 @@ test('short date/time entries normalize and save correctly for both auto vote an
     } else {
       await f.submit(id, 'details', { prizes: 'A prize', winners: '1' });
     }
-    await f.action(id, 'schedule');
-    const compactDate = futureStart.date.replace(/-/g, '');
-    const compactTime = futureStart.time.replace(':', '');
     await f.submit(id, 'schedule', {
-      date: compactDate, time: compactTime, repeat: '1d', duration: '1m',
+      date: futureStart.date.replace(/-/g, ''),
+      time: futureStart.time.replace(':', ''), repeat: '1d', duration: '1m',
     });
-    const expected = parseAmsterdamStart(futureStart.date, futureStart.time);
+    assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+    await f.action(id, 'save');
+    assert.match(f.view.embeds[0].toJSON().description, /Correct the invalid settings/);
+    await f.submit(id, 'schedule', {
+      date: futureStart.date, time: futureStart.time, repeat: '1d', duration: '1m',
+    });
     assert.match(f.view.embeds[0].toJSON().description, /Duration:\*\* 1m/);
     await f.action(id, 'schedule');
     const values = f.modal.components.map(row => (row.component || row.components[0]).value);
-    assert.deepEqual(values, [futureStart.date, futureStart.time, '1d', '1m'],
-      'reopening Schedule shows formatted date and time, not compact entry');
+    assert.deepEqual(values, [futureStart.date, futureStart.time, '1d', '1m']);
     await f.action(id, 'save');
     const saved = kind === 'vote'
       ? (await getWipeAutomationConfig(f.client, GUILD)).voteJobs[0]
       : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
-    assert.equal(saved.startAt, expected);
+    assert.equal(saved.startAt, parseAmsterdamStart(futureStart.date, futureStart.time));
     assert.equal(saved.durationMinutes, 1);
   }
 });
@@ -597,8 +599,8 @@ test('invalid schedule turns the private dashboard line red, preserves entered f
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).value),
       Object.values(inputValues), 'submitted text remains available for correction');
     await f.submit(id, 'schedule', {
-      date: futureStart.date.replace(/-/g, ''),
-      time: futureStart.time.replace(':', ''),
+      date: futureStart.date,
+      time: futureStart.time,
       repeat: '1d', duration: '1h',
     });
     assert.equal(f.view.embeds[0].toJSON().color,
@@ -629,7 +631,7 @@ test('Time rejects letters immediately on submission for both dashboards', async
     });
     assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
     assert.match(f.view.embeds[0].toJSON().description,
-      /Invalid Time: type 1800 or 18:00 \(numbers only/i);
+      /Invalid Time: use HH:MM/i);
     await f.action(id, 'schedule');
     assert.equal(f.modal.components[1].component.value, 'abcd');
     const cfg = await getWipeAutomationConfig(f.client, GUILD);
@@ -651,8 +653,8 @@ test('Repeat 1m and Duration 1m are valid and appear with explanations in the mo
     assert.match(f.modal.components[2].description, /How often.*1m.*1d.*1w/);
     assert.match(f.modal.components[3].description, /How long.*stays open.*1m.*1d.*1w/);
     await f.submit(id, 'schedule', {
-      date: futureStart.date.replaceAll('-', ''),
-      time: futureStart.time.replace(':', ''),
+      date: futureStart.date,
+      time: futureStart.time,
       repeat: '1m', duration: '1m',
     });
     assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
