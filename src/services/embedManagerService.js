@@ -724,7 +724,8 @@ export function collapseDisplayRecords(channelRecords, channelId = null) {
         const creatorIdentity = contentCreatorGuideRecordIdentity(record);
         if (creatorIdentity) {
             if (!groups.has(creatorIdentity)) groups.set(creatorIdentity, {
-                label: stripCustomEmojiMarkup(recordData?.title || '')
+                // Keep the literal title, including its custom emoji markup.
+                label: String(recordData?.title || '').trim()
                     || humanTemplateRecordName(record),
                 records: [], templateMode: false, preventTemplateMode: true,
             });
