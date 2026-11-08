@@ -6,9 +6,10 @@ import {
   SERVICE_REVIEW_TYPES, SERVICE_REVIEW_PANEL_TITLE, SERVICE_REVIEW_SELECT_ID,
   SERVICE_REVIEW_RATING_ID, serviceReviewChoiceRow, serviceReviewRatingRow,
   serviceReviewPanelRows, serviceReviewModal, buildPublishedServiceReview,
+  normalizeLegacyServiceReviewEmbed,
 } from '../src/services/serviceReviewsService.js';
 import serviceReviewInteraction from '../src/events/serviceReviewsInteraction.js';
-import { reconcileServiceReviewsPanel } from '../src/events/serviceReviewsReady.js';
+import { reconcileServiceReviewsPanel, migrateLegacyServiceReviews } from '../src/events/serviceReviewsReady.js';
 import boostEvent, { buildGuildBoostAnnouncement } from '../src/events/guildBoostAnnouncement.js';
 import { reconcileRequestedButtonEmojis } from '../src/events/cloudyRequestedButtonsReady.js';
 import { buildTicketPanelComponents } from '../src/services/ticketPanelBuilder.js';
@@ -199,6 +200,61 @@ test('published service review uses only the selected category as heading and th
     assert.ok(!Object.hasOwn(embed, 'timestamp'), 'Must show footer without Today at time');
     assert.ok(embed.description.endsWith('**Experience**\nPerfect!'));
   }
+});
+
+test('legacy Service Reviews are corrected in their existing message, without changing rating or experience', async () => {
+  const { guild, client } = mockClient();
+  let edits = 0, skippedEdits = 0;
+  const old = {
+    color: 0xA14425,
+    description: '**Product or service**\nGame servers\n\n**Rating**\n<:W84starwhite:1543289625035022346>\n\n**Experience**\nPerfect!',
+    footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' },
+    timestamp: '2026-11-08T02:04:00.000Z',
+    thumbnail: { url: 'https://example.com/unchanged-logo.gif' },
+  };
+  const legacy = {
+    author: { id: BOT },
+    embeds: [{ toJSON: () => old }],
+    async edit(payload) {
+      edits += 1;
+      assert.ok(!Object.hasOwn(payload, 'content'));
+      assert.ok(!Object.hasOwn(payload, 'components'));
+      this.embeds = payload.embeds;
+    },
+  };
+  const unrelated = {
+    author: { id: 'some-other-bot' },
+    embeds: [{ description: old.description }],
+    async edit() { skippedEdits += 1; },
+  };
+  const unknown = {
+    author: { id: BOT },
+    embeds: [{ description: '**Product or service**\nUnknown category\n\n**Rating**\n5' }],
+    async edit() { skippedEdits += 1; },
+  };
+  addChannel(client, guild, POSTED, {
+    messages: {
+      async fetch() {
+        return new Collection([['legacy', legacy], ['unrelated', unrelated], ['unknown', unknown]]);
+      },
+    },
+  });
+  const first = await migrateLegacyServiceReviews(client);
+  assert.deepEqual(first, { updated: 1 });
+  assert.equal(edits, 1);
+  assert.equal(skippedEdits, 0);
+  const output = legacy.embeds[0];
+  assert.ok(output.description.startsWith('**Game servers**\n\n**Rating**'));
+  assert.ok(!output.description.includes('Product or service'));
+  assert.ok(output.description.endsWith('**Experience**\nPerfect!'));
+  assert.equal(output.color, old.color);
+  assert.deepEqual(output.thumbnail, old.thumbnail);
+  assert.deepEqual(output.footer, old.footer);
+  assert.ok(!Object.hasOwn(output, 'timestamp'));
+  assert.equal(normalizeLegacyServiceReviewEmbed(output), null);
+  const second = await migrateLegacyServiceReviews(client);
+  assert.deepEqual(second, { updated: 0 });
+  assert.equal(edits, 1, 'repeat startup must not edit the same review again');
 });
 
 test('boost embed contains exact requested wording and never invents counts', async () => {
