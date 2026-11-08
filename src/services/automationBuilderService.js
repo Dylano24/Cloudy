@@ -338,10 +338,10 @@ export function buildAutomationModal(session, action) {
           { maxLength: 10, description: 'Future date only.' }),
         input('time', 'Time (EU)', session.scheduleInputs?.time ?? local.time,
           { maxLength: 5, description: '24-hour clock.' }),
-        input('repeat', 'Repeat (only for Repeat)',
+        input('repeat', 'Repeat',
           session.scheduleInputs?.repeat ?? shortAutomationDuration(draft.repeatMinutes),
           { maxLength: 8, required: false,
-            description: 'Interval between giveaways, e.g. 1m, 1h, 1d, 1w. Ignored for Once.' }),
+            description: 'Interval between giveaways. E.g. 1m, 1h, 1d, 1w.' }),
       );
     } else if (draft.schedule === 'repeat' || draft.schedule === 'once' || draft.schedule === 'random_weekly') {
       const local = draft.startAt ? amsterdamParts(draft.startAt) : { date: '', time: '' };

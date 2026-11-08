@@ -478,7 +478,7 @@ test('Auto Giveaway keeps schedule modes inside the Schedule modal', async () =>
     assert.deepEqual(f.modal.components.map(row => row.label),
       kind === 'vote'
         ? ['Date', 'Time (EU)', 'Repeat', 'Duration']
-        : ['Schedule type', 'Date', 'Time (EU)', 'Repeat (only for Repeat)']);
+        : ['Schedule type', 'Date', 'Time (EU)', 'Repeat']);
     if (kind === 'giveaway') {
       assert.deepEqual(f.modal.components[0].component.options.map(o => o.value),
         ['repeat', 'once']);
@@ -493,7 +493,7 @@ test('Auto Giveaway keeps schedule modes inside the Schedule modal', async () =>
     await f.action(id, 'schedule');
     assert.deepEqual(f.modal.components.map(row => row.label),
       kind === 'vote' ? ['Date', 'Time (EU)', 'Duration']
-        : ['Schedule type', 'Date', 'Time (EU)', 'Repeat (only for Repeat)']);
+        : ['Schedule type', 'Date', 'Time (EU)', 'Repeat']);
     if (kind === 'vote') {
       await f.action(id, 'mode', ['wipe']);
       await f.action(id, 'schedule');
