@@ -392,7 +392,7 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     const id = await f.open(kind);
     await f.action(id, 'schedule');
     assert.equal(f.modal.title, 'Schedule');
-    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).label),
+    assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
       ['Date', 'Time (EU)', 'Repeat', 'Duration']);
     assert.deepEqual(f.modal.components.map(row => row.description),
       ['Type 10112026; saved as 10-11-2026.',
@@ -405,11 +405,11 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
         '1m = minute | 1h = hour | 1d = day | 1w = week']);
     await f.action(id, 'mode', ['once']);
     await f.action(id, 'schedule');
-    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).label),
+    assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
       ['Date', 'Time (EU)', 'Duration']);
     await f.action(id, 'mode', ['wipe']);
     await f.action(id, 'schedule');
-    assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).label),
+    assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
       ['Connected Rust server name', 'Before wipe', 'Duration']);
   }
 });
@@ -662,5 +662,30 @@ test('Repeat 1m and Duration 1m are valid and appear with explanations in the mo
       : (await getWipeAutomationConfig(f.client, GUILD)).giveaway;
     assert.equal(saved.repeatMinutes, 1);
     assert.equal(saved.durationMinutes, 1);
+  }
+});
+
+test('Schedule modals are valid Discord Label components without nested text input labels', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    for (const mode of ['repeat', 'once', 'wipe']) {
+      await f.action(id, 'mode', [mode]);
+      await f.action(id, 'schedule');
+      assert.equal(f.modal.title, 'Schedule');
+      assert.equal(f.modal.components.length, mode === 'repeat' ? 4 : 3);
+      for (const label of f.modal.components) {
+        assert.equal(label.type, 18, 'Discord modal must contain a Label component');
+        assert.equal(label.component.type, 4, 'the Label must contain a TextInput');
+        assert.ok(label.label, 'the outer Label must have a name');
+        assert.ok(label.description, 'the help text remains visible');
+        assert.equal(Object.hasOwn(label.component, 'label'), false,
+          'Discord API 50035 rejects TextInput.label inside a Label component');
+      }
+    }
+    await f.action(id, 'details');
+    for (const row of f.modal.components) {
+      assert.ok(row.components[0].label, 'existing edit-details fields keep their labels');
+    }
   }
 });
