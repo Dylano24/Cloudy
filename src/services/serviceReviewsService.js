@@ -85,7 +85,7 @@ export function serviceReviewModal(type, rating) {
   return modal.addComponents(new ActionRowBuilder().addComponents(
     new TextInputBuilder()
       .setCustomId('service_review_comment')
-      .setLabel(type === 'other' ? 'Reason' : 'Tell us about your experience')
+      .setLabel('Tell us about your experience')
       .setPlaceholder('Write your review here...')
       .setStyle(TextInputStyle.Paragraph)
       .setMinLength(3)
