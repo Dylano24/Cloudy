@@ -3,8 +3,8 @@ import { logger } from '../utils/logger.js';
 import { resolveCloudyChannel } from '../services/cloudyChannelResolver.js';
 import {
   SERVICE_REVIEWS_CHANNEL_ID, SERVICE_REVIEW_PANEL_MESSAGE_ID,
-  SERVICE_REVIEW_PANEL_TITLE, SERVICE_REVIEW_SELECT_ID,
-  serviceReviewChoiceRow,
+  SERVICE_REVIEW_PANEL_TITLE,
+  serviceReviewPanelRows,
 } from '../services/serviceReviewsService.js';
 
 export async function reconcileServiceReviewsPanel(client) {
@@ -25,11 +25,14 @@ export async function reconcileServiceReviewsPanel(client) {
   if (!message) return { ok: false, reason: 'panel-missing' };
 
   const components = message.components?.map(row => row.toJSON?.() || row) || [];
-  const hasChoice = components.some(row => (row.components || [])
-    .some(item => item.custom_id === SERVICE_REVIEW_SELECT_ID));
-  if (hasChoice) return { ok: true, action: 'preserved', id: message.id };
-  if (components.length >= 5) return { ok: false, reason: 'components-full' };
-  await message.edit({ components: [...components, serviceReviewChoiceRow()] });
+  const rows = serviceReviewPanelRows();
+  const desired = rows.map(row => row.toJSON());
+  // Update only the controls on the existing owner-written embed (never repost
+  // the panel). On restart, reset an interrupted review to the idle state.
+  if (JSON.stringify(components) === JSON.stringify(desired)) {
+    return { ok: true, action: 'preserved', id: message.id };
+  }
+  await message.edit({ components: rows });
   return { ok: true, action: 'updated', id: message.id };
 }
 
