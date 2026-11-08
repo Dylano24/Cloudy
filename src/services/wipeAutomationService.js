@@ -548,11 +548,11 @@ export function autoWipeGiveawayPayload(session) {
     endedAt: session.endedAt,
     winnerIds: session.winners,
   };
-  const embed = createGiveawayEmbed(giveaway,
+  const baseEmbed = createGiveawayEmbed(giveaway,
     session.status === 'ended' || session.status === 'expired' ? 'ended' : 'active', session.winners);
-  if (session.status !== 'active' && session.winners?.length) {
-    embed.setDescription(`${embed.data.description}\n\n**Winner sync**\nUse \`/wipe sync\` to activate your temporary wipe role.`);
-  }
+  const embed = session.status !== 'active' && session.winners?.length
+    ? { ...baseEmbed, description: `${baseEmbed.description}\n\n**Winner sync**\nUse \`/wipe sync\` to activate your temporary wipe role.` }
+    : baseEmbed;
   return {
     embeds: [embed],
     components: giveawayButtons(session.id, session.status !== 'active'),
