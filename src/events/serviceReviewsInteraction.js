@@ -5,7 +5,7 @@ import {
   SERVICE_REVIEWS_CHANNEL_ID, SERVICE_REVIEW_MODAL_ID,
   SERVICE_REVIEW_RATING_ID, SERVICE_REVIEW_SELECT_ID,
   SERVICE_REVIEW_TYPES, buildPublishedServiceReview,
-  serviceReviewModal, serviceReviewPanelRows,
+  serviceReviewModal, serviceReviewPanelRows, serviceReviewRatingRow,
 } from '../services/serviceReviewsService.js';
 import { logger } from '../utils/logger.js';
 
@@ -56,19 +56,19 @@ export default {
     if (isSelect && customId === SERVICE_REVIEW_SELECT_ID) {
       const type = interaction.values?.[0];
       if (!Object.hasOwn(SERVICE_REVIEW_TYPES, type)) return;
-      // Same in-panel two-step flow as Staff Reviews: update the original
-      // message, never create a separate ephemeral rating menu per click.
-      try {
-        await interaction.deferUpdate();
-      } catch {
-        return;
-      }
+
+      // Keep the public panel unchanged; only the reviewer sees the rating menu.
+      // Embed the chosen type in the private menu to avoid cross-user races.
       rememberSelection(interaction, type);
       try {
-        await interaction.editReply({ components: serviceReviewPanelRows(type) });
+        await interaction.reply({
+          content: `Choose your rating for **${SERVICE_REVIEW_TYPES[type]}**.`,
+          components: [serviceReviewRatingRow(type, true)],
+          flags: MessageFlags.Ephemeral,
+        });
       } catch (error) {
         clearSelection(interaction);
-        logger.warn('[SERVICE_REVIEWS] Could not enable rating menu:', error);
+        logger.warn('[SERVICE_REVIEWS] Could not show private rating menu:', error);
       }
       return;
     }

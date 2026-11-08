@@ -62,6 +62,8 @@ test('panel replaces Services with Other, with rating initially disabled', () =>
   assert.equal(serviceReviewModal('development', 5).toJSON().custom_id, 'service_review_modal:development:5');
   assert.throws(() => serviceReviewModal('servers', 5), /Invalid review details/);
   assert.equal(serviceReviewRatingRow().toJSON().components[0].disabled, true);
+  assert.equal(serviceReviewRatingRow('other', true).toJSON().components[0].custom_id,
+    'service_review_rating:other');
   const chosen = serviceReviewPanelRows('bot').map(row => row.toJSON());
   assert.equal(chosen[1].components[0].disabled, false);
   assert.equal(chosen[0].components[0].options.filter(option => option.default).length, 1);
@@ -103,7 +105,7 @@ test('reconciliation migrates existing embed to two menus in-place, without dupl
   assert.equal(edits, 1, 'must never duplicate or overwrite the existing review embed');
 });
 
-test('selection enables rating on same panel, never sends repetitive ephemeral dropdowns, then opens modal', async () => {
+test('reviewers choose categories and ratings privately without changing the shared panel', async () => {
   const { guild, client } = mockClient();
   guild.emojis = { cache: new Collection([['1543289625035022346', {
     toString: () => '<:W84starwhite:1543289625035022346>',
@@ -113,6 +115,7 @@ test('selection enables rating on same panel, never sends repetitive ephemeral d
     async send(payload) { sent.push(payload); return { id: 'published' }; },
   });
   const user = { id: 'member', username: 'Listener', displayAvatarURL: () => 'https://example.com/avatar.png' };
+  const anotherUser = { ...user, id: 'another-member' };
   const publicMessage = {
     id: '1568560974548697170',
     components: serviceReviewPanelRows(),
@@ -122,38 +125,42 @@ test('selection enables rating on same panel, never sends repetitive ephemeral d
       this.edits += 1;
     },
   };
-  let deferCount = 0;
-  let replyCount = 0;
-  let editCount = 0;
+  const prompts = [];
   const choose = {
     customId: SERVICE_REVIEW_SELECT_ID, channelId: REVIEWS, guildId: GUILD_ID,
     isStringSelectMenu: () => true, values: ['bot'],
     user, guild, client, message: publicMessage,
-    deferUpdate: async () => { deferCount += 1; },
-    editReply: async payload => {
-      editCount += 1;
-      publicMessage.components = payload.components;
-    },
-    reply: async () => { replyCount += 1; },
+    reply: async payload => { prompts.push(payload); },
   };
-  for (let i = 0; i < 4; i += 1) {
-    await serviceReviewInteraction.execute(choose);
-  }
-  assert.equal(deferCount, 4);
-  assert.equal(editCount, 4);
-  assert.equal(replyCount, 0, 'no ephemeral rating dropdown spam');
-  assert.equal(publicMessage.components.length, 2);
-  assert.equal(publicMessage.components[1].toJSON().components[0].disabled, false);
+  await serviceReviewInteraction.execute(choose);
+  await serviceReviewInteraction.execute({
+    ...choose, user: anotherUser, values: ['other'],
+  });
+  assert.equal(prompts.length, 2);
+  assert.ok(prompts.every(prompt => prompt.flags === MessageFlags.Ephemeral));
+  assert.deepEqual(prompts.map(prompt => prompt.components[0].toJSON().components[0].custom_id), [
+    'service_review_rating:bot', 'service_review_rating:other',
+  ]);
+  assert.equal(publicMessage.edits, 0, 'no person may change the public selectors');
+  assert.deepEqual(publicMessage.components.map(row => row.toJSON()),
+    serviceReviewPanelRows().map(row => row.toJSON()));
 
   let shown;
   await serviceReviewInteraction.execute({
-    ...choose, customId: SERVICE_REVIEW_RATING_ID, values: ['4'],
+    ...choose, customId: 'service_review_rating:bot', values: ['4'],
     showModal: async modal => { shown = modal.toJSON(); },
   });
   assert.equal(shown.custom_id, 'service_review_modal:bot:4');
   assert.equal(shown.components[0].components[0].custom_id, 'service_review_comment');
-  assert.equal(publicMessage.edits, 1, 'reset original message rather than add another one');
-  assert.equal(publicMessage.components[1].toJSON().components[0].disabled, true);
+
+  let otherModal;
+  await serviceReviewInteraction.execute({
+    ...choose, user: anotherUser, customId: 'service_review_rating:other', values: ['5'],
+    showModal: async modal => { otherModal = modal.toJSON(); },
+  });
+  assert.equal(otherModal.custom_id, 'service_review_modal:other:5');
+  assert.equal(otherModal.components.length, 2);
+  assert.equal(publicMessage.edits, 0, 'choosing a rating must not touch the public panel');
 
   let deferred, result;
   await serviceReviewInteraction.execute({
@@ -169,7 +176,7 @@ test('selection enables rating on same panel, never sends repetitive ephemeral d
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   const embed = sent[0].embeds[0].toJSON();
-  assert.ok(embed.description.startsWith('**Cloudy bot**\n\n'));
+  assert.ok(embed.description.startsWith('**Cloudy bot**\\n\\n'));
   assert.ok(!embed.description.includes('Product or service'));
   assert.equal(embed.timestamp, undefined, 'review footer cannot include a timestamp');
   assert.ok(embed.description.includes('<:W84starwhite:1543289625035022346>'.repeat(4)));
