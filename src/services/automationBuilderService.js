@@ -199,9 +199,9 @@ function input(id, label, value, {
     .setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(required).setMaxLength(maxLength);
   if (!description) field.setLabel(label);
-  if (id === 'repeat') field.setPlaceholder('1m = minute | 1h = hour | 1d = day | 1w = week');
+  if (id === 'repeat') field.setPlaceholder('1m, 1h, 1d, 1w');
   if (id === 'duration' || id === 'before') {
-    field.setPlaceholder('1m = minute | 1h = hour | 1d = day | 1w = week');
+    field.setPlaceholder('1m, 1h, 1d, 1w');
   }
   if (id === 'date') field.setPlaceholder('10-11-2026 or 10112026');
   if (id === 'time') field.setPlaceholder('18:00 or 1800');
@@ -213,8 +213,15 @@ function input(id, label, value, {
 
 export function buildAutomationModal(session, action) {
   const { id, kind, draft } = session;
+  // Discord's mobile client can reuse text from another modal with the same ID.
+  // Give every Schedule opening a fresh ID, including the schedule mode, so
+  // values from the Rust-wipe form cannot appear in Date/Time fields.
+  if (action === 'schedule') session.scheduleModalCounter = (session.scheduleModalCounter || 0) + 1;
+  const modalId = action === 'schedule'
+    ? `${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}:${draft.schedule}:${session.scheduleModalCounter}`
+    : `${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`;
   const modal = new ModalBuilder()
-    .setCustomId(`${AUTOMATION_BUILDER_PREFIX}modal:${id}:${action}`)
+    .setCustomId(modalId)
     .setTitle(action === 'schedule' ? 'Schedule' : kind === 'vote' ? 'Configure auto vote' : 'Configure auto giveaway');
   if (action === 'schedule') {
     if (draft.schedule === 'repeat' || draft.schedule === 'once') {
@@ -230,12 +237,14 @@ export function buildAutomationModal(session, action) {
       if (draft.schedule === 'repeat') {
         modal.addLabelComponents(input('repeat', 'Repeat',
           session.scheduleInputs?.repeat ?? shortAutomationDuration(draft.repeatMinutes), {
-            maxLength: 8, description: '1m = minute, 1h = hour, 1d = day, 1w = week.',
+            maxLength: 8,
+            description: `How often a new ${kind} starts. E.g. 1m, 1h, 1d, 1w.`,
           }));
       }
       modal.addLabelComponents(input('duration', 'Duration',
         session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
-          maxLength: 8, description: '1m = minute, 1h = hour, 1d = day, 1w = week.',
+          maxLength: 8,
+          description: `How long the ${kind} stays open. E.g. 1m, 1h, 1d, 1w.`,
         }));
     } else {
       modal.addLabelComponents(
@@ -244,11 +253,12 @@ export function buildAutomationModal(session, action) {
         }),
         input('before', 'Before wipe',
           session.scheduleInputs?.before ?? shortAutomationDuration(draft.beforeMinutes), {
-            maxLength: 8, description: 'Examples: 10m = minutes, 1h = hour, 1d = day.',
+            maxLength: 8, description: `How early the ${kind} starts before the wipe. E.g. 10m, 1h.`,
           }),
         input('duration', 'Duration',
           session.scheduleInputs?.duration ?? shortAutomationDuration(draft.durationMinutes), {
-            maxLength: 8, description: '1m = minute, 1h = hour, 1d = day, 1w = week.',
+            maxLength: 8,
+            description: `How long the ${kind} stays open. E.g. 1m, 1h, 1d, 1w.`,
           }),
       );
     }
@@ -430,6 +440,8 @@ export async function handleAutomationBuilderInteraction(interaction) {
         session.view = 'editor';
         session.draft = baseDraft('vote', null);
         session.selectedJobId = null;
+        session.scheduleInputs = null;
+        session.validationError = false;
         session.dirty = false;
         session.saved = false;
         session.confirmDelete = false;
@@ -460,6 +472,8 @@ export async function handleAutomationBuilderInteraction(interaction) {
       session.view = 'editor';
       session.selectedJobId = choice.id;
       session.draft = baseDraft('vote', choice);
+      session.scheduleInputs = null;
+      session.validationError = false;
       session.dirty = false;
       session.saved = true;
       session.confirmDelete = false;
@@ -489,6 +503,11 @@ export async function handleAutomationBuilderInteraction(interaction) {
     }
     session.confirmDelete = false;
     if (action === 'modal' && interaction.isModalSubmit?.()) {
+      if (parts[2] === 'schedule' && parts[3]
+        && (parts[3] !== session.draft.schedule
+          || Number(parts[4]) !== session.scheduleModalCounter)) {
+        throw new RangeError('This Schedule form is outdated. Open Schedule again.');
+      }
       applyModal(session, interaction, parts[2]);
       await interaction.update(formatAutomationDashboard(session));
       return true;
@@ -518,6 +537,10 @@ export async function handleAutomationBuilderInteraction(interaction) {
     } else if (action === 'mode' && interaction.isStringSelectMenu?.()) {
       const mode = interaction.values?.[0];
       if (!['once', 'repeat', 'wipe'].includes(mode)) return true;
+      if (session.draft.schedule !== mode) {
+        session.scheduleInputs = null;
+        session.validationError = false;
+      }
       session.draft.schedule = mode;
       session.dirty = true;
     } else if (action === 'random') {

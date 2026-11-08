@@ -397,12 +397,12 @@ test('schedule modal keeps short labels and simple examples for auto vote and gi
     assert.deepEqual(f.modal.components.map(row => row.description),
       ['Type 10112026; saved as 10-11-2026.',
         'Type 1800; saved as 18:00. Numbers only.',
-        '1m = minute, 1h = hour, 1d = day, 1w = week.',
-        '1m = minute, 1h = hour, 1d = day, 1w = week.']);
+        `How often a new ${kind} starts. E.g. 1m, 1h, 1d, 1w.`,
+        `How long the ${kind} stays open. E.g. 1m, 1h, 1d, 1w.`]);
     assert.deepEqual(f.modal.components.map(row => (row.component || row.components[0]).placeholder),
       ['10-11-2026 or 10112026', '18:00 or 1800',
-        '1m = minute | 1h = hour | 1d = day | 1w = week',
-        '1m = minute | 1h = hour | 1d = day | 1w = week']);
+        '1m, 1h, 1d, 1w',
+        '1m, 1h, 1d, 1w']);
     await f.action(id, 'mode', ['once']);
     await f.action(id, 'schedule');
     assert.deepEqual(f.modal.components.map(row => row.label || row.components?.[0]?.label),
@@ -648,8 +648,8 @@ test('Repeat 1m and Duration 1m are valid and appear with explanations in the mo
       await f.submit(id, 'details', { prizes: 'One prize', winners: '1' });
     }
     await f.action(id, 'schedule');
-    assert.match(f.modal.components[2].description, /1m = minute.*1d = day.*1w = week/);
-    assert.match(f.modal.components[3].description, /1m = minute.*1d = day.*1w = week/);
+    assert.match(f.modal.components[2].description, /How often.*1m.*1d.*1w/);
+    assert.match(f.modal.components[3].description, /How long.*stays open.*1m.*1d.*1w/);
     await f.submit(id, 'schedule', {
       date: futureStart.date.replaceAll('-', ''),
       time: futureStart.time.replace(':', ''),
@@ -688,4 +688,83 @@ test('Schedule modals are valid Discord Label components without nested text inp
       assert.ok(row.components[0].label, 'existing edit-details fields keep their labels');
     }
   }
+});
+
+test('changing schedule mode never reuses Rust wipe values as Date or Time', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'mode', ['wipe']);
+    await f.action(id, 'schedule');
+    const wipeModal = f.modal;
+    assert.deepEqual(wipeModal.components.map(row => row.label),
+      ['Connected Rust server name', 'Before wipe', 'Duration']);
+    assert.match(wipeModal.components[1].description, /starts before the wipe/);
+    assert.match(wipeModal.components[2].description, /stays open/);
+
+    await f.submit(id, 'schedule', {
+      server: 'Cloudy Rust', before: '10m', duration: '20m',
+    });
+    assert.equal(f.view.embeds[0].toJSON().color, 0xE53935,
+      'invalid wipe schedule preserves the previous form entries');
+    await f.action(id, 'schedule');
+    assert.equal(f.modal.components[0].component.value, 'Cloudy Rust');
+    assert.equal(f.modal.components[1].component.value, '10m');
+
+    await f.action(id, 'mode', ['repeat']);
+    await f.action(id, 'schedule');
+    const datedModal = f.modal;
+    assert.notEqual(datedModal.custom_id, wipeModal.custom_id,
+      'different schedule modes must use different Discord modal IDs');
+    assert.deepEqual(datedModal.components.map(row => row.label),
+      ['Date', 'Time (EU)', 'Repeat', 'Duration']);
+    assert.equal(datedModal.components[0].component.value, undefined,
+      'Rust server name must not appear inside Date');
+    assert.equal(datedModal.components[1].component.value, undefined,
+      'Before wipe must not appear inside Time');
+    assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935,
+      'changing schedule mode also clears old validation errors');
+
+    await f.action(id, 'schedule');
+    assert.notEqual(f.modal.custom_id, datedModal.custom_id,
+      'every Schedule opening uses a fresh modal ID to avoid mobile cached values');
+
+    await f.action(id, 'modal', [], {
+      customId: wipeModal.custom_id,
+      isModalSubmit: () => true,
+      fields: { getTextInputValue: key => ({ server: 'Cloudy Rust', before: '10m', duration: '1m' })[key] || '' },
+    });
+    assert.match(f.view.embeds[0].toJSON().description, /outdated/i,
+      'outdated forms cannot overwrite the selected schedule');
+    assert.match(f.view.embeds[0].toJSON().description, /Schedule.*Repeat|Schedule.*1d/i);
+  }
+});
+
+test('both schedule modes display short explanations of when they start and how long they last', async () => {
+  for (const kind of ['vote', 'giveaway']) {
+    const f = fixture();
+    const id = await f.open(kind);
+    await f.action(id, 'schedule');
+    assert.match(f.modal.components[2].description, new RegExp(`new ${kind} starts`));
+    assert.match(f.modal.components[3].description, new RegExp(`${kind} stays open`));
+    await f.action(id, 'mode', ['wipe']);
+    await f.action(id, 'schedule');
+    assert.match(f.modal.components[1].description, new RegExp(`${kind} starts before the wipe`));
+    assert.match(f.modal.components[2].description, new RegExp(`${kind} stays open`));
+  }
+});
+
+test('starting another auto vote clears unsaved Schedule values from the previous vote', async () => {
+  const f = fixture();
+  const id = await f.open('vote');
+  await f.submit(id, 'schedule', {
+    date: '31112027', time: '1800', repeat: '1d', duration: '1m',
+  });
+  assert.equal(f.view.embeds[0].toJSON().color, 0xE53935);
+  await f.action(id, 'back');
+  await f.action(id, 'new');
+  await f.action(id, 'schedule');
+  assert.equal(f.modal.components[0].component.value, undefined);
+  assert.equal(f.modal.components[1].component.value, undefined);
+  assert.notEqual(f.view.embeds[0].toJSON().color, 0xE53935);
 });
