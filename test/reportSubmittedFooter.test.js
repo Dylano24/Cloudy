@@ -30,13 +30,13 @@ test('Report submitted footer preserves saved custom footer without making dupli
   assert.deepEqual(confirmation.toJSON().footer, { text: 'Custom saved footer' });
 });
 
-test('both Report submitted confirmation paths explicitly include the footer', () => {
+test('both submission routes use the same moderation confirmation and retain two-minute cleanup', () => {
   for (const file of [
     'src/commands/Utility/reportMessage.js',
     'src/commands/Utility/modules/report.js',
   ]) {
     const source = fs.readFileSync(file, 'utf8');
-    assert.match(source, /ensureReportSubmittedFooter\(createEmbed\(\{/);
+    assert.match(source, /buildReportSubmittedEmbed\(\{/);
     assert.match(source, /scheduleTicketReplyDeletion\([^\n]*120_000\)/);
   }
 });
