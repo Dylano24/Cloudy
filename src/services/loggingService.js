@@ -415,9 +415,10 @@ export async function logEvent({
     // Deleted videos are hosted on Cloudy's own page (they cannot play inside
     // a bot embed); the log links them in a Video field.
     const videoLinks = [];
+    const videoLinkLimit = data.embedCopies?.length ? 600 : 1024;
     for (const video of eventType === EVENT_TYPES.MESSAGE_DELETE ? data.videoLinks || [] : []) {
       const link = `[${String(video.name || 'video').replace(/[[\]]/g, '_')}](${video.url})`;
-      if ([...videoLinks, link].join('\n').length <= 1024) videoLinks.push(link);
+      if ([...videoLinks, link].join('\n').length <= videoLinkLimit) videoLinks.push(link);
     }
 
     const embed = createLogEmbed(guild, eventType, data);
@@ -456,46 +457,13 @@ export async function logEvent({
     const messageOptions = { embeds: [presentedEmbed, ...embedCopies] };
     if (allowedMentions) messageOptions.allowedMentions = allowedMentions;
     else if (requiredMessageDeletion) messageOptions.allowedMentions = { parse: [] };
-    if (content) {
-      messageOptions.content = content;
-    }
-    if (attachments.length > 0) {
-      messageOptions.files = attachments;
+    if (eventType !== EVENT_TYPES.MESSAGE_DELETE) {
+      if (content) messageOptions.content = content;
+      if (attachments.length) messageOptions.files = attachments;
     }
     if (eventType === EVENT_TYPES.REPORT_FILE && components.length) messageOptions.components = components;
 
-    let sent;
-    if (eventType === EVENT_TYPES.MESSAGE_DELETE && attachments.length) {
-      const batches = [];
-      for (let index = 0; index < attachments.length; index += 10) batches.push(attachments.slice(index, index + 10));
-      for (const [index, files] of batches.entries()) {
-        try {
-          const result = await channel.send(index === 0 ? { ...messageOptions, files }
-            : { files, allowedMentions: { parse: [] } });
-          if (!sent) sent = result;
-        } catch (error) {
-          logger.warn(`Deleted-message media upload failed for guild ${guildId}: ${error.message}`);
-          if (!sent) {
-            const fallback = { ...messageOptions };
-            delete fallback.files;
-            // Without the upload there is no attachment:// image to show.
-            if (data.image || embedCopies.length) {
-              fallback.embeds = [
-                data.image ? EmbedBuilder.from(presentedEmbed).setImage(null) : presentedEmbed,
-                ...embedCopies.map(withoutUploadedImages),
-              ];
-            }
-            fallback.content = `Media could not be copied.\n${data.attachmentFallback || ''}`.slice(0, 2000);
-            sent = await channel.send(fallback);
-          } else {
-            await channel.send({ content: `Some media could not be copied.\n${data.attachmentFallback || ''}`.slice(0, 2000), allowedMentions: { parse: [] } });
-          }
-          break;
-        }
-      }
-    } else {
-      sent = await channel.send(messageOptions);
-    }
+    const sent = await channel.send(messageOptions);
     logger.info(`Event logged: ${eventType} in guild ${guildId}`);
     return sent;
   } catch (error) {
@@ -515,16 +483,6 @@ export function restoreMessageLogOriginalText(styledEmbed, runtimeEmbed) {
     ...(original.description != null ? { description: original.description } : {}),
     ...(original.fields ? { fields: original.fields } : {}),
   });
-}
-
-function withoutUploadedImages(embed) {
-  const copy = { ...embed };
-  const uploaded = url => String(url || '').startsWith('attachment://');
-  if (uploaded(copy.image?.url)) delete copy.image;
-  if (uploaded(copy.thumbnail?.url)) delete copy.thumbnail;
-  if (uploaded(copy.author?.icon_url)) copy.author = { ...copy.author, icon_url: undefined };
-  if (uploaded(copy.footer?.icon_url)) copy.footer = { ...copy.footer, icon_url: undefined };
-  return copy;
 }
 
 function createLogEmbed(guild, eventType, data) {

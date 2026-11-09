@@ -104,7 +104,6 @@ function attachmentList(message, snapshot) {
 // for the log details above the copied embed.
 const MAX_EMBED_COPY_CHARS = 4500;
 const COPIED_EMBED_LIMIT = 9;
-const UPLOAD_BATCH_SIZE = 10;
 
 function copiedEmbedLength(embed) {
   return [embed.title, embed.description, embed.author?.name, embed.footer?.text,
@@ -115,21 +114,9 @@ function copiedEmbedLength(embed) {
 /**
  * The deleted embeds themselves (colour bar, banner, thumbnail, fields,
  * footer), for a log that shows them under its details. Buttons are not
- * copied. An image that was an attachment of the deleted message points to
- * its copy uploaded with the log. Empty when they would not fit.
+ * copied. Images keep their original URLs. Empty when they would not fit.
  */
-export function deletedEmbedCopies(message, attachments = [], files = []) {
-  const uploaded = new Set(files.slice(0, UPLOAD_BATCH_SIZE).map(file => String(file.name)));
-  const viaUpload = url => {
-    if (!url) return undefined;
-    const path = String(url).split('?')[0];
-    const source = attachments.find(attachment => (attachment.id && path.includes(`/${attachment.id}/`))
-      || [attachment.url, attachment.proxyURL].filter(Boolean).some(value => String(value).split('?')[0] === path));
-    if (!source) return url;
-    const name = [String(source.name || ''), String(source.name || '').replace(/[^\w.-]/g, '_')]
-      .find(candidate => uploaded.has(candidate));
-    return name ? `attachment://${name}` : url;
-  };
+function deletedEmbedCopies(message) {
   const copies = [];
   for (const embed of message.embeds || []) {
     if (copies.length >= COPIED_EMBED_LIMIT) break;
@@ -140,15 +127,15 @@ export function deletedEmbedCopies(message, attachments = [], files = []) {
       if (data[key] != null && data[key] !== '') copy[key] = data[key];
     }
     if (data.author?.name) {
-      copy.author = { name: data.author.name, url: data.author.url || undefined, icon_url: viaUpload(data.author.icon_url) };
+      copy.author = { name: data.author.name, url: data.author.url || undefined, icon_url: data.author.icon_url };
     }
     // The Builder's invisible footer marker identifies its own posts; a log
     // copy must never look like one.
     const footerText = String(data.footer?.text || '').replace(/\u200B+$/u, '');
-    if (footerText) copy.footer = { text: footerText, icon_url: viaUpload(data.footer.icon_url) };
+    if (footerText) copy.footer = { text: footerText, icon_url: data.footer.icon_url };
     if (data.fields?.length) copy.fields = data.fields.map(({ name, value, inline }) => ({ name, value, inline: Boolean(inline) }));
-    if (data.image?.url) copy.image = { url: viaUpload(data.image.url) };
-    if (data.thumbnail?.url) copy.thumbnail = { url: viaUpload(data.thumbnail.url) };
+    if (data.image?.url) copy.image = { url: data.image.url };
+    if (data.thumbnail?.url) copy.thumbnail = { url: data.thumbnail.url };
     if (copy.title || copy.description || copy.fields || copy.image || copy.thumbnail || copy.author || copy.footer) copies.push(copy);
   }
   const total = copies.reduce((sum, copy) => sum + copiedEmbedLength(copy), 0);
@@ -188,10 +175,9 @@ export async function logDeletedMessage(message, options = {}) {
   const authorBot = message.author ? message.author.bot === true : snapshot?.authorBot === true;
   const attachments = attachmentList(message, snapshot);
 
-  const [deletedBy, media] = await Promise.all([
-    options.deletedBy || resolveMessageDeleter(message, { bulk: options.bulk === true, authorId, authorBot, detectedAt }),
-    prepareDeletedMessageMedia({ attachments: new Map(attachments.map((attachment, index) => [attachment.id || String(index), attachment])) }),
-  ]);
+  const deletedBy = options.deletedBy || await resolveMessageDeleter(message, {
+    bulk: options.bulk === true, authorId, authorBot, detectedAt,
+  });
   // A partial event without a snapshot or a verified deletion only adds noise.
   if (uncached && !snapshot && !authorId && !attachments.length
     && ['cloudy', 'unknown'].includes(deletedBy.source)) return;
@@ -213,56 +199,56 @@ export async function logDeletedMessage(message, options = {}) {
   const stickerNames = stickers.length ? stickers : (uncached ? snapshot?.stickers || [] : []);
   if (stickerNames.length) fullBody = [fullBody, `Stickers: ${stickerNames.join(', ')}`].filter(Boolean).join('\n\n');
 
+  const embedCopies = deletedBy.source === 'embed-builder' && !uncached
+    ? deletedEmbedCopies(message) : [];
+  const linkedAttachments = attachments.filter(attachment => /^https?:\/\//i.test(attachment.url || ''));
+  const image = embedCopies.length ? null : linkedAttachments.find(attachment =>
+    /^image\//i.test(attachment.contentType || '') || /\.(?:png|jpe?g|gif|webp|avif)$/i.test(attachment.name || ''));
+
+  // Keep the existing hosted video links when available. Any media that
+  // cannot be hosted still has its original link inside the log embed.
+  const videos = linkedAttachments.filter(attachment => /^video\//i.test(attachment.contentType || '')
+    || /\.(?:mp4|mov|webm)$/i.test(attachment.name || ''));
+  const videoLinks = [];
+  if (videos.length) {
+    const media = await prepareDeletedMessageMedia({ attachments: new Set(videos) });
+    for (const video of media.videos) {
+      const file = media.files.find(entry => entry.name === video.name);
+      if (!file) continue;
+      const url = await storeDeletedVideo(file.attachment, { name: video.name, contentType: video.type })
+        .catch(error => { logger.warn(`Deleted video could not be stored: ${error.message}`); return null; });
+      if (url) videoLinks.push({ name: video.name, url });
+    }
+  }
+
   const attachmentDetails = [];
-  if (attachments.length > 0) {
+  if (attachments.length && !embedCopies.length) {
     const names = attachments.map(attachment => attachment.name).filter(Boolean).join(', ');
     attachmentDetails.push(formatLogLine('Attachments', names ? `${attachments.length} (${names})`.slice(0, 300) : String(attachments.length)));
   }
-  if (media.links.length) {
-    attachmentDetails.push(`**Attachments not copied**\n${truncateMessageLogText(media.links.join('\n'), 1024)}`);
+  const links = [];
+  const linkLimit = embedCopies.length ? 400 : 1024;
+  for (const attachment of linkedAttachments) {
+    if (attachment === image || (videos.includes(attachment) && videoLinks.some(video => video.name === attachment.name))) continue;
+    const name = String(attachment.name || 'Attachment').replace(/[[\]\r\n]/g, '_');
+    const link = `[${name}](<${attachment.url}>)`;
+    if ([...links, link].join('\n').length <= linkLimit) links.push(link);
   }
+  if (links.length) attachmentDetails.push(links.join('\n'));
   const details = attachmentDetails.join('\n\n');
   const bodyLimit = MAX_LOGGED_MESSAGE_CONTENT_LENGTH - (details ? details.length + 2 : 0);
-  const messageBody = [truncateMessageLogText(fullBody, bodyLimit), details].filter(Boolean).join('\n\n');
-
-  let files = [...media.files];
-  // Videos cannot play inside a bot embed. Host them on Cloudy's own page
-  // and link that page in the log instead of uploading them to Discord.
-  const videoLinks = [];
-  for (const video of media.videos || []) {
-    const file = files.find(entry => entry.name === video.name);
-    if (!file) continue;
-    const url = await storeDeletedVideo(file.attachment, { name: video.name, contentType: video.type })
-      .catch(error => { logger.warn(`Deleted video could not be stored: ${error.message}`); return null; });
-    if (!url) continue;
-    videoLinks.push({ name: video.name, url });
-    files = files.filter(entry => entry !== file);
-  }
-  // An Embed Builder Delete shows the deleted embed itself (colour bar,
-  // banner, fields) under the log details instead of its text.
-  const embedCopies = deletedBy.source === 'embed-builder' && !uncached
-    ? deletedEmbedCopies(message, attachments, files) : [];
-  // The first photo is shown inside the embed (clickable there). It must be
-  // in the first upload batch of 10, which carries the embed.
-  const embedImage = embedCopies.length ? null : (media.images || []).find(name => {
-    const index = files.findIndex(file => file.name === name);
-    return index >= 0 && index < 10;
-  });
-  // Keep content and fallback links inside the log embed.
-  const sectionBody = embedCopies.length ? (media.links.length ? attachmentDetails.at(-1) : '') : messageBody;
+  const sectionBody = [embedCopies.length ? '' : truncateMessageLogText(fullBody, bodyLimit), details].filter(Boolean).join('\n\n');
 
   await logEvent({
     client: message.client,
     guildId,
     eventType: EVENT_TYPES.MESSAGE_DELETE,
-    attachments: files,
     data: {
       title: 'Message deleted',
-      attachmentFallback: attachments.map(attachment => attachment.url).filter(Boolean).join('\n'),
       lines: metaLines,
       quoted: true,
       section: sectionBody ? { title: 'Message', body: sectionBody } : null,
-      image: embedImage ? `attachment://${embedImage}` : null,
+      image: image?.url || null,
       userId: resolvedAuthorId,
       authorBot,
       deletedById: deletedBy.id,

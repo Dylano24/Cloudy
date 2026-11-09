@@ -22,7 +22,7 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   guild.members.cache.set('staff', { roles: { cache: new Collection([['staff-role', {}]]) } });
   const sent = [];
   for (const id of [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID, EMBED_LOG_CHANNEL_ID]) guild.channels.cache.set(id, { id, type: ChannelType.GuildText,
-    permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds?.[0]?.toJSON?.() || null, files: payload.files, allowedMentions: payload.allowedMentions });
+    permissionsFor: () => ({ has: () => true }), send: async payload => { sent.push({ id, embed: payload.embeds?.[0]?.toJSON?.() || null, files: payload.files, content: payload.content, allowedMentions: payload.allowedMentions });
       return { id: 'log', attachments: new Collection((payload.files || []).map((file, index) => [String(index), { name: file.name, url: `https://cdn.discordapp.com/attachments/${id}/${index}/${file.name}` }])) }; } });
   const message = (id, extra = {}) => ({ id: `message-${id}`, guild, guildId: guild.id, client,
     author: { id, bot: id === 'bot', toString: () => `<@${id}>` }, createdTimestamp: 1000,
@@ -55,36 +55,20 @@ test('deleted human, moderator and bot messages route by author, including bulk 
     ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
     ['video', { name: 'video.mp4', url: 'https://cdn.discordapp.com/attachments/one/video.mp4', contentType: 'video/mp4' }],
   ]) }));
-  // Without video hosting (no media volume here) the video stays attached
-  // to the log itself; the photo is shown inside the embed.
-  assert.deepEqual(sent.at(-1).files.map(file => [file.name, file.attachment.toString()]), [['photo.png', 'photo bytes'], ['video.mp4', 'video bytes']]);
-  assert.equal(sent.at(-1).embed.image?.url, 'attachment://photo.png');
-  assert.equal(sent.at(-1).embed.fields, undefined);
-  assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
-  const destination = guild.channels.cache.get(MEMBER_MESSAGE_LOG_ID);
-  const originalSend = destination.send;
-  let failed = false;
-  destination.send = async payload => {
-    if (payload.files && !failed) { failed = true; throw Object.assign(new Error('Upload rejected'), { code: 40005 }); }
-    return originalSend(payload);
-  };
-  await logDeletedMessage(message('member', { attachments: new Collection([
-    ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
-  ]) }));
-  assert.equal(failed, true);
   assert.equal(sent.at(-1).files, undefined);
-  assert.match(JSON.stringify(sent.at(-1).embed), /deleted text from member/);
-  // No upload, so no attachment:// image may be referenced.
-  assert.equal(sent.at(-1).embed.image, undefined);
-  destination.send = originalSend;
+  assert.equal(sent.at(-1).content, undefined);
+  assert.equal(sent.at(-1).embed.image?.url, 'https://cdn.discordapp.com/attachments/one/photo.png');
+  assert.match(sent.at(-1).embed.description, /\[video.mp4\].*https:\/\/cdn.discordapp.com\/attachments\/one\/video.mp4/);
+  assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
   await logDeletedMessage(message('staff', { content: 'x'.repeat(4000), channelId: 'different-channel', attachments: new Collection([
     ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
     ['unavailable', { url: 'https://cdn.example/image.png' }],
   ]) }));
   assert.equal(sent.at(-1).id, OWNER_MOD_MESSAGE_LOG_ID);
-  assert.deepEqual(sent.at(-1).files.map(file => file.name), ['photo.png']);
-  assert.equal(sent.at(-1).embed.image.url, 'attachment://photo.png');
-  assert.match(sent.at(-1).embed.description, /x{1000}.*Attachments not copied.*https:\/\/cdn.example\/image.png/s);
+  assert.equal(sent.at(-1).files, undefined);
+  assert.equal(sent.at(-1).content, undefined);
+  assert.equal(sent.at(-1).embed.image.url, 'https://cdn.discordapp.com/attachments/one/photo.png');
+  assert.match(sent.at(-1).embed.description, /x{1000}.*Attachments.*https:\/\/cdn.example\/image.png/s);
   await bulkDelete.execute(new Collection([['one', message('owner')], ['two', message('member')]]));
   assert.deepEqual(sent.slice(-2).map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID]);
   const beforeUnverified = sent.length;
