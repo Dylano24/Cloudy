@@ -54,10 +54,11 @@ export function caseStaffAllowed(guild, member, config) {
     || Boolean(role && member?.roles?.cache?.has?.(role));
 }
 
-export function reportCaseControls(record, staff = false, disabled = false, audience = 'target', closed = false) {
-  const buttons = [new ButtonBuilder().setCustomId(`report_case:read:${record.messageId}:${audience}`).setLabel('Read').setStyle(ButtonStyle.Secondary).setDisabled(disabled || closed)];
-  if (staff) buttons.push(new ButtonBuilder().setCustomId(`report_case:delete:${record.messageId}:${audience}`).setLabel('Delete').setStyle(ButtonStyle.Danger).setDisabled(disabled));
-  return [new ActionRowBuilder().addComponents(buttons)];
+export function reportCaseControls(record, _staff = false, disabled = false, audience = 'target', closed = false) {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`report_case:close:${record.messageId}:${audience}`)
+      .setLabel('Close').setStyle(ButtonStyle.Secondary).setDisabled(disabled || closed),
+  )];
 }
 
 export async function nextReportNumber(client, guildId) {

@@ -72,7 +72,7 @@ test('report permission denial uses the requested owner wording, Cloudy embed an
   assert.match(source, /10_000/);
 });
 
-test('report logs are informational only and private reports own Delete report', () => {
+test('report logs are informational only and private reports own the Close button', () => {
   const source = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
   const logStart = source.indexOf('function logEmbed(');
   const logEnd = source.indexOf('\nasync function publishStaffLog', logStart);
@@ -84,21 +84,14 @@ test('report logs are informational only and private reports own Delete report',
   const publishBody = source.slice(publishStart, publishEnd);
   assert.match(publishBody, /components: \[\]/);
 
-  assert.match(source, /setLabel\('Delete'\)/);
-  const read = reportCaseControls({ messageId: 'report' })[0].toJSON().components[0];
-  assert.equal(read.label, 'Read');
-  assert.equal(read.style, 2);
-  assert.equal(read.custom_id, 'report_case:read:report:target');
-  assert.match(source, /This report has been read by/);
-  assert.match(source, /title: 'Thank you\.'/);
-  assert.match(source, /description: 'We have been informed that you have read this report\.'/);
-  assert.match(source, /color: CLOUDY_GREEN_COLOR/);
-  assert.match(source, /10_000/);
-  assert.match(source, /title: 'Delete report'/);
-  assert.match(source, /Only the staff can delete this report\./);
+  const close = reportCaseControls({ messageId: 'report' })[0].toJSON().components[0];
+  assert.equal(close.label, 'Close');
+  assert.equal(close.style, 2);
+  assert.equal(close.custom_id, 'report_case:close:report:target');
+  assert.doesNotMatch(source, /This report has been read by|title: 'Thank you\.'|title: 'Delete report'/);
   assert.match(source, /title: 'Report notification'/);
   assert.match(source, /'Report closed'/);
-  assert.match(source, /'Report deleted'/);
+  assert.match(source, /'Report automatically deleted'/);
   assert.match(source, /'Report created'/);
   assert.match(source, /publishStaffLog\(client, guild, record, audience, 'created', actorId\)/);
   assert.doesNotMatch(source, /title: 'Report case notification'/);
@@ -110,7 +103,7 @@ test('report logs are informational only and private reports own Delete report',
 test('report lifecycle embeds use compact Report + hash-number presentation', () => {
   const lifecycle = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
   const matches = lifecycle.match(/name: 'Report', value: `#\$\{record\.number\}`, inline: true/g) || [];
-  assert.equal(matches.length, 3);
+  assert.equal(matches.length, 2);
   assert.doesNotMatch(lifecycle, /name: 'Case'/);
   assert.doesNotMatch(lifecycle, /value: `report-\$\{record\.number\}`/);
 
