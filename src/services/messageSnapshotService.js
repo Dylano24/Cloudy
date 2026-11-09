@@ -42,6 +42,16 @@ export function embedText(embeds = []) {
   }).filter(Boolean).join('\n\n');
 }
 
+export function messageEmbedImageUrl(embeds = []) {
+  for (const embed of embeds) {
+    const image = (embed?.toJSON?.() || embed?.data || embed)?.image;
+    const url = [image?.url, image?.proxyURL, image?.proxy_url]
+      .find(value => /^https?:\/\//i.test(value || ''));
+    if (url) return url;
+  }
+  return null;
+}
+
 export function attachmentSummary(attachment) {
   return {
     id: String(attachment.id || ''),
@@ -89,6 +99,7 @@ export function buildMessageSnapshot(message) {
     createdTimestamp: Number(message.createdTimestamp) || SnowflakeUtil.timestampFrom(message.id),
     attachments: [...(message.attachments?.values?.() || [])].slice(0, MAX_ATTACHMENTS).map(attachmentSummary),
     embedText: embedText(message.embeds || []).slice(0, MAX_EMBED_TEXT),
+    embedImageUrl: messageEmbedImageUrl(message.embeds),
     stickers: [...(message.stickers?.values?.() || [])].map(sticker => String(sticker.name || '')).filter(Boolean),
   };
 }

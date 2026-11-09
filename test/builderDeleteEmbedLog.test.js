@@ -28,8 +28,9 @@ test.beforeEach(() => { clearMessageSnapshotMemory(); resetDeletionAttributionSt
 
 test('an embed deleted with the Embed Builder is logged in the Embed log, by the staff member', async () => {
   const { client, guild, sent } = setup();
+  const bannerUrl = 'https://example.com/banner.png';
   const embed = { id: '1300000000000000501', guild, guildId: guild.id, channelId: 'rules', client, createdTimestamp: 1_700_000_000_000,
-    author: { id: 'bot', bot: true }, content: '', embeds: [{ title: 'Server rules', description: 'Be kind.' }],
+    author: { id: 'bot', bot: true }, content: '', embeds: [{ title: 'Server rules', description: 'Be kind.', image: { url: bannerUrl } }],
     stickers: new Collection(), attachments: new Collection() };
   rememberMessageDeleter(embed, { id: 'staffer' }, 'embed-builder');
   await logDeletedMessage(embed);
@@ -47,6 +48,8 @@ test('an embed deleted with the Embed Builder is logged in the Embed log, by the
   await logDeletedMessage(manual);
   assert.equal(sent[1].id, OWNER_MOD_MESSAGE_LOG_ID);
   assert.equal(sent[1].copies.length, 0);
+  assert.equal(sent[1].embed.image.url, bannerUrl);
+  assert.deepEqual(sent[1].files, []);
   assert.ok(!sent.some(entry => entry.id === AUTOMOD_LOG_CHANNEL_ID));
 });
 

@@ -8,7 +8,7 @@ import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js'
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID } from '../services/messageLogDestination.js';
 import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
 import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
-import { forgetMessageSnapshot, getMessageSnapshot, isMessageLogFeedback } from '../services/messageSnapshotService.js';
+import { forgetMessageSnapshot, getMessageSnapshot, isMessageLogFeedback, messageEmbedImageUrl } from '../services/messageSnapshotService.js';
 import { storeDeletedVideo } from '../services/deletedMediaService.js';
 import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 
@@ -202,7 +202,8 @@ export async function logDeletedMessage(message, options = {}) {
   const embedCopies = deletedBy.source === 'embed-builder' && !uncached
     ? deletedEmbedCopies(message) : [];
   const linkedAttachments = attachments.filter(attachment => /^https?:\/\//i.test(attachment.url || ''));
-  const image = embedCopies.length ? null : linkedAttachments.find(attachment =>
+  const bannerUrl = messageEmbedImageUrl(message.embeds) || snapshot?.embedImageUrl;
+  const image = embedCopies.length || bannerUrl ? null : linkedAttachments.find(attachment =>
     /^image\//i.test(attachment.contentType || '') || /\.(?:png|jpe?g|gif|webp|avif)$/i.test(attachment.name || ''));
 
   // Keep the existing hosted video links when available. Any media that
@@ -248,7 +249,7 @@ export async function logDeletedMessage(message, options = {}) {
       lines: metaLines,
       quoted: true,
       section: sectionBody ? { title: 'Message', body: sectionBody } : null,
-      image: image?.url || null,
+      image: embedCopies.length ? null : bannerUrl || image?.url || null,
       userId: resolvedAuthorId,
       authorBot,
       deletedById: deletedBy.id,
