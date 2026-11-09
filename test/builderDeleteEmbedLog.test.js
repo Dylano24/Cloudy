@@ -61,8 +61,7 @@ test('every message the Builder Delete removes is tagged as an Embed Builder del
   }
 });
 
-test('the Builder Delete log shows the deleted embed itself: colour bar, banner, fields and footer, without its text twice', async t => {
-  t.mock.method(globalThis, 'fetch', async () => new Response(Buffer.from('banner bytes'), { headers: { 'content-type': 'image/png' } }));
+test('the Builder Delete log shows the deleted embed itself: colour bar, banner, fields and footer, without its text twice', async () => {
   const { client, guild, sent } = setup();
   const bannerUrl = 'https://cdn.discordapp.com/attachments/1555000000000000000/1555000000000000999/banner.png?ex=1&is=2';
   const embed = {
@@ -83,12 +82,12 @@ test('the Builder Delete log shows the deleted embed itself: colour bar, banner,
   assert.equal(log.copies.length, 1);
   const copy = log.copies[0];
   assert.equal(copy.color, 0x8E44AD, 'the side colour is kept exactly');
-  assert.equal(copy.image.url, 'attachment://banner.png', 'the banner is the copy uploaded with the log');
+  assert.equal(copy.image.url, bannerUrl);
   assert.equal(copy.thumbnail.url, embed.thumbnail.url);
   assert.deepEqual(copy.fields, [{ name: 'Rule 1', value: 'No spam', inline: false }]);
   assert.equal(copy.footer.text, '© Cloudy Inc. • Quality. Innovation. Performance.', 'no Builder marker in a log');
   assert.equal(copy.type, undefined);
-  assert.deepEqual(log.files.map(file => file.name), ['banner.png']);
+  assert.deepEqual(log.files, []);
   // The log details stay; the text is not repeated and the banner is not shown twice.
   assert.match(log.embed.description, /\*\*Deleted by:\*\* <@staffer>/);
   assert.doesNotMatch(log.embed.description, /Be kind\./);

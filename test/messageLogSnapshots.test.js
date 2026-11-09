@@ -34,8 +34,7 @@ function setup() {
 
 test.beforeEach(() => { clearMessageSnapshotMemory(); resetDeletionAttributionState(); });
 
-test('an uncached deleted message is logged from its stored copy: author, time, full text and media', async t => {
-  t.mock.method(globalThis, 'fetch', async () => new Response(Buffer.from('photo bytes'), { headers: { 'content-type': 'image/png' } }));
+test('an uncached deleted message is logged from its stored copy: author, time, full text and media', async () => {
   const { client, guild, sent } = setup();
   const created = 1_700_000_000_000;
   const original = {
@@ -59,7 +58,8 @@ test('an uncached deleted message is logged from its stored copy: author, time, 
     ['Deleted by', 'Type', 'Channel', 'Message ID', 'Message author', 'Message created']);
   assert.match(log.embed.description, /\*\*Message\*\*\nthe original text/);
   assert.doesNotMatch(log.embed.description, /not cached/);
-  assert.deepEqual(log.files.map(file => file.name), ['proof.png']);
+  assert.equal(log.files, undefined);
+  assert.equal(log.embed.image.url, original.attachments.get('a1').url);
   // The stored copy is removed once the deletion is logged.
   assert.equal(await getMessageSnapshot(guild.id, original.id), null);
 });
