@@ -77,6 +77,7 @@ async function getCommandFiles(directory, files = []) {
 async function loadPayloads() {
   const files = await getCommandFiles(path.resolve('src/commands'));
   const payloads = [];
+  const globalPayloads = [];
   const seen = new Set();
   const loadErrors = [];
 
@@ -98,7 +99,8 @@ async function loadPayloads() {
       }
 
       delete payload.dm_permission;
-      payloads.push(payload);
+      const target = command.globalRegistration ? globalPayloads : payloads;
+      target.push(payload);
     } catch (error) {
       loadErrors.push({ file, message: error.message });
       console.error(`[COMMAND_SYNC] Failed loading ${file}: ${error.message}`);
@@ -112,7 +114,8 @@ async function loadPayloads() {
     );
   }
 
-  return payloads.sort((a, b) => a.name.localeCompare(b.name));
+  payloads.sort((a, b) => a.name.localeCompare(b.name));
+  return { payloads, globalPayloads };
 }
 
 function retryAfterSeconds(result) {
@@ -196,7 +199,7 @@ async function main() {
     console.warn(`[COMMAND_SYNC] CLIENT_ID ${configuredClientId} != authenticated app ${applicationId}; authenticated app wins.`);
   }
 
-  const payloads = await loadPayloads();
+  const { payloads, globalPayloads } = await loadPayloads();
   if (!payloads.length || payloads.length > 100) {
     throw new Error(`Invalid command count ${payloads.length}; expected 1-100.`);
   }
@@ -208,6 +211,7 @@ async function main() {
     return;
   }
 
+  await syncGlobalCommands(applicationId, globalPayloads);
   await syncGuildCommands(applicationId, guildId, payloads);
 
   // Every other server Cloudy is in gets the same commands. Best effort: a
@@ -222,6 +226,35 @@ async function main() {
     }
   } catch (error) {
     console.warn(`[COMMAND_SYNC] Other servers not synced: ${error.message}`);
+  }
+}
+
+async function syncGlobalCommands(applicationId, payloads) {
+  if (!payloads.length) return;
+  const route = `/applications/${applicationId}/commands`;
+  try {
+    const existing = await discordFetchWithRateLimitRetry(route, {}, 'Global-command check');
+    if (!existing?.response?.ok || !Array.isArray(existing.body)) {
+      throw new Error(`Could not read global commands (${existing?.response?.status ?? 'unknown'}).`);
+    }
+    for (const payload of payloads) {
+      const current = existing.body.find(command => command.name === payload.name && command.type === 1);
+      if (current && commandSetsMatch([current], [payload])
+        && JSON.stringify(current.contexts) === JSON.stringify(payload.contexts)
+        && JSON.stringify(current.integration_types) === JSON.stringify(payload.integration_types)) continue;
+
+      // Upsert this command only. Other global commands have separate owners.
+      const result = await discordFetchWithRateLimitRetry(route, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, `Register /${payload.name}`);
+      if (!result?.response?.ok) {
+        throw new Error(`Could not register /${payload.name} (${result?.response?.status ?? 'unknown'}).`);
+      }
+      console.log(`[COMMAND_SYNC] Registered global command /${payload.name}.`);
+    }
+  } catch (error) {
+    console.warn(`[COMMAND_SYNC] Global commands not synced: ${error.message}`);
   }
 }
 

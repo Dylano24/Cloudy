@@ -4,7 +4,6 @@ import {
 } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, CLOUDY_FOOTER } from './gameFeedService.js';
 import { logger } from '../utils/logger.js';
-import { isCloudyStaffMember } from './cloudyStaffAccess.js';
 
 const CONFIG_PREFIX = 'rust-community-extras:';
 const MAX_SERVERS = 10;
@@ -17,7 +16,6 @@ const PRIVILEGED = [
 ];
 const cached = new Map();
 const pendingSelection = new Set();
-const recentHoneypotEvents = new Map();
 
 function key(guildId) {
   return CONFIG_PREFIX + guildId;
@@ -51,7 +49,6 @@ export async function saveRustCommunityConfig(client, guildId, value) {
 
 export function resetRustCommunityCache() {
   cached.clear();
-  recentHoneypotEvents.clear();
   pendingSelection.clear();
 }
 
@@ -171,65 +168,10 @@ export async function handleRustSelectorButton(interaction) {
   return true;
 }
 
-export async function setRustHoneypot(client, guildId, channelId, logChannelId, mode = 'monitor') {
-  if (!['monitor', 'kick'].includes(mode)) throw new Error('Invalid honeypot mode.');
-  if (channelId === logChannelId) throw new Error('Use a separate channel for logs.');
-  const config = await loadRustCommunityConfig(client, guildId);
-  return saveRustCommunityConfig(client, guildId, {
-    ...config, honeypot: { channelId, logChannelId, mode },
-  });
-}
-
-export async function disableRustHoneypot(client, guildId) {
-  const config = await loadRustCommunityConfig(client, guildId);
-  return saveRustCommunityConfig(client, guildId, { ...config, honeypot: null });
-}
-
-export async function handleRustHoneypotMessage(message) {
-  if (!message?.guild || !message.author || message.author.id === message.client.user?.id || message.webhookId) return false;
-  const config = await loadRustCommunityConfig(message.client, message.guild.id);
-  const honeypot = config.honeypot;
-  if (!honeypot || honeypot.channelId !== message.channelId) return false;
-  const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);
-  if (!member || isCloudyStaffMember(member, {}, message.guild)
-    || member.permissions?.has?.(PermissionFlagsBits.ManageGuild)) return false;
-  const activityKey = message.guild.id + ':' + message.author.id;
-  const recent = recentHoneypotEvents.get(activityKey) || 0;
-  if (recent > Date.now() - 15_000) return true;
-  recentHoneypotEvents.set(activityKey, Date.now());
-  // Do not delete messages or punish anyone unless kick mode was explicitly enabled.
-  let outcome = 'Detected';
-  if (honeypot.mode === 'kick') {
-    if (member.kickable) {
-      try {
-        await member.kick('Posted in the configured honeypot channel');
-        outcome = 'Kicked';
-      } catch (error) {
-        logger.warn('[RUST_COMMUNITY] Honeypot kick failed:', error);
-        outcome = 'Kick failed';
-      }
-    } else {
-      outcome = 'Cannot kick';
-    }
-  }
-  const log = await message.guild.channels.fetch(honeypot.logChannelId).catch(() => null);
-  if (log?.type === ChannelType.GuildText && log.permissionsFor(message.client.user)?.has(PermissionFlagsBits.SendMessages)) {
-    await log.send({
-      embeds: [embed('Honeypot alert',
-        '**Member:** <@' + member.id + '>\n**Channel:** <#' + message.channelId + '>\n**Action:** ' + outcome,
-        outcome === 'Kicked' ? 0x7A1712 : 0xFFFFFF)],
-      allowedMentions: { parse: [] },
-    }).catch(error => logger.warn('[RUST_COMMUNITY] Honeypot log failed:', error));
-  }
-  if (recentHoneypotEvents.size > 5000) recentHoneypotEvents.clear();
-  return true;
-}
-
 export function statusRustCommunityEmbed(config, guild) {
   return embed('Rust community',
     '**Server roles:** ' + config.servers.length + '/' + MAX_SERVERS
     + '\n**Server selector:** ' + (config.panel ? '<#' + config.panel.channelId + '>' : 'Not posted')
-    + '\n**Honeypot:** ' + (config.honeypot ? config.honeypot.mode : 'Off')
     + '\n**Forums:** ' + ['looking-for-group', 'suggestions']
       .map(name => guild.channels.cache.some(channel => channel.name === name && channel.type === ChannelType.GuildForum)
         ? name + ' ready' : name + ' not set').join(', '));

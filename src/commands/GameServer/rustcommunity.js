@@ -3,9 +3,9 @@ import {
 } from 'discord.js';
 import { CLOUDY_C_LOGO_URL, CLOUDY_FOOTER } from '../../services/gameFeedService.js';
 import {
-  addRustServer, buildServerSelector, disableRustHoneypot, ensureRustCommunityForums,
+  addRustServer, buildServerSelector, ensureRustCommunityForums,
   loadRustCommunityConfig, publishRustSelector, removeRustServer,
-  setRustHoneypot, statusRustCommunityEmbed,
+  statusRustCommunityEmbed,
 } from '../../services/rustCommunityExtrasService.js';
 import { logger } from '../../utils/logger.js';
 import { readAdvancedRustLeaderboard } from '../../services/advancedRustLeaderboardService.js';
@@ -47,18 +47,6 @@ export default {
       .setDescription('Post or update the server selector.')
       .addChannelOption(option => option.setName('channel').setDescription('Where to post the selector.')
         .addChannelTypes(ChannelType.GuildText).setRequired(true)))
-    .addSubcommand(sub => sub.setName('honeypot-set')
-      .setDescription('Set up an optional honeypot channel.')
-      .addChannelOption(option => option.setName('channel').setDescription('Honeypot channel.')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true))
-      .addChannelOption(option => option.setName('logs').setDescription('Separate alert channel.')
-        .addChannelTypes(ChannelType.GuildText).setRequired(true))
-      .addStringOption(option => option.setName('mode').setDescription('What happens when someone posts there.')
-        .setRequired(true).addChoices(
-          { name: 'Monitor only', value: 'monitor' },
-          { name: 'Kick (staff members are exempt)', value: 'kick' },
-        )))
-    .addSubcommand(sub => sub.setName('honeypot-off').setDescription('Disable the honeypot.'))
     .addSubcommand(sub => sub.setName('forums').setDescription('Create missing Rust community forum channels.'))
     .addSubcommand(sub => sub.setName('restart-set')
       .setDescription('Schedule Discord restart notices (does not restart Rust).')
@@ -109,21 +97,6 @@ export default {
         ])) throw new Error('Cloudy needs View Channel, Send Messages and Embed Links.');
         const sent = await publishRustSelector(interaction.client, interaction.guild, channel);
         return interaction.editReply(response('Server selector posted', 'Updated <#' + sent.channelId + '> in place.', 0x00C49D));
-      }
-      if (name === 'honeypot-set') {
-        const channel = interaction.options.getChannel('channel');
-        const logs = interaction.options.getChannel('logs');
-        if (!logs.permissionsFor(interaction.guild.members.me)?.has([
-          PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks,
-        ])) throw new Error('Cloudy needs access to the log channel.');
-        const mode = interaction.options.getString('mode');
-        await setRustHoneypot(interaction.client, interaction.guildId, channel.id, logs.id, mode);
-        return interaction.editReply(response('Honeypot configured',
-          '**Channel:** <#' + channel.id + '>\n**Mode:** ' + mode + '\n**Logs:** <#' + logs.id + '>', 0x00C49D));
-      }
-      if (name === 'honeypot-off') {
-        await disableRustHoneypot(interaction.client, interaction.guildId);
-        return interaction.editReply(response('Honeypot disabled', 'No further honeypot actions will run.'));
       }
       if (name === 'forums') {
         if (!interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {

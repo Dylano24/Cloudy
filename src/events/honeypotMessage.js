@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { handleRustHoneypotMessage } from '../services/rustCommunityExtrasService.js';
+import { handleHoneypotMessage } from '../services/honeypotService.js';
 import { logger } from '../utils/logger.js';
 
 export default {
@@ -8,9 +8,9 @@ export default {
   async execute(message) {
     if (!message.inGuild?.()) return;
     try {
-      await handleRustHoneypotMessage(message);
+      await handleHoneypotMessage(message);
     } catch (error) {
-      logger.warn('[RUST_COMMUNITY] Honeypot check failed:', error);
+      logger.warn('[HONEYPOT] Honeypot check failed:', error);
     }
   },
 };
