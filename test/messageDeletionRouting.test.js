@@ -77,9 +77,14 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   // No upload, so no attachment:// image may be referenced.
   assert.equal(sent.at(-1).embed.image, undefined);
   destination.send = originalSend;
-  await logDeletedMessage(message('staff', { content: 'x'.repeat(4000), channelId: 'different-channel', attachments: new Collection([['image', { url: 'https://cdn.example/image.png' }]]) }));
+  await logDeletedMessage(message('staff', { content: 'x'.repeat(4000), channelId: 'different-channel', attachments: new Collection([
+    ['photo', { name: 'photo.png', url: 'https://cdn.discordapp.com/attachments/one/photo.png', contentType: 'image/png' }],
+    ['unavailable', { url: 'https://cdn.example/image.png' }],
+  ]) }));
   assert.equal(sent.at(-1).id, OWNER_MOD_MESSAGE_LOG_ID);
-  assert.match(sent.at(-1).files[0].attachment.toString(), /x{4000}.*https:\/\/cdn.example\/image.png/s);
+  assert.deepEqual(sent.at(-1).files.map(file => file.name), ['photo.png']);
+  assert.equal(sent.at(-1).embed.image.url, 'attachment://photo.png');
+  assert.match(sent.at(-1).embed.description, /x{1000}.*Attachments not copied.*https:\/\/cdn.example\/image.png/s);
   await bulkDelete.execute(new Collection([['one', message('owner')], ['two', message('member')]]));
   assert.deepEqual(sent.slice(-2).map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID]);
   const beforeUnverified = sent.length;
