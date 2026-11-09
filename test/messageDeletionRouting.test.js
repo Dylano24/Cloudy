@@ -82,10 +82,22 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   assert.match(sent.at(-1).files[0].attachment.toString(), /x{4000}.*https:\/\/cdn.example\/image.png/s);
   await bulkDelete.execute(new Collection([['one', message('owner')], ['two', message('member')]]));
   assert.deepEqual(sent.slice(-2).map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID]);
+  const beforeUnverified = sent.length;
   await logDeletedMessage(message('unknown', { author: null, partial: true, content: '', createdTimestamp: undefined }));
-  assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
-  assert.match(JSON.stringify(sent.at(-1).embed), /not cached/);
-  assert.doesNotMatch(JSON.stringify(sent.at(-1).embed), /NaN/);
+  await logDeletedMessage(message('bot', { components: [{ components: [{ customId: 'music_stop' }] }],
+    embeds: [{ title: 'Now playing' }] }));
+  assert.equal(sent.length, beforeUnverified);
+
+  await logDeletedMessage(message('member'), { deletedBy: { id: 'former-mod', label: '<@former-mod>', source: 'audit' } });
+  assert.equal(sent.at(-1).id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.match(sent.at(-1).embed.description, /Deleted by:.*<@former-mod>\n> \*\*Type:\*\* Staff/);
+  assert.match(sent.at(-1).embed.description, /Message author:.*<@member>/);
+
+  // Staff deleting their own message keeps the same two separate fields.
+  await logDeletedMessage(message('staff'), { deletedBy: { id: 'staff', label: '<@staff>', source: 'self' } });
+  assert.equal(sent.at(-1).id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.match(sent.at(-1).embed.description, /Deleted by:.*<@staff>\n> \*\*Type:\*\* Staff/);
+
   const automatic = message('member', { id: 'automod-message' });
   rememberMessageDeleter(automatic, client.user, 'automod');
   await logDeletedMessage(automatic);

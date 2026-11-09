@@ -190,13 +190,13 @@ test('without a baseline from before the deletion, or without audit access, nobo
   assert.equal((await resolveMessageDeleter(deleted(fresh.guild, 'fresh', 'member'), fast)).id, 'staff');
 });
 
-test('an uncached message with one matching audit entry learns its author from the entry', async () => {
+test('a channel-only audit match does not identify an uncached message', async () => {
   const { guild, deleteEntry } = auditGuild('partial-guild');
   await prime(guild);
   deleteEntry('partial', 'staff', 'member', 'channel');
   const result = await resolveMessageDeleter(deleted(guild, 'uncached', null, { partial: true }), fast);
-  assert.equal(result.id, 'staff');
-  assert.equal(result.authorId, 'member');
+  assert.equal(result.label, 'Unknown');
+  assert.equal(result.authorId, undefined);
   // Never "self" for an unknown author.
   assert.equal((await resolveMessageDeleter(deleted(guild, 'uncached-2', null, { partial: true }), fast)).label, 'Unknown');
 });
