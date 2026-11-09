@@ -8,6 +8,7 @@ import {
   setRustHoneypot, statusRustCommunityEmbed,
 } from '../../services/rustCommunityExtrasService.js';
 import { logger } from '../../utils/logger.js';
+import { readAdvancedRustLeaderboard } from '../../services/advancedRustLeaderboardService.js';
 import {
   disableRustRestartSchedule, getRustRestartConfig, publishRustRestartSchedule,
 } from '../../services/rustRestartScheduleService.js';
@@ -33,7 +34,7 @@ export default {
   data: new SlashCommandBuilder()
     .setName('rustcommunity')
     .setDescription('Manage additional Rust community features.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDefaultMemberPermissions(PermissionFlagsBits.SendMessages)
     .setDMPermission(false)
     .addSubcommand(sub => sub.setName('server-add')
       .setDescription('Add a server role to the selector.')
@@ -68,16 +69,28 @@ export default {
       .addIntegerOption(option => option.setName('reminder').setDescription('Minutes before each restart (0–60).')
         .setMinValue(0).setMaxValue(60).setRequired(false)))
     .addSubcommand(sub => sub.setName('restart-off').setDescription('Disable scheduled restart notices.'))
-    .addSubcommand(sub => sub.setName('status').setDescription('View the Rust community settings.')),
+    .addSubcommand(sub => sub.setName('status').setDescription('View the Rust community settings.'))
+    .addSubcommand(sub => sub.setName('leaderboard')
+      .setDescription('View Rust kills, deaths and K/D.')
+      .addStringOption(option => option.setName('server').setDescription('Optional Rust server name.')
+        .setMaxLength(60).setRequired(false))
+      .addBooleanOption(option => option.setName('public').setDescription('Post publicly (staff only).')
+        .setRequired(false))),
 
   async execute(interaction) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const name = interaction.options.getSubcommand();
+    const isStaff = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+    const publicLeaderboard = name === 'leaderboard' && isStaff
+      && interaction.options.getBoolean('public') === true;
+    await interaction.deferReply(publicLeaderboard ? {} : { flags: MessageFlags.Ephemeral });
     try {
       if (!interaction.inGuild()) throw new Error('This command works in a server only.');
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-        throw new Error('You need Manage Server permission.');
+      if (name === 'leaderboard') {
+        const embeds = await readAdvancedRustLeaderboard(
+          interaction.client, interaction.guildId, interaction.options.getString('server'));
+        return interaction.editReply({ embeds, allowedMentions: { parse: [] } });
       }
-      const name = interaction.options.getSubcommand();
+      if (!isStaff) throw new Error('You need Manage Server permission.');
       if (name === 'server-add') {
         const config = await addRustServer(interaction.client, interaction.guild,
           interaction.options.getRole('role'), interaction.options.getString('name'));
