@@ -64,6 +64,22 @@ test('an uncached deleted message is logged from its stored copy: author, time, 
   assert.equal(await getMessageSnapshot(guild.id, original.id), null);
 });
 
+test('an uncached embed banner appears inside the staff deletion log', async () => {
+  const { client, guild, sent } = setup();
+  const id = '1300000000000000040';
+  const bannerUrl = 'https://example.com/banner.gif';
+  await captureMessageSnapshot({
+    id, guildId: guild.id, channelId: 'source', client, author: { id: 'bot', bot: true },
+    embeds: [{ title: 'Server rules', image: { url: bannerUrl } }],
+  });
+  await logDeletedMessage({ id, guild, channelId: 'source', client, partial: true }, {
+    deletedBy: { id: 'moderator', label: '<@moderator>', source: 'audit' },
+  });
+  assert.equal(sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.equal(sent[0].embed.image.url, bannerUrl);
+  assert.equal(sent[0].files, undefined);
+});
+
 test('a confirmed removal without a stored copy still shows the creation time from the message ID', async () => {
   const { client, guild, sent } = setup();
   await logDeletedMessage({ id: '1300000000000000002', guild, guildId: guild.id, channelId: 'source', client, partial: true, author: null, content: null, attachments: new Collection() },
