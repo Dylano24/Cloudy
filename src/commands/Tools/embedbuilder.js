@@ -122,13 +122,13 @@ function getMediaKind(attachment) {
     if (!attachment) return null;
 
     const contentType = String(attachment.contentType || '').toLowerCase();
-    const source = String(attachment.url || attachment.name || '').toLowerCase();
+    const source = [attachment.url, attachment.name].filter(Boolean).join(' ').toLowerCase();
 
-    if (contentType.startsWith('image/') || /\.(?:png|jpe?g|webp|gif)(?:\?.*)?$/i.test(source)) {
+    if (contentType.startsWith('image/') || /\.(?:png|jpe?g|webp|gif|heic|heif)(?:[?\s]|$)/i.test(source)) {
         return 'image';
     }
 
-    if (contentType.startsWith('video/') || /\.(?:mp4|mov|m4v|webm|mkv|avi|3gp|3g2|mts|m2ts|hevc)(?:\?.*)?$/i.test(source)) {
+    if (contentType.startsWith('video/') || /\.(?:mp4|mov|m4v|webm|mkv|avi|3gp|3g2|mts|m2ts|hevc)(?:[?\s]|$)/i.test(source)) {
         return 'video';
     }
 
@@ -1807,9 +1807,10 @@ async function editMedia(buttonInteraction, state) {
         return;
     }
 
-    // Discord requires the modal to be acknowledged even though media is edited
-    // through the separate bot-managed Builder preview.
-    await submitted.deferUpdate();
+    // Start the acknowledgement first, and overlap the media copy with it.
+    const acknowledgement = submitted.deferUpdate();
+    if (mediaKind === 'image') prefetchDiscordEmbedMedia(uploadedMedia.url);
+    await acknowledgement;
 
     if (mediaKind === 'video') {
         try {
@@ -1845,16 +1846,31 @@ async function editMedia(buttonInteraction, state) {
         return;
     }
 
-    state.mediaUrl = uploadedMedia.url;
-    state.mediaTouched = true;
-    state.mediaBuffer = null;
-    state.mediaName = uploadedMedia.name || null;
-    state.mediaConvertedFromVideo = false;
-    // Make the permanent copy now (converting e.g. an iPhone photo), so Post
-    // and Save reuse it instead of waiting for it.
-    prefetchDiscordEmbedMedia(uploadedMedia.url);
-
-    await refreshBuilder(submitted, state);
+    try {
+        const mediaUrl = embedMediaStorageEnabled()
+            ? await storeExistingDiscordEmbedMedia(uploadedMedia.url)
+            : uploadedMedia.url;
+        state.mediaUrl = mediaUrl;
+        state.previewBanner = null;
+        state.mediaTouched = true;
+        state.mediaBuffer = null;
+        state.mediaName = uploadedMedia.name || null;
+        state.mediaConvertedFromVideo = false;
+        if (!await refreshBuilder(submitted, state)) {
+            throw new Error('The Builder preview could not be updated');
+        }
+    } catch (error) {
+        logger.error('[EMBED_BUILDER] Add media failed:', error);
+        const failure = await submitted.followUp(builderUiPayload({
+            embeds: [new EmbedBuilder()
+                .setTitle('Something went wrong')
+                .setDescription('Cloudy could not show that picture. Try Add media again.')
+                .setColor(getColor('error'))],
+            flags: MessageFlags.Ephemeral,
+            fetchReply: true,
+        })).catch(() => null);
+        if (failure) removeTransientMessage(submitted, failure);
+    }
 }
 
 async function getSharedOwnerGuilds(client, userId) {
