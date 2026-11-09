@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"/><style>
+*{box-sizing:border-box}html,body{width:1200px;height:930px;margin:0;overflow:hidden;background:#0b0b0f}
+body{font-family:"Bahnschrift","Arial",sans-serif;color:#f7f6f7;-webkit-font-smoothing:antialiased}
+.poster{width:1200px;height:930px;position:relative;overflow:hidden;background:
+radial-gradient(ellipse 660px 540px at 89% 80%,rgba(122,23,18,.30),transparent 82%),
+radial-gradient(ellipse 720px 420px at 13% -11%,rgba(128,28,21,.18),transparent 80%),
+linear-gradient(121deg,#0b0c10 0%,#141318 59%,#1b1115 100%)}
+.poster:before{content:"";position:absolute;inset:0;opacity:.17;background:repeating-linear-gradient(133deg,transparent 0px,transparent 105px,rgba(255,255,255,.045) 106px,transparent 107px)}
+.topline{position:absolute;top:0;left:0;right:0;height:6px;background:linear-gradient(90deg,#48110e,#b23629 50%,#4b0e0c)}
+.heading{position:absolute;left:59px;top:44px;right:60px;display:flex;align-items:flex-start;justify-content:space-between}
+.eyebrow{display:flex;align-items:center;gap:12px;color:#a9a6af;font-size:19px;letter-spacing:.055em;margin:0 0 19px 0}
+.eyebrow:before{content:"";height:16px;width:4px;border-radius:3px;background:#a4322c}
+h1{font-size:76px;line-height:1.07;letter-spacing:-2.8px;margin:0 0 15px;font-weight:800;color:#f9f7f7}
+.subtitle{font-size:24px;color:#bab6c0;margin:0;line-height:1.5}
+.brand{display:flex;gap:16px;align-items:center;color:#c3bec7;letter-spacing:.10em;font-size:21px}
+.brand img{width:116px;height:116px;object-fit:contain;mix-blend-mode:screen}
+.line{position:absolute;top:248px;left:60px;right:60px;height:1px;background:linear-gradient(90deg,#af3d33,rgba(172,66,53,.20),transparent)}
+.legend{position:absolute;left:61px;right:61px;top:274px;display:grid;grid-template-columns:1fr 1fr;gap:17px}
+.legend-inner{display:flex;justify-content:space-between;align-items:center;color:#a3a0a8;font-size:18px;padding:0 22px}
+.columns{position:absolute;left:59px;right:59px;top:313px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.col{display:flex;flex-direction:column;gap:12px}
+.player-card{height:101px;border:1px solid rgba(255,255,255,.09);border-radius:13px;background:linear-gradient(118deg,rgba(255,255,255,.062),rgba(255,255,255,.018));display:grid;grid-template-columns:67px 1fr 188px;align-items:center;padding:0 17px;position:relative}
+.player-card:before{content:"";position:absolute;left:-1px;top:21px;bottom:21px;width:3px;background:rgba(255,255,255,.16);border-radius:5px}
+.player-card.champion{border-color:rgba(191,74,56,.72);background:linear-gradient(110deg,rgba(122,23,18,.30),rgba(255,255,255,.034));box-shadow:0 5px 29px rgba(118,23,18,.13)}
+.player-card.champion:before{background:#dc6558}
+.player-card.runner{border-color:rgba(215,211,220,.28)}
+.player-card.runner:before{background:#c5c6cf}
+.player-card.bronze:before{background:#b58975}
+.rank{font-size:37px;font-weight:800;color:#97949e;letter-spacing:-1px}
+.champion .rank{color:#e8a7a1}
+.runner .rank{color:#c9c5d0}
+.bronze .rank{color:#bd9683}
+.username{font-size:26px;font-weight:700;color:#f3f0f2;white-space:nowrap;letter-spacing:-.6px}
+.stats{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.stats span{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:49px}
+.stats small{font-size:14px;color:#a7a3ab;font-weight:400}
+.stats b{font-size:19px;color:#edeaed;font-weight:700}
+.bottom-note{position:absolute;bottom:33px;left:62px;font-size:17px;color:#96909a}
+.brand-note{position:absolute;bottom:33px;right:62px;font-size:16px;color:#767078;letter-spacing:.08em}
+.bottomline{height:6px;position:absolute;left:0;right:0;bottom:0;background:linear-gradient(90deg,#45100e,#7a1712,#45110e)}
+</style></head><body><main class="poster">
+<div class="topline"></div>
+<header class="heading"><div><p class="eyebrow">Cloudy Inc. / Rust console</p><h1>Rust leaderboard</h1><p class="subtitle">Current wipe &nbsp;·&nbsp; Top 10 players</p></div><div class="brand"><span>Cloudy Inc.</span><img src="cloudy-c-logo-static.png" alt="Cloudy C"/></div></header>
+<div class="line"></div>
+<div class="legend"><div class="legend-inner"><span>Ranking</span><span>Kills &nbsp;&nbsp; Deaths &nbsp;&nbsp; K/D</span></div><div class="legend-inner"><span>Ranking</span><span>Kills &nbsp;&nbsp; Deaths &nbsp;&nbsp; K/D</span></div></div>
+<div class="columns"><div class="col"><div class="player-card champion">
+  <span class="rank">01</span>
+  <span class="username">Serseny</span>
+  <div class="stats"><span><small>Kills</small><b>342</b></span><span><small>Deaths</small><b>129</b></span><span><small>K/D</small><b>2.65</b></span></div>
+</div>
+<div class="player-card runner">
+  <span class="rank">02</span>
+  <span class="username">Mindzset</span>
+  <div class="stats"><span><small>Kills</small><b>318</b></span><span><small>Deaths</small><b>112</b></span><span><small>K/D</small><b>2.84</b></span></div>
+</div>
+<div class="player-card bronze">
+  <span class="rank">03</span>
+  <span class="username">Sadikal</span>
+  <div class="stats"><span><small>Kills</small><b>289</b></span><span><small>Deaths</small><b>138</b></span><span><small>K/D</small><b>2.09</b></span></div>
+</div>
+<div class="player-card ">
+  <span class="rank">04</span>
+  <span class="username">Pitchman47</span>
+  <div class="stats"><span><small>Kills</small><b>275</b></span><span><small>Deaths</small><b>144</b></span><span><small>K/D</small><b>1.91</b></span></div>
+</div>
+<div class="player-card ">
+  <span class="rank">05</span>
+  <span class="username">Jplxq</span>
+  <div class="stats"><span><small>Kills</small><b>257</b></span><span><small>Deaths</small><b>142</b></span><span><small>K/D</small><b>1.81</b></span></div>
+</div></div><div class="col"><div class="player-card ">
+  <span class="rank">06</span>
+  <span class="username">Miggo_Champ</span>
+  <div class="stats"><span><small>Kills</small><b>238</b></span><span><small>Deaths</small><b>153</b></span><span><small>K/D</small><b>1.56</b></span></div>
+</div>
+<div class="player-card ">
+  <span class="rank">07</span>
+  <span class="username">Petricaking</span>
+  <div class="stats"><span><small>Kills</small><b>219</b></span><span><small>Deaths</small><b>147</b></span><span><small>K/D</small><b>1.49</b></span></div>
+</div>
+<div class="player-card ">
+  <span class="rank">08</span>
+  <span class="username">El_Cheto69</span>
+  <div class="stats"><span><small>Kills</small><b>195</b></span><span><small>Deaths</small><b>137</b></span><span><small>K/D</small><b>1.42</b></span></div>
+</div>
+<div class="player-card ">
+  <span class="rank">09</span>
+  <span class="username">Gboy_Tstreamz</span>
+  <div class="stats"><span><small>Kills</small><b>174</b></span><span><small>Deaths</small><b>150</b></span><span><small>K/D</small><b>1.16</b></span></div>
+</div>
+<div class="player-card ">
+  <span class="rank">10</span>
+  <span class="username">Ganesh_Gaming</span>
+  <div class="stats"><span><small>Kills</small><b>158</b></span><span><small>Deaths</small><b>137</b></span><span><small>K/D</small><b>1.15</b></span></div>
+</div></div></div>
+<div class="bottom-note">Example statistics</div><div class="brand-note">Cloudy Inc. &nbsp;·&nbsp; Quality. Innovation. Performance.</div><div class="bottomline"></div>
+</main></body></html>
