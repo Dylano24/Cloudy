@@ -12,6 +12,7 @@ import { CLOUDY_GREEN_COLOR } from '../src/utils/embedColorPolicy.js';
 
 const settle = async () => { await new Promise(resolve => { setImmediate(resolve); }); };
 const json = embed => embed.toJSON?.() || embed;
+const outcome = notice => json(notice.embeds[0]).fields.find(field => /outcome/i.test(field.name)).value;
 // A handled report is marked in place (as appeals are): no separate message,
 // green side line, Handled by + Handled at where Submitted was, no buttons.
 function assertHandledInPlace(f, actorId, outcome) {
@@ -91,7 +92,7 @@ function fixture() {
     await handleReportModeration(form, client, [action, target.id, report.id]);
     return storage.get(reportKey(guild.id, report.id));
   }
-  async function register() { await registerReport(client, report, { guildId: guild.id, reporterId: reporter.id, targetId: target.id, sourceChannelId: originalChannel.id, sourceMessageId: 'original-message' }); }
+  async function register() { await registerReport(client, report, { guildId: guild.id, reporterId: reporter.id, targetId: target.id, sourceChannelId: originalChannel.id, sourceMessageId: 'original-message', reportedMessageText: 'Original message text' }); }
   return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, replyDeletes, submit, register };
 }
 
@@ -123,13 +124,19 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.deepEqual(reporterNotice.allowedMentions, { parse: [], users: ['reporter'], roles: [] });
   assert.doesNotMatch(JSON.stringify(json(reporterNotice.embeds[0])), /Private action reason|Reason|staff/);
   assert.equal(targetNotice.content, '<@target>');
-  assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
-  assert.equal(json(targetNotice.embeds[0]).title, 'Report notification');
-  assert.equal(json(targetNotice.embeds[0]).description, 'A message you sent was reported and has been removed by our staff.');
-  assert.ok(json(targetNotice.embeds[0]).fields.some(field => field.name === 'Automatic deletion'
-    && field.value === 'This report notification will be automatically deleted after 24 hours.'));
-  assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
-  assert.equal(json(reporterNotice.embeds[0]).description, 'The reported message has been deleted.');
+  assert.doesNotMatch(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
+  assert.equal(json(targetNotice.embeds[0]).title, 'Moderation n•1 update');
+  assert.equal(json(reporterNotice.embeds[0]).title, 'Report n•1 update');
+  assert.match(json(reporterNotice.embeds[0]).description, /^🔵 Reviewed/);
+  assert.match(outcome(targetNotice), /🟠 Message removed/);
+  assert.match(outcome(reporterNotice), /Action taken/);
+  assert.doesNotMatch(outcome(reporterNotice), /Message removed/);
+  for (const notice of [targetNotice, reporterNotice]) {
+    const embed = json(notice.embeds[0]);
+    assert.equal(embed.fields.find(field => field.name === 'Reported message').value, 'Original message text');
+    assert.equal(embed.footer.text, 'Cloudy Inc. Moderation team');
+    assert.equal(embed.color, 0xFFFFFF);
+  }
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
   // Submitted becomes Handled at, in the same place, with the handling time.
   const handled = assertHandledInPlace(f, 'staff', 'The reported message has been deleted.');
@@ -214,7 +221,7 @@ test('both notices show a static 24-hour deletion message, survive restart and e
   const notices = Object.values(record.cases).map(entry => f.channels.get(entry.channelId).messages.cache.get(entry.messageId));
   for (const notice of notices) {
     const data = JSON.stringify(json(notice.embeds[0]));
-    assert.match(data, /Automatic deletion/);
+    assert.match(data, /Auto-close/);
     assert.match(data, /automatically deleted after 24 hours/);
     assert.doesNotMatch(data, /Time remaining|24:00:00|23:59/);
   }
@@ -247,9 +254,11 @@ test('later outcomes reuse the same pair and deadline without exposing a new rea
   assert.equal(updated.cases.reporter.channelId, record.cases.reporter.channelId);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   const target = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
-  assert.match(JSON.stringify(json(reporter.embeds[0])), /timed out/);
+  assert.match(outcome(reporter), /Action taken/);
+  assert.doesNotMatch(outcome(reporter), /Temporary mute/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Another private reason/);
-  assert.match(JSON.stringify(json(target.embeds[0])), /Another private reason/);
+  assert.doesNotMatch(JSON.stringify(json(target.embeds[0])), /Another private reason/);
+  assert.match(outcome(target), /Temporary mute/);
   const actionsBeforeStaleSubmit = structuredClone((await f.client.db.get(reportKey(f.guild.id, 'report'))).actions);
   await f.submit();
   assert.deepEqual((await f.client.db.get(reportKey(f.guild.id, 'report'))).actions, actionsBeforeStaleSubmit);
@@ -278,11 +287,10 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(f.dms.length, 0);
   const targetNotice = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
   const reporterNotice = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
-  assert.equal(json(targetNotice.embeds[0]).title, 'Report notification');
-  assert.equal(json(targetNotice.embeds[0]).description, 'A report involving you has been reviewed by our staff and you have been timed out.');
-  assert.match(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
-  assert.equal(json(reporterNotice.embeds[0]).title, 'Report notification');
-  assert.equal(json(reporterNotice.embeds[0]).description, 'The reported member has been timed out.');
+  assert.match(outcome(targetNotice), /🟠 Temporary mute \(10m\)/);
+  assert.doesNotMatch(JSON.stringify(json(targetNotice.embeds[0])), /Private action reason/);
+  assert.match(outcome(reporterNotice), /Action taken/);
+  assert.doesNotMatch(outcome(reporterNotice), /Temporary mute|10m/);
   assert.deepEqual(f.report.components, []);
   assertHandledInPlace(f, 'staff', 'The reported member has been timed out.');
 });
@@ -306,7 +314,8 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   assert.ok(record.cases.reporter);
   assert.equal(record.cases.target, undefined);
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
-  assert.match(JSON.stringify(json(reporter.embeds[0])), /banned/);
+  assert.match(outcome(reporter), /Action taken/);
+  assert.doesNotMatch(outcome(reporter), /banned/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Private action reason/);
   assert.deepEqual(reporter.components[0].toJSON().components.map(button => button.label), ['Close']);
   assert.equal(
@@ -348,11 +357,8 @@ test('No sanction closes the report without moderation and notifies both members
     const participant = audience === 'reporter' ? 'reporter' : 'target';
     assert.equal(notice.content, `<@${participant}>`);
     assert.deepEqual(notice.allowedMentions, { parse: [], users: [participant], roles: [] });
-    if (audience === 'target') {
-      assert.equal(json(notice.embeds[0]).description, 'A report about you has been reviewed by our staff, and no sanction was applied.');
-    } else {
-      assert.match(json(notice.embeds[0]).description, /no sanction was applied/i);
-    }
+    assert.match(outcome(notice), /No action taken/);
+    assert.match(outcome(notice), audience === 'target' ? /glowing_dot_green/ : /glowingdotred/);
     assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
   }
   assertHandledInPlace(f, 'staff', 'The report was reviewed and no sanction was applied.');
@@ -414,12 +420,10 @@ test('Delete + timeout performs both actions once and explains both outcomes', a
   assertHandledInPlace(f, 'staff', 'The reported message has been deleted.\nThe reported member has been timed out.');
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   const target = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
-  assert.equal(json(target.embeds[0]).title, 'Report notification');
-  assert.equal(json(target.embeds[0]).description, 'A message you sent was reported and has been removed by our staff. You have also been timed out.');
-  assert.match(JSON.stringify(json(target.embeds[0])), /Private action reason/);
-  assert.equal(json(reporter.embeds[0]).title, 'Report notification');
-  assert.match(json(reporter.embeds[0]).description, /deleted/i);
-  assert.match(json(reporter.embeds[0]).description, /timed out/i);
+  assert.match(outcome(target), /🟠 Message removed & temporary mute \(10m\)/);
+  assert.doesNotMatch(JSON.stringify(json(target.embeds[0])), /Private action reason/);
+  assert.match(outcome(reporter), /Action taken/);
+  assert.doesNotMatch(outcome(reporter), /message removed|temporary mute|10m/i);
 });
 
 test('Delete + ban performs both actions and keeps only the reporter case after the ban', async t => {

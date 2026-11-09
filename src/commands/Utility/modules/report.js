@@ -117,7 +117,7 @@ export default {
         });
 
         if (!logged) throw new Error('The report could not be delivered to the reports channel.');
-        await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id });
+        await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id, reportedMessageText: reportedMessage?.content?.slice(0, 1024) });
         setResponseLifetime(interaction, 120_000);
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [ensureReportSubmittedFooter(createEmbed({

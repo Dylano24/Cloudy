@@ -132,7 +132,7 @@ export default {
       throw new Error('Cloudy report could not be delivered to the reports channel.');
     }
 
-    await registerReport(client, logged, { guildId: interaction.guildId, number: reportNumber, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id });
+    await registerReport(client, logged, { guildId: interaction.guildId, number: reportNumber, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id, reportedMessageText: message.content?.slice(0, 1024) });
     setResponseLifetime(submitted, 120_000);
     await InteractionHelper.safeEditReply(submitted, {
       embeds: [ensureReportSubmittedFooter(createEmbed({
