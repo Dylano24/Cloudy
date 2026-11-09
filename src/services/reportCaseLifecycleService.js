@@ -1,11 +1,10 @@
 // CLOUDY_INTERACTION_LATENCY_V1
-import { performance } from 'node:perf_hooks';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
+import { EmbedBuilder, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
-import { CLOUDY_GREEN_COLOR, CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
+import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { TICKET_EVENT_STYLES } from '../utils/ticket/ticketLogging.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { logger, startupLog } from '../utils/logger.js';
@@ -14,7 +13,6 @@ import { reportKey, withReportLock, reportStaffRole, caseStaffAllowed, nextRepor
 export const REPORT_LOG_CHANNEL_ID = '1556344268099166319';
 const expiryTimers = new Map();
 const audiences = ['reporter', 'target'];
-const reportReadPresentationJobs = new Map();
 const reportDeletePresentationJobs = new Map();
 
 function caseEmbed(data) {
@@ -29,13 +27,13 @@ async function save(client, record) {
 }
 
 // Persist one presentation field against the latest case. Long Discord REST
-// calls must never hold the report lock or overwrite a second Read.
-async function saveReadPresentationField(client, key, audience, field, value) {
+// calls must never hold the report lock or overwrite another case update.
+async function saveCasePresentationField(client, key, audience, field, value) {
   return withReportLock(key, async () => {
     const latest = await client.db.get(key);
     if (!latest?.cases?.[audience]) return latest;
     // A deleted channel still needs its essential close/delete log IDs. Never
-    // restore a private prompt or other Read presentation after deletion.
+    // restore a private notification after deletion.
     if (latest.cases[audience].deletedAt && !field.endsWith('LogId')) return latest;
     latest.cases[audience][field] = value;
     return save(client, latest);
@@ -65,43 +63,6 @@ export async function validateReportDestinations(guild) {
 }
 
 function participantId(record, audience) { return audience === 'reporter' ? record.reporterId : record.targetId; }
-
-function privateDeleteControls(record, audience, disabled = false) {
-  return [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`report_case:delete:${record.messageId}:${audience}`)
-      .setLabel('Delete').setStyle(ButtonStyle.Danger).setDisabled(disabled),
-  )];
-}
-
-function deleteCaseEmbed(record, audience) {
-  const entry = record.cases?.[audience];
-  const readBy = entry?.closedBy ? `<@${entry.closedBy}>` : 'Unknown';
-  return caseEmbed({
-    title: 'Delete report',
-    description: `This report has been read by ${readBy}.`,
-    color: CLOUDY_RED_COLOR,
-    fields: [{ name: 'Report', value: `#${record.number}`, inline: true }],
-  });
-}
-
-async function ensurePrivateDeletePrompt(client, channel, record, audience) {
-  const entry = record.cases[audience];
-  const existing = await fetchMessage(channel, entry.deletePromptId);
-  const payload = {
-    content: null,
-    embeds: [deleteCaseEmbed(record, audience)],
-    components: privateDeleteControls(record, audience),
-    allowedMentions: { parse: [] },
-  };
-  const message = existing?.author?.id === client.user.id
-    ? await existing.edit(payload)
-    : await channel.send(payload);
-  entry.deletePromptId = message.id;
-  await saveReadPresentationField(
-    client, reportKey(record.guildId, record.messageId), audience, 'deletePromptId', message.id,
-  );
-  return message;
-}
 
 async function showReportPermissionDenied(interaction, description, respondPrivately, scheduleDeletion) {
   const embed = caseEmbed({
@@ -196,17 +157,17 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 }
 
 function logEmbed(record, audience, event, actorId) {
-  const title = event === 'close' ? 'Report closed' : event === 'delete' ? 'Report deleted' : 'Report created';
+  const title = event === 'close' ? 'Report closed' : event === 'delete' ? 'Report automatically deleted' : 'Report created';
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
-    { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Deleted by' : 'Handled by', value: actorId === '24-hour expiry' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
+    { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
     { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
   const embed = caseEmbed({ title, fields });
   if (event === 'close' || event === 'delete') setPreservedEmbedColor(embed, TICKET_EVENT_STYLES[event].color);
   return embed;
 }
 
-async function publishStaffLog(client, guild, record, audience, event, actorId, persistRead = false) {
+async function publishStaffLog(client, guild, record, audience, event, actorId, persistField = false) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.send) throw new Error('The report-logs channel is unavailable.');
   const entry = record.cases[audience];
@@ -218,8 +179,8 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
     allowedMentions: { parse: [] } };
   const message = existing?.author?.id === client.user.id ? await existing.edit(payload) : await logs.send(payload);
   entry[key] = message.id;
-  if (persistRead) {
-    return saveReadPresentationField(client, reportKey(record.guildId, record.messageId), audience, key, message.id);
+  if (persistField) {
+    return saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, key, message.id);
   }
   await save(client, record);
   return record;
@@ -248,7 +209,6 @@ async function refreshLogControls(client, guild, record, audience) {
   if (deleted?.author?.id === client.user.id) {
     await deleted.edit({
       content: null,
-      embeds: [logEmbed(record, audience, 'delete', entry.deletedBy || '24-hour expiry')],
       components: [],
       allowedMentions: { parse: [] },
     });
@@ -308,15 +268,16 @@ export async function publishReportOutcome(client, guild, report, record, action
       embeds: [caseEmbed({
         title: 'Report notification',
         description: audience === 'target' ? targetActionText : actionText,
-        color: 0x00C49D,
+        color: 0xFFFFFF,
         fields,
       })],
-      components: reportCaseControls(record, false, Boolean(entry.closedAt), audience),
+      components: reportCaseControls(record, false, false, audience),
       allowedMentions: { parse: [], users: [participant], roles: [] },
     };
 
     const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
     entry.messageId = notice.id;
+    entry.closeNoticeReady = true;
     await save(client, syncAliases(record));
     if (!entry.createdLogId) await publishStaffLog(client, guild, record, audience, 'created', actorId);
   }
@@ -355,6 +316,10 @@ export async function deleteReportCase(client, guild, record, executor = '24-hou
         const channel = await fetchChannel(guild, entry.channelId);
         if (channel) await channel.delete(`Report ${record.number}: ${executor}`);
         entry.deletedAt = Date.now(); entry.deletedBy = executor;
+        if (executor !== '24-hour expiry') {
+          entry.closedAt ||= entry.deletedAt;
+          entry.closedBy = executor;
+        }
         await save(client, record);
       }
     }
@@ -379,96 +344,18 @@ function queueReportDeletePresentation(client, guild, key, audience) {
   const ongoing = reportDeletePresentationJobs.get(jobKey);
   if (ongoing) return ongoing;
   const job = (async () => {
-    // Let any in-flight Read finish saving its close log before deletion logs.
-    const reading = reportReadPresentationJobs.get(jobKey);
-    if (reading) await reading.catch(() => {});
     const record = await client.db.get(key);
     const entry = record?.cases?.[audience];
     if (!entry?.deletedAt) return;
-    if (entry.closedAt && !entry.closeLogId) {
-      await publishStaffLog(client, guild, record, audience, 'close', entry.closedBy, true);
+    if (entry.deletedBy === '24-hour expiry') {
+      if (!entry.deleteLogId) await publishStaffLog(client, guild, record, audience, 'delete', entry.deletedBy, true);
+    } else if (!entry.closeLogId) {
+      await publishStaffLog(client, guild, record, audience, 'close', entry.closedBy || entry.deletedBy, true);
     }
-    if (!entry.deleteLogId) {
-      await publishStaffLog(client, guild, record, audience, 'delete', entry.deletedBy, true);
-    }
-    // Each new log already has the final styling and no controls. Existing
-    // created/closed logs need no repeated REST edits on every Delete click.
   })();
   reportDeletePresentationJobs.set(jobKey, job);
   void job.finally(() => {
     if (reportDeletePresentationJobs.get(jobKey) === job) reportDeletePresentationJobs.delete(jobKey);
-  }).catch(() => {});
-  return job;
-}
-
-async function revokeReportParticipantAccess(channel, guild, userId, knownMember = null) {
-  const permissions = {
-    ViewChannel: false,
-    SendMessages: false,
-    ReadMessageHistory: false,
-  };
-
-  const member = (knownMember?.id === userId ? knownMember : null)
-    || guild.members.cache?.get?.(userId)
-    || await guild.members.fetch(userId).catch(() => null);
-
-  if (member) {
-    await channel.permissionOverwrites.edit(member, permissions);
-    return;
-  }
-
-  const existing = channel.permissionOverwrites.cache?.get?.(userId);
-  if (existing?.edit) {
-    await existing.edit(permissions);
-  }
-  // If the member has left and no overwrite remains, they already have no
-  // participant access to revoke. Treat that as successfully closed.
-}
-
-// Expensive Discord presentation is separate from the tiny durable Read
-// transaction. A second audience must never queue behind log fetches/edits
-// from the first audience of the same report.
-async function finishReportReadPresentation(client, guild, key, audience, notice, currentChannel) {
-  const record = await client.db.get(key);
-  const entry = record?.cases?.[audience];
-  if (!entry?.closedAt || entry.deletedAt || record.closedAt || entry.readPresentationComplete) return;
-
-  const channel = currentChannel?.id === entry.channelId
-    ? currentChannel : await fetchChannel(guild, entry.channelId);
-  if (!channel) return;
-
-  const jobs = [
-    ensurePrivateDeletePrompt(client, channel, record, audience),
-  ];
-  if (notice?.author?.id === client.user.id) {
-    jobs.push(notice.edit({
-      components: reportCaseControls(record, false, true, audience, true),
-      allowedMentions: { parse: [] },
-    }));
-  }
-  if (!entry.closeLogId) {
-    jobs.push(publishStaffLog(
-      client, guild, record, audience, 'close', entry.closedBy, true,
-    ));
-  }
-  // These Discord messages are independent. Store each resulting ID with a
-  // short locked, field-specific write; never persist a stale entire record.
-  const results = await Promise.allSettled(jobs);
-  const failed = results.find(result => result.status === 'rejected');
-  if (failed) throw failed.reason;
-  await saveReadPresentationField(client, key, audience, 'readPresentationComplete', true);
-}
-
-function queueReportReadPresentation(client, guild, key, audience, notice, channel) {
-  const jobKey = `${key}:${audience}`;
-  const ongoing = reportReadPresentationJobs.get(jobKey);
-  if (ongoing) return ongoing;
-  const job = finishReportReadPresentation(client, guild, key, audience, notice, channel);
-  reportReadPresentationJobs.set(jobKey, job);
-  void job.finally(() => {
-    if (reportReadPresentationJobs.get(jobKey) === job) {
-      reportReadPresentationJobs.delete(jobKey);
-    }
   }).catch(() => {});
   return job;
 }
@@ -501,134 +388,37 @@ export async function handleReportCaseControl(interaction, client, [action, mess
     }, 10_000);
     timer.unref?.();
   };
-  const started = performance.now();
-  let lastStage = started;
-  const stages = [];
-  const mark = stage => {
-    if (action !== 'read') return;
-    const now = performance.now();
-    stages.push({ stage, ms: Math.round(now - lastStage) });
-    lastStage = now;
-  };
-  mark('ack');
-  let keepReply = false;
-  const confirmRead = async () => {
-    if (action !== 'read' || keepReply) return;
-    keepReply = true;
-    const message = await respondPrivately({
-      content: null,
-      embeds: [caseEmbed({
-        title: 'Thank you.',
-        description: 'We have been informed that you have read this report.',
-        color: CLOUDY_GREEN_COLOR,
-      })],
-      components: [],
-      allowedMentions: { parse: [] },
-    });
-    scheduleDeletion(message);
-  };
   try {
     const key = reportKey(interaction.guildId, messageId);
-    let shouldPresentRead = false;
-    let deletedRecord = null;
-    await withReportLock(key, async () => {
-      mark('lock_acquired');
-      // Discord already supplied the actor on this interaction. Reuse a real
-      // GuildMember instead of serializing another Discord member lookup.
+    const closed = await withReportLock(key, async () => {
       const actor = interaction.guild.members.cache?.get?.(interaction.user.id)
         || (interaction.member?.id === interaction.user.id && interaction.member?.roles?.cache
           ? interaction.member : null);
-      // The case, guild settings and actor are independent prerequisites. A
-      // cold settings read must not add another full storage round trip.
       const [record, config, member] = await Promise.all([
         client.db.get(key),
         getGuildConfig(client, interaction.guildId),
         actor ? Promise.resolve(actor) : interaction.guild.members.fetch(interaction.user.id),
       ]);
-      mark('case_actor_and_config');
       const entry = record?.cases?.[audience];
-      if (!entry || (action !== 'delete' && (record.closedAt || entry.deletedAt)) || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
+      const expectedMessage = action === 'delete' ? entry?.deletePromptId : entry?.messageId;
+      if (!entry || interaction.channelId !== entry.channelId || interaction.message.id !== expectedMessage
+        || interaction.message.author?.id !== client.user.id) throw new Error('This report is no longer available.');
       const staff = caseStaffAllowed(interaction.guild, member, config);
-      const inCase = interaction.channelId === entry.channelId && interaction.message.id === entry.messageId;
-      const inDeletePrompt = interaction.channelId === entry.channelId && interaction.message.id === entry.deletePromptId;
-
-      if (action === 'delete') {
-        if (!inDeletePrompt || !entry.closedAt) throw new Error('Delete report is only available after the report is closed.');
-        if (!staff) {
-          keepReply = true;
-          await showReportPermissionDenied(interaction, 'Only the staff can delete this report.', respondPrivately, scheduleDeletion);
-          return;
-        }
-        deletedRecord = await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
-        return;
+      const participant = action !== 'delete' && interaction.user.id === participantId(record, audience);
+      if (!staff && !participant) {
+        await showReportPermissionDenied(interaction, 'Only the involved member or staff can close this report.', respondPrivately, scheduleDeletion);
+        return false;
       }
-
-      if (!inCase) throw new Error('You cannot use these report controls.');
-      if (!staff && interaction.user.id !== participantId(record, audience)) throw new Error('Only the involved member or staff can mark this report as read.');
-
-      // Read keeps Staff access, removes the participant's access and exposes
-      // Delete report only inside the private report channel.
-      if (!entry.closedAt) {
-        const channel = interaction.channel?.id === entry.channelId
-          ? interaction.channel : await fetchChannel(interaction.guild, entry.channelId);
-        const participantIdValue = participantId(record, audience);
-        const participant = (member?.id === participantIdValue ? member : null)
-          || interaction.guild.members.cache?.get?.(participantIdValue)
-          || await interaction.guild.members.fetch(participantIdValue).catch(() => null);
-        mark('participant_lookup');
-        if (!caseStaffAllowed(interaction.guild, participant, config)) {
-          await revokeReportParticipantAccess(channel, interaction.guild, participantIdValue, participant);
-        }
-        mark('permissions');
-        entry.closedAt = Date.now();
-        entry.closedBy = interaction.user.id;
-        await save(client, record);
-        mark('persist');
-
-      }
-
-      // Only authorization, access revocation and the durable close belong
-      // under the per-report lock. Slow message/log presentation must not.
-      shouldPresentRead = action === 'read';
+      await deleteReportCase(client, interaction.guild, record, interaction.user.id, true, audience);
+      return true;
     });
-    mark('lock_released');
-    if (deletedRecord) {
-      const presentation = queueReportDeletePresentation(client, interaction.guild, key, audience);
-      void presentation.catch(error => {
-        logger.error('[REPORT_DELETE_PRESENTATION] Failed to finish staff presentation:', error);
-      });
-      if (!silentAck) await presentation;
-    }
-    if (shouldPresentRead) {
-      // Once the close is durable, its required staff presentation must still
-      // run if private confirmation templates or delivery are slow or fail.
-      const presentation = queueReportReadPresentation(
-        client, interaction.guild, key, audience, interaction.message, interaction.channel,
-      );
-      // Observe essential presentation errors immediately for both response
-      // adapters, even if private confirmation is still blocked or fails.
-      void presentation.catch(error => {
-        logger.error('[REPORT_READ_PRESENTATION] Failed to finish staff presentation:', error);
-      });
-      // The same private success response is sent only after the report was
-      // durably marked read and its participant permissions were revoked.
-      await confirmRead();
-      mark('confirmation');
-      if (!silentAck) {
-        // Older adapters without component follow-ups retain their original
-        // completion contract (also used by legacy test fixtures).
-        await presentation;
-      }
-    }
-    if (!keepReply && !silentAck) await interaction.deleteReply().catch(() => {});
-  } catch (error) { await respondPrivately({ content: `Error: ${error.message}` }); }
-  finally {
-    if (action === 'read' && performance.now() - started >= 750) {
-      mark('remaining_updates');
-      logger.warn(`[REPORT_READ_STAGES] ${JSON.stringify({
-        elapsedMs: Math.round(performance.now() - started), stages,
-      })}`);
-    }
+    if (!closed) return;
+    const presentation = queueReportDeletePresentation(client, interaction.guild, key, audience);
+    if (!silentAck) await interaction.deleteReply().catch(() => {});
+    await presentation;
+  } catch (error) {
+    logger.error('Report close failed:', error);
+    await respondPrivately({ content: `Error: ${error.message}` }).catch(() => {});
   }
 }
 
@@ -670,7 +460,7 @@ export async function restoreReportCaseTimers(client) {
           }
           // A restart can interrupt background deletion-log delivery after
           // channel deletion was saved. Resume that essential log exactly once.
-          if (entry.deletedAt && (!entry.deleteLogId || (entry.closedAt && !entry.closeLogId))) {
+          if (entry.deletedAt && (entry.deletedBy === '24-hour expiry' ? !entry.deleteLogId : !entry.closeLogId)) {
             await queueReportDeletePresentation(client, guild, key, audience);
           }
         }
@@ -679,6 +469,17 @@ export async function restoreReportCaseTimers(client) {
 
       // Keep expiry active even if repairing an older notification fails.
       scheduleReportCaseExpiry(client, guild, record);
+      if (record.expiresAt > Date.now()) {
+        for (const audience of audiences) {
+          const entry = record.cases?.[audience];
+          if (!entry?.messageId || entry.deletedAt || entry.closedAt || entry.closeNoticeReady) continue;
+          const notice = await fetchMessage(await fetchChannel(guild, entry.channelId), entry.messageId);
+          if (notice?.author?.id !== client.user.id) continue;
+          const embeds = notice.embeds.map(embed => setPreservedEmbedColor(EmbedBuilder.from(embed), 0xFFFFFF));
+          await notice.edit({ embeds, components: reportCaseControls(record, false, false, audience) });
+          await saveCasePresentationField(client, key, audience, 'closeNoticeReady', true);
+        }
+      }
       if (!record.cases && record.expiresAt > Date.now()) {
         const completed = Object.entries(record.actions || {}).filter(([, outcome]) =>
           outcome.status === 'completed');

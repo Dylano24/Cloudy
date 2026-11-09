@@ -4,7 +4,6 @@ import { Collection, PermissionsBitField } from 'discord.js';
 import { handleReportCaseControl, restoreReportCaseTimers, REPORT_LOG_CHANNEL_ID } from '../src/services/reportCaseLifecycleService.js';
 import { logger } from '../src/utils/logger.js';
 
-const settle = () => new Promise(resolve => { setImmediate(resolve); });
 const json = embed => embed.toJSON?.() || embed;
 let fixtureNumber = 0;
 
@@ -82,245 +81,44 @@ function deleteFixture() {
   return { ...f, deleteClick, readClick };
 }
 
-test('blocked Delete logging releases the report lock before the other audience reads', async () => {
-  const f = deleteFixture();
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID), send = logs.send;
-  logs.send = async payload => { if (json(payload.embeds[0]).title === 'Report deleted') await gate; return send(payload); };
-  const deleting = handleReportCaseControl(f.deleteClick(), f.client, ['delete', 'report', 'target']);
-  await settle();
-  const reading = handleReportCaseControl(f.readClick, f.client, ['read', 'report', 'reporter']);
-  try {
-    await settle();
-    assert.ok(f.values.get(f.key).cases.target.deletedAt);
-    assert.ok(f.values.get(f.key).cases.reporter.closedAt, 'Delete staff-log IO must not hold an independent Read behind the report lock');
-    assert.equal(json(f.privateReplies[0]?.embeds?.[0] || {}).title, 'Thank you.');
-  } finally {
-    release(); await Promise.all([deleting, reading]); await settle();
-  }
-  assert.ok(f.values.get(f.key).cases.target.deleteLogId);
-  assert.ok(f.values.get(f.key).cases.reporter.closeLogId);
+test('Close acknowledges silently and logs once when clicked concurrently', async () => {
+  const f = fixture();
+  const close = () => handleReportCaseControl(f.interaction(), f.client, ['close', 'report', 'target']);
+  await Promise.all([close(), close()]);
+  assert.deepEqual(f.removed, ['case']);
+  assert.deepEqual(f.privateReplies, []);
+  assert.equal(f.payloads.length, 1);
+  assert.equal(json(f.payloads[0].message.embeds[0]).title, 'Report closed');
+  assert.ok(f.values.get(f.key).cases.target.closeLogId);
 });
 
-test('duplicate Delete clicks finish after one durable channel deletion while its one log is pending', async () => {
-  const f = deleteFixture();
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID), send = logs.send;
-  logs.send = async payload => { if (json(payload.embeds[0]).title === 'Report deleted') await gate; return send(payload); };
-  let completed = 0;
-  const deletions = Array.from({ length: 5 }, () => handleReportCaseControl(f.deleteClick(), f.client, ['delete', 'report', 'target']).then(() => { completed += 1; }));
-  try {
-    await settle();
-    assert.equal(completed, 5, 'Component handlers must finish without waiting for staff-log REST');
-    assert.deepEqual(f.removed, ['case']);
-    assert.equal(f.privateReplies.length, 0, 'Already-completed authorized deletion should not create error spam');
-  } finally {
-    release(); await Promise.all(deletions); await settle();
-  }
-  assert.equal(f.payloads.filter(payload => json(payload.message.embeds[0]).title === 'Report deleted').length, 1);
-  assert.ok(f.values.get(f.key).cases.target.deleteLogId);
-});
-
-test('a failed Delete log resumes from its durable deleted state on restore without deleting the channel again', async t => {
-  const f = deleteFixture();
-  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID), send = logs.send;
-  const errors = [];
-  t.mock.method(logger, 'error', (message, error) => { if (message.includes('[REPORT_DELETE_PRESENTATION]')) errors.push(error); });
-  logs.send = async () => { throw new Error('Report log temporarily unavailable'); };
-  await handleReportCaseControl(f.deleteClick(), f.client, ['delete', 'report', 'target']);
-  await settle();
+test('legacy Read closes the channel and a failed close log resumes after restart', async t => {
+  const f = fixture();
+  t.mock.method(logger, 'error', () => {});
+  const logs = f.channels.get(REPORT_LOG_CHANNEL_ID);
+  const send = logs.send;
+  logs.send = async () => { throw new Error('Log unavailable'); };
+  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
+  assert.deepEqual(f.removed, ['case']);
   assert.ok(f.values.get(f.key).cases.target.deletedAt);
-  assert.equal(f.values.get(f.key).cases.target.deleteLogId, undefined);
-  assert.equal(errors.length, 1);
+  assert.equal(f.values.get(f.key).cases.target.closeLogId, undefined);
   logs.send = send;
   f.storage.list = async () => [f.key];
   f.client.guilds = { cache: new Collection([[f.guild.id, f.guild]]) };
-  f.values.get(f.key).expiresAt = Date.now() + 86_400_000;
   await restoreReportCaseTimers(f.client);
-  assert.ok(f.values.get(f.key).cases.target.deleteLogId, 'Restore must deliver the essential deletion log');
   assert.deepEqual(f.removed, ['case']);
-  assert.equal(f.payloads.filter(payload => json(payload.message.embeds[0]).title === 'Report deleted').length, 1);
-});
-
-test('repeated completed Read does not refetch or repaint its successful private presentation', async () => {
-  const f = fixture();
-  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
-  await settle();
-  const sent = f.payloads.length;
-  let edits = 0, fetches = 0;
-  f.notice.edit = async () => { edits += 1; };
-  f.caseChannel.messages.fetch = async () => { fetches += 1; };
-  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
-  await settle();
-  assert.equal(f.payloads.length, sent);
-  assert.equal(f.permissions.length, 1);
-  assert.equal(edits, 0, 'A completed Read must not repaint the notice');
-  assert.equal(fetches, 0, 'A completed Read must not fetch its existing Delete prompt');
-});
-
-test('Read starts independent cold case and configuration reads together before its durable close', async () => {
-  const f = fixture();
-  const gates = new Map();
-  const get = f.storage.get;
-  f.storage.get = id => [f.key, f.configKey].includes(id) && !gates.has(id)
-    ? new Promise(resolve => { gates.set(id, resolve); }) : get(id);
-  const click = f.interaction();
-  const pending = handleReportCaseControl(click, f.client, ['read', 'report', 'target']);
-  try {
-    await settle();
-    assert.equal(click.deferred, true, 'Storage must not delay the component acknowledgement');
-    assert.ok(gates.has(f.key));
-    assert.ok(gates.has(f.configKey), 'A cold configuration read must not wait for the unrelated case lookup');
-    assert.equal(f.permissions.length, 0);
-    assert.equal(f.privateReplies.length, 0);
-  } finally {
-    gates.get(f.key)?.(structuredClone(f.record));
-    await settle();
-    gates.get(f.configKey)?.({ ticketStaffRoleId: 'staff-role' });
-    await pending;
-  }
-  assert.ok(f.values.get(f.key).cases.target.closedAt);
-  assert.equal(json(f.privateReplies[0].embeds[0]).title, 'Thank you.');
-});
-
-test('a slow durable Read write acknowledges each concurrent click without sending premature success', async () => {
-  const f = fixture();
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const set = f.storage.set;
-  let blocked = false;
-  f.storage.set = async (id, value) => {
-    if (id === f.key && value.cases.target.closedAt && !blocked) {
-      blocked = true; await gate;
-    }
-    return set(id, value);
-  };
-  const first = f.interaction(), second = f.interaction();
-  const firstRead = handleReportCaseControl(first, f.client, ['read', 'report', 'target']);
-  await settle();
-  const secondRead = handleReportCaseControl(second, f.client, ['read', 'report', 'target']);
-  try {
-    await settle();
-    assert.equal(first.deferred, true);
-    assert.equal(second.deferred, true);
-    assert.equal(f.privateReplies.length, 0, 'Success requires a durable close');
-    assert.equal(f.values.get(f.key).cases.target.closedAt, undefined);
-  } finally {
-    release();
-    await Promise.all([firstRead, secondRead]);
-  }
-  await settle();
-  assert.equal(f.permissions.length, 1, 'Repeated Read must not repeat access revocation');
-  assert.equal(f.privateReplies.filter(payload => json(payload.embeds?.[0] || {}).title === 'Thank you.').length, 2);
-  assert.equal(f.payloads.filter(payload => payload.channelId === REPORT_LOG_CHANNEL_ID).length, 1);
   assert.ok(f.values.get(f.key).cases.target.closeLogId);
-  assert.ok(f.values.get(f.key).cases.target.deletePromptId);
+  assert.equal(json(f.payloads[0].message.embeds[0]).title, 'Report closed');
 });
 
-test('a failed Read write never confirms success or creates a completed close log', async () => {
+test('failed channel deletion leaves the case open', async t => {
   const f = fixture();
-  f.storage.set = async () => false;
-  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
-  assert.equal(f.values.get(f.key).cases.target.closedAt, undefined);
-  assert.equal(f.privateReplies.length, 1);
-  assert.match(f.privateReplies[0].content, /report could not be saved/);
+  t.mock.method(logger, 'error', () => {});
+  f.caseChannel.delete = async () => { throw new Error('Missing permissions'); };
+  await handleReportCaseControl(f.interaction(), f.client, ['close', 'report', 'target']);
+  assert.equal(f.values.get(f.key).cases.target.deletedAt, undefined);
   assert.equal(f.payloads.length, 0);
-});
-
-test('Read waits for participant access revocation before its durable close and private success', async () => {
-  const f = fixture();
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const edit = f.caseChannel.permissionOverwrites.edit;
-  f.caseChannel.permissionOverwrites.edit = async (...args) => { await gate; return edit(...args); };
-  const click = f.interaction();
-  const pending = handleReportCaseControl(click, f.client, ['read', 'report', 'target']);
-  try {
-    await settle();
-    assert.equal(click.deferred, true);
-    assert.equal(f.privateReplies.length, 0);
-    assert.equal(f.values.get(f.key).cases.target.closedAt, undefined);
-    assert.equal(f.payloads.length, 0);
-  } finally {
-    release(); await pending;
-  }
-  assert.deepEqual(f.permissions, [{ id: 'target', permissions: { ViewChannel: false, SendMessages: false, ReadMessageHistory: false } }]);
-  assert.ok(f.values.get(f.key).cases.target.closedAt);
-  assert.equal(json(f.privateReplies[0].embeds[0]).title, 'Thank you.');
-});
-
-test('a failed participant access revocation leaves Read open without confirming success', async () => {
-  const f = fixture();
-  f.caseChannel.permissionOverwrites.edit = async () => { throw new Error('Discord permission write failed'); };
-  await handleReportCaseControl(f.interaction(), f.client, ['read', 'report', 'target']);
-  assert.equal(f.values.get(f.key).cases.target.closedAt, undefined);
-  assert.equal(f.privateReplies.length, 1);
-  assert.match(f.privateReplies[0].content, /Discord permission write failed/);
-  assert.equal(f.payloads.length, 0);
-});
-
-test('parallel Read prerequisites never authorize a member outside the report or staff', async () => {
-  const f = fixture();
-  const outsider = { id: 'outsider', user: { id: 'outsider' }, roles: { cache: new Collection() }, permissions: new PermissionsBitField() };
-  f.guild.members.cache.set(outsider.id, outsider);
-  const click = f.interaction();
-  click.user = outsider.user; click.member = outsider;
-  await handleReportCaseControl(click, f.client, ['read', 'report', 'target']);
-  assert.equal(f.values.get(f.key).cases.target.closedAt, undefined);
-  assert.equal(f.privateReplies.length, 1);
-  assert.match(f.privateReplies[0].content, /Only the involved member or staff/);
-  assert.equal(f.permissions.length, 0);
-  assert.equal(f.payloads.length, 0);
-});
-
-test('a blocked private confirmation cannot prevent the persisted Read from finishing its staff presentation', async () => {
-  const f = fixture();
-  const click = f.interaction();
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  const followUp = click.followUp;
-  click.followUp = async payload => { await gate; return followUp(payload); };
-  const pending = handleReportCaseControl(click, f.client, ['read', 'report', 'target']);
-  try {
-    await settle();
-    assert.ok(f.values.get(f.key).cases.target.closedAt);
-    assert.ok(f.values.get(f.key).cases.target.closeLogId, 'The private reply must not block the essential staff close log');
-    assert.ok(f.values.get(f.key).cases.target.deletePromptId, 'Staff must retain the private Delete prompt');
-    assert.equal(f.notice.components[0].toJSON().components[0].disabled, true);
-  } finally {
-    release(); await pending;
-  }
-});
-
-test('legacy Read logs a staff presentation failure even while its private confirmation is blocked', async t => {
-  const f = fixture();
-  const click = f.interaction();
-  delete click.deferUpdate;
-  delete click.followUp;
-  click.deferReply = async () => { click.deferred = true; };
-  let release;
-  const gate = new Promise(resolve => { release = resolve; });
-  click.editReply = async payload => { await gate; f.privateReplies.push(payload); };
-  const failure = new Error('Staff close log unavailable');
-  f.guild.channels.fetch = async id => {
-    if (id === REPORT_LOG_CHANNEL_ID) throw failure;
-    return f.caseChannel;
-  };
-  const loggedFailures = [];
-  t.mock.method(logger, 'error', (message, error) => {
-    if (message.includes('[REPORT_READ_PRESENTATION]')) loggedFailures.push(error);
-  });
-  const pending = handleReportCaseControl(click, f.client, ['read', 'report', 'target']);
-  try {
-    await settle();
-    assert.ok(f.values.get(f.key).cases.target.closedAt);
-    assert.equal(f.privateReplies.length, 0);
-    assert.deepEqual(loggedFailures, [failure], 'A blocked legacy reply must not hide the essential staff presentation failure');
-  } finally {
-    release(); await pending;
-  }
+  assert.match(f.privateReplies[0].content, /Missing permissions/);
 });
 
 test('restore cleans legacy report-log controls once and skips them on later starts', async () => {
