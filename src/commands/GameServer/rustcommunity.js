@@ -10,6 +10,9 @@ import {
 import { logger } from '../../utils/logger.js';
 import { readAdvancedRustLeaderboard } from '../../services/advancedRustLeaderboardService.js';
 import {
+  getRustLiveBoardConfig, startRustLiveBoard, stopRustLiveBoard,
+} from '../../services/rustLiveLeaderboardService.js';
+import {
   disableRustRestartSchedule, getRustRestartConfig, publishRustRestartSchedule,
 } from '../../services/rustRestartScheduleService.js';
 
@@ -69,6 +72,14 @@ export default {
       .addIntegerOption(option => option.setName('reminder').setDescription('Minutes before each restart (0–60).')
         .setMinValue(0).setMaxValue(60).setRequired(false)))
     .addSubcommand(sub => sub.setName('restart-off').setDescription('Disable scheduled restart notices.'))
+    .addSubcommand(sub => sub.setName('liveboard-start')
+      .setDescription('Start a live Rust leaderboard in one Discord message.')
+      .addChannelOption(option => option.setName('channel').setDescription('Leaderboard channel.')
+        .addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption(option => option.setName('server').setDescription('Optional exact Rust server name.')
+        .setMaxLength(60).setRequired(false)))
+    .addSubcommand(sub => sub.setName('liveboard-stop')
+      .setDescription('Stop updating the live Rust leaderboard.'))
     .addSubcommand(sub => sub.setName('status').setDescription('View the Rust community settings.'))
     .addSubcommand(sub => sub.setName('leaderboard')
       .setDescription('View Rust kills, deaths and K/D.')
@@ -148,10 +159,34 @@ export default {
         await disableRustRestartSchedule(interaction.client, interaction.guildId);
         return interaction.editReply(response('Restart notices disabled', 'No further restart notices will be sent.'));
       }
+      if (name === 'liveboard-start') {
+        const sourceGuildId = String(process.env.GUILD_ID || interaction.guildId);
+        const sourceGuild = interaction.client.guilds.cache.get(sourceGuildId);
+        if (!sourceGuild) throw new Error('Source server is not connected to Cloudy.');
+        if (sourceGuildId !== interaction.guildId) {
+          const sourceMember = await sourceGuild.members.fetch(interaction.user.id).catch(() => null);
+          if (!sourceMember?.permissions?.has(PermissionFlagsBits.ManageGuild)) {
+            throw new Error('You must manage both Discord servers to share Rust statistics.');
+          }
+        }
+        const channel = interaction.options.getChannel('channel');
+        const result = await startRustLiveBoard(interaction.client, interaction.guild, channel,
+          sourceGuildId, interaction.options.getString('server'));
+        return interaction.editReply(response('Live leaderboard enabled',
+          'The leaderboard will update in <#' + channel.id + '> as Rust events arrive.\n'
+          + 'Message: ' + result.message.url, 0x00C49D));
+      }
+      if (name === 'liveboard-stop') {
+        await stopRustLiveBoard(interaction.client, interaction.guildId);
+        return interaction.editReply(response('Live leaderboard paused',
+          'The last leaderboard message is preserved. No further updates will run.'));
+      }
       const config = await loadRustCommunityConfig(interaction.client, interaction.guildId);
       const restart = await getRustRestartConfig(interaction.client, interaction.guildId);
       const dashboard = statusRustCommunityEmbed(config, interaction.guild);
       dashboard.description += '\n**Restart notices:** ' + (restart?.enabled ? restart.times.join(', ') : 'Off');
+      const live = await getRustLiveBoardConfig(interaction.client, interaction.guildId);
+      dashboard.description += '\n**Live leaderboard:** ' + (live?.enabled ? '<#' + live.channelId + '>' : 'Off');
       return interaction.editReply({ embeds: [dashboard] });
     } catch (error) {
       logger.warn('[RUST_COMMUNITY] Command failed:', error);
