@@ -1,6 +1,7 @@
 import { nextReportNumber, registerReport, reportStaffRole } from '../../services/reportCaseService.js';
 import {
-  ActionRowBuilder,
+  LabelBuilder,
+  TextDisplayBuilder,
   ApplicationCommandType,
   ContextMenuCommandBuilder,
   MessageFlags,
@@ -11,8 +12,7 @@ import {
 import { logEvent, EVENT_TYPES } from '../../services/loggingService.js';
 import { resolveUserAuthor } from '../../utils/logging/logEmbeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { createEmbed } from '../../utils/embeds.js';
-import { ensureReportSubmittedFooter } from '../../utils/cloudyFooter.js';
+import { buildReportSubmittedEmbed } from '../../utils/reportSubmittedEmbed.js';
 import { logger } from '../../utils/logger.js';
 import { buildReportActions } from '../../services/reportActionService.js';
 import { setResponseLifetime } from '../../utils/responseLifetime.js';
@@ -64,18 +64,23 @@ export default {
     const modalId = `cloudy_report:${interaction.id}:${message.id}`.slice(0, 100);
     const reasonInput = new TextInputBuilder()
       .setCustomId('reason')
-      .setLabel('Reason')
-      .setPlaceholder('What happened?')
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(true)
       .setMinLength(3)
       .setMaxLength(1000);
 
+    const reasonLabel = new LabelBuilder()
+      .setLabel('Reason')
+      .setDescription("Please briefly explain why you're reporting this message and provide any relevant context.")
+      .setTextInputComponent(reasonInput);
+    const note = new TextDisplayBuilder().setContent(
+      '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.',
+    );
     const modal = new ModalBuilder()
       .setCustomId(modalId)
       .setTitle('Cloudy report')
-      .addComponents(new ActionRowBuilder().addComponents(reasonInput));
-
+      .addLabelComponents(reasonLabel)
+      .addTextDisplayComponents(note);
     await interaction.showModal(modal);
 
     const submitted = await interaction.awaitModalSubmit({
@@ -135,11 +140,7 @@ export default {
     await registerReport(client, logged, { guildId: interaction.guildId, number: reportNumber, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id, reportedMessageText: message.content?.slice(0, 1024) });
     setResponseLifetime(submitted, 120_000);
     await InteractionHelper.safeEditReply(submitted, {
-      embeds: [ensureReportSubmittedFooter(createEmbed({
-        title: 'Report submitted',
-        description: `Report #${reportNumber} has been sent to the staff team. Staff will review it as soon as possible.`,
-        color: 'success',
-      }))],
+      embeds: [buildReportSubmittedEmbed({ reportNumber, reportedMemberId: message.author.id, reportedMessageText: message.content, reason })],
     });
 
     scheduleTicketReplyDeletion(submitted, 120_000);

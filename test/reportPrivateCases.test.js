@@ -143,10 +143,10 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.equal(handled.fields[5].value, '<t:1800000000:F>');
   assert.equal(handled.fields[0].value, '<@target>');
   assert.equal(handled.fields[2].value, 'TEST!');
-  for (const entry of Object.values(record.cases)) {
+  for (const [audience, entry] of Object.entries(record.cases)) {
     assert.ok(entry.createdLogId);
     const created = f.logs.messages.cache.get(entry.createdLogId);
-    assert.equal(json(created.embeds[0]).title, 'Report created');
+    assert.equal(json(created.embeds[0]).title, audience === 'reporter' ? 'Report n•1 update' : 'Moderation n•1 update');
   }
   assert.equal(f.dms.length, 0);
 });
@@ -188,7 +188,7 @@ test('each participant can close their own report channel in one click, with one
     const latest = await f.client.db.get(reportKey(f.guild.id, record.messageId));
     const closed = latest.cases[audience];
     const log = json(f.logs.messages.cache.get(closed.closeLogId).embeds[0]);
-    assert.equal(log.title, 'Report closed');
+    assert.equal(log.title, audience === 'reporter' ? 'Report n•1 closed' : 'Moderation n•1 closed');
     assert.equal(log.fields.find(field => field.name === 'Closed by').value, `<@${member.id}>`);
     assert.equal(closed.deleteLogId, undefined);
     assert.equal(f.payloads.filter(message => message.channelId === channel.id).length, 1);
@@ -232,10 +232,10 @@ test('both notices show a static 24-hour deletion message, survive restart and e
   record = await f.client.db.get(reportKey(f.guild.id, 'report'));
   assert.ok(record.closedAt);
   assert.deepEqual(new Set(f.removed), new Set(['original-message', record.cases.reporter.channelId, record.cases.target.channelId]));
-  for (const entry of Object.values(record.cases)) {
+  for (const [audience, entry] of Object.entries(record.cases)) {
     const deleted = f.logs.messages.cache.get(entry.deleteLogId);
     assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
-    assert.equal(json(deleted.embeds[0]).title, 'Report automatically deleted');
+    assert.equal(json(deleted.embeds[0]).title, audience === 'reporter' ? 'Report n•1 automatically deleted' : 'Moderation n•1 automatically deleted');
     assert.equal(entry.closeLogId, undefined);
     assert.match(JSON.stringify(json(deleted.embeds[0])), /Automatic.*24-hour expiry/);
   }
@@ -446,4 +446,34 @@ test('saved shared notification templates cannot leak private reasons or overwri
   await saveEmbedTemplateDecoration(f.guild.id, 'shared', ['Report notification'], { title: 'Report notification', description: 'Leaked reason', fields: [{ name: 'Reason', value: 'Private secret' }], color: 0xFFFFFF }, { sharedScope: true, applyFields: true });
   const payload = { embeds: [{ title: 'Report notification', description: 'The reported member has been banned.', fields: [{ name: 'Automatic deletion', value: 'This report notification will be automatically deleted after 24 hours.' }] }] };
   assert.deepEqual(await applySavedResponsePayloadTemplates(payload, { guildId: f.guild.id, channelId: 'reporter' }), payload);
+});
+
+test('startup updates both existing #89 Report created staff logs in place', async () => {
+  const f = fixture(); await f.register();
+  const record = await f.submit();
+  record.number = 89;
+  const priorIds = {};
+  for (const [audience, entry] of Object.entries(record.cases)) {
+    const prior = f.logs.messages.cache.get(entry.createdLogId);
+    priorIds[audience] = prior.id;
+    const original = json(prior.embeds[0]);
+    prior.embeds = [{ ...original, title: 'Report created', fields: original.fields.map(field =>
+      field.name === 'Report' ? { ...field, value: '#89' } : field) }];
+  }
+  const key = reportKey(f.guild.id, record.messageId);
+  await f.client.db.set(key, record);
+  const messagesBefore = f.logs.messages.cache.size;
+
+  await restoreReportCaseTimers(f.client);
+  const latest = await f.client.db.get(key);
+  for (const [audience, entry] of Object.entries(latest.cases)) {
+    assert.equal(entry.createdLogId, priorIds[audience]);
+    assert.equal(entry.logTitlesUpgraded, true);
+    const message = f.logs.messages.cache.get(entry.createdLogId);
+    assert.equal(json(message.embeds[0]).title, audience === 'reporter'
+      ? 'Report n•89 update' : 'Moderation n•89 update');
+  }
+  assert.equal(f.logs.messages.cache.size, messagesBefore, 'old staff logs are edited, not reposted');
+  await restoreReportCaseTimers(f.client);
+  assert.equal(f.logs.messages.cache.size, messagesBefore);
 });

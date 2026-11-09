@@ -88,7 +88,7 @@ test('Close acknowledges silently and logs once when clicked concurrently', asyn
   assert.deepEqual(f.removed, ['case']);
   assert.deepEqual(f.privateReplies, []);
   assert.equal(f.payloads.length, 1);
-  assert.equal(json(f.payloads[0].message.embeds[0]).title, 'Report closed');
+  assert.equal(json(f.payloads[0].message.embeds[0]).title, 'Moderation n•1 closed');
   assert.ok(f.values.get(f.key).cases.target.closeLogId);
 });
 
@@ -108,7 +108,7 @@ test('legacy Read closes the channel and a failed close log resumes after restar
   await restoreReportCaseTimers(f.client);
   assert.deepEqual(f.removed, ['case']);
   assert.ok(f.values.get(f.key).cases.target.closeLogId);
-  assert.equal(json(f.payloads[0].message.embeds[0]).title, 'Report closed');
+  assert.equal(json(f.payloads[0].message.embeds[0]).title, 'Moderation n•1 closed');
 });
 
 test('failed channel deletion leaves the case open', async t => {

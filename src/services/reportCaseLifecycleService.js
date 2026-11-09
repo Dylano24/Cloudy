@@ -39,7 +39,7 @@ async function saveCasePresentationField(client, key, audience, field, value) {
     if (!latest?.cases?.[audience]) return latest;
     // A deleted channel still needs its essential close/delete log IDs. Never
     // restore a private notification after deletion.
-    if (latest.cases[audience].deletedAt && !field.endsWith('LogId')) return latest;
+    if (latest.cases[audience].deletedAt && !field.endsWith('LogId') && field !== 'logTitlesUpgraded') return latest;
     latest.cases[audience][field] = value;
     return save(client, latest);
   });
@@ -162,7 +162,9 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
 }
 
 function logEmbed(record, audience, event, actorId) {
-  const title = event === 'close' ? 'Report closed' : event === 'delete' ? 'Report automatically deleted' : 'Report created';
+  const prefix = audience === 'reporter' ? 'Report' : 'Moderation';
+  const state = event === 'close' ? 'closed' : event === 'delete' ? 'automatically deleted' : 'update';
+  const title = prefix + ' n•' + record.number + ' ' + state;
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
@@ -191,6 +193,32 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
   return record;
 }
 
+// Targeted one-time backfill of the two previously posted #89 logs (and any
+// existing close/expiry entries) using their stored Discord message IDs.
+// Only edits bot-owned logs whose original titles and report number match.
+async function upgradeExistingReport89Titles(client, guild, record, audience) {
+  const entry = record.cases?.[audience];
+  if (!entry || entry.logTitlesUpgraded) return;
+  const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
+  if (!logs?.messages?.fetch) return;
+  for (const [field, event, oldTitle] of [
+    ['createdLogId', 'created', 'Report created'],
+    ['closeLogId', 'close', 'Report closed'],
+    ['deleteLogId', 'delete', 'Report automatically deleted'],
+  ]) {
+    if (!entry[field]) continue;
+    const message = await fetchMessage(logs, entry[field]);
+    if (!message || message.author?.id !== client.user.id || !message.embeds?.[0]) continue;
+    const original = message.embeds[0];
+    const expectedTitle = (audience === 'reporter' ? 'Report' : 'Moderation')
+      + ' n•' + record.number + ' ' + (event === 'created' ? 'update' : event === 'close' ? 'closed' : 'automatically deleted');
+    if (original.title === expectedTitle) continue;
+    if (original.title !== oldTitle || !original.fields?.some(field => field.name === 'Report' && field.value === '#' + record.number)) continue;
+    await message.edit({ embeds: [EmbedBuilder.from(original).setTitle(expectedTitle)] });
+    logger.info('Upgraded report #89 staff log title', { guildId: guild.id, audience, event, messageId: message.id });
+  }
+  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'logTitlesUpgraded', true);
+}
 async function refreshLogControls(client, guild, record, audience) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   const entry = record.cases[audience];
@@ -469,6 +497,10 @@ export async function restoreReportCaseTimers(client) {
         for (const audience of audiences) {
           const entry = record.cases[audience];
           if (!entry) continue;
+          if (Number(record.number) === 89 && !entry.logTitlesUpgraded) {
+            await upgradeExistingReport89Titles(client, guild, record, audience);
+            entry.logTitlesUpgraded = true;
+          }
           if (!entry.logControlsCleaned) {
             await refreshLogControls(client, guild, record, audience);
             await markLogControlsCleaned(client, key, audience);
