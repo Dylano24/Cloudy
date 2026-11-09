@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { Collection, PermissionsBitField, PermissionFlagsBits, ChannelType } from 'discord.js';
 import {
-  addRustServer, buildServerSelector, disableRustHoneypot,
-  ensureRustCommunityForums, handleRustHoneypotMessage, handleRustSelectorButton,
+  addRustServer, buildServerSelector,
+  ensureRustCommunityForums, handleRustSelectorButton,
   loadRustCommunityConfig, publishRustSelector, resetRustCommunityCache,
-  roleCanBeSelected, setRustHoneypot,
+  roleCanBeSelected,
 } from '../src/services/rustCommunityExtrasService.js';
+
+import { handleHoneypotMessage, loadHoneypot, setHoneypot, setHoneypotEnabled } from '../src/services/honeypotService.js';
+import honeypotCommand from '../src/commands/Utility/honeypot.js';
+import rustCommunityCommand from '../src/commands/GameServer/rustcommunity.js';
 
 const guildId = '1532882647838228723';
 const memberId = '714736398409924649';
@@ -97,20 +101,22 @@ test('Honeypot defaults to monitoring and never kicks staff', async () => {
   channels.set(logsId, { id: logsId, type: ChannelType.GuildText,
     permissionsFor: () => ({ has: () => true }),
     send: async payload => logs.push(payload) });
-  await setRustHoneypot(client, guildId, channelId, logsId, 'monitor');
+  await setHoneypot(client, guildId, channelId, logsId, 'monitor');
   let kicked = 0;
   const member = { id: memberId, kickable: true, permissions: { has: () => false },
     kick: async () => { kicked++; } };
   const message = { client, guild, author: { id: memberId }, channelId, member };
-  assert.equal(await handleRustHoneypotMessage(message), true);
+  assert.equal(await handleHoneypotMessage(message), true);
   assert.equal(kicked, 0);
   assert.equal(logs.length, 1);
   assert.equal(logs[0].embeds[0].title, 'Honeypot alert');
-  await disableRustHoneypot(client, guild.id);
-  assert.equal(await handleRustHoneypotMessage(message), false);
-  await setRustHoneypot(client, guildId, channelId, logsId, 'kick');
+  await setHoneypotEnabled(client, guild.id, false);
+  assert.equal(await handleHoneypotMessage(message), false);
+  assert.deepEqual(await setHoneypotEnabled(client, guild.id, true),
+    { channelId, logChannelId: logsId, mode: 'monitor', enabled: true });
+  await setHoneypot(client, guildId, channelId, logsId, 'kick');
   const staff = { ...message, member: { ...member, permissions: { has: () => true } } };
-  assert.equal(await handleRustHoneypotMessage(staff), false);
+  assert.equal(await handleHoneypotMessage(staff), false);
   assert.equal(kicked, 0);
 });
 
@@ -122,4 +128,30 @@ test('Community forums are not recreated if they already exist', async () => {
   const results = await ensureRustCommunityForums(guild);
   assert.deepEqual(created.map(item => item.name), ['looking-for-group']);
   assert.equal(results[1].created, false);
+});
+
+test('Honeypot is a standalone Cloudy command and reuses legacy settings after off and on', async () => {
+  const { client, guild, memory } = setup();
+  const channelId = '1532882647838228780';
+  const logChannelId = '1532882647838228781';
+  memory.set('rust-community-extras:' + guild.id, { honeypot: { channelId, logChannelId, mode: 'kick' } });
+  assert.deepEqual(honeypotCommand.data.toJSON().options.map(option => option.name), ['setup', 'on', 'off', 'status']);
+  assert.ok(!rustCommunityCommand.data.toJSON().options.some(option => option.name.startsWith('honeypot')));
+  assert.equal((await loadHoneypot(client, guild.id)).enabled, true);
+
+  const replies = [];
+  const interaction = {
+    client, guild, guildId: guild.id, inGuild: () => true, deferReply: async () => {},
+    memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+    editReply: async payload => replies.push(payload.embeds[0]),
+    options: { getSubcommand: () => 'off' },
+  };
+  await honeypotCommand.execute(interaction);
+  assert.match(replies[0].description, /Status:\*\* Off/);
+  interaction.options.getSubcommand = () => 'on';
+  await honeypotCommand.execute(interaction);
+  assert.equal(replies[1].title, 'Honeypot');
+  assert.match(replies[1].description, /Status:\*\* On/);
+  assert.match(replies[1].footer.text, /Cloudy Inc/);
+  assert.deepEqual(await loadHoneypot(client, guild.id), { channelId, logChannelId, mode: 'kick', enabled: true });
 });
