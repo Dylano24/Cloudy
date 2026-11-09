@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<style>
+  :root{--red:#7a1712;--white:#f4f3f3;--muted:#a0a0a7;--faint:#6e6b72;}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;width:1200px;height:480px;overflow:hidden;background:#0b0b0e}
+  body{font-family:"Bahnschrift","Arial",sans-serif;-webkit-font-smoothing:antialiased}
+  .poster{width:1200px;height:480px;position:relative;overflow:hidden;color:var(--white);
+    background:
+      radial-gradient(ellipse 640px 570px at 81% 43%,rgba(122,23,18,.44),transparent 73%),
+      radial-gradient(ellipse 360px 320px at 4% 98%,rgba(102,30,28,.19),transparent 90%),
+      linear-gradient(118deg,#0b0c0f 0%,#101115 49%,#171116 100%)}
+  .poster:before{content:"";position:absolute;inset:0;opacity:.20;
+    background:repeating-linear-gradient(135deg,transparent 0,transparent 72px,rgba(255,255,255,.07) 73px,transparent 74px)}
+  .poster:after{content:"";position:absolute;top:-250px;right:-80px;width:800px;height:800px;border-radius:50%;
+    border:1px solid rgba(172,45,37,.22);box-shadow:0 0 0 70px rgba(122,23,18,.035),0 0 0 140px rgba(122,23,18,.035),0 0 0 210px rgba(122,23,18,.035)}
+  .topline{position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,transparent,var(--red) 23%,#c23e32 73%,transparent);z-index:5}
+  .logo-frame{position:absolute;left:60px;top:55px;width:285px;height:293px;
+    background:linear-gradient(135deg,rgba(19,19,22,.9),rgba(5,5,7,.75));
+    border:1px solid rgba(255,255,255,.10);border-radius:23px;
+    box-shadow:inset 0 0 55px rgba(0,0,0,.38),0 28px 95px rgba(0,0,0,.45)}
+  .logo-frame:before{content:"";position:absolute;inset:-1px;border-radius:23px;
+    border-left:2px solid rgba(194,58,46,.72);border-top:1px solid rgba(194,58,46,.32)}
+  .logo-frame img{position:absolute;width:255px;height:255px;object-fit:contain;
+    left:15px;top:19px;mix-blend-mode:screen;filter:drop-shadow(0 0 9px rgba(255,255,255,.09))}
+  .side-label{position:absolute;left:74px;top:374px;font-size:17px;font-weight:600;color:#b7b3b7;letter-spacing:.16em}
+  .side-dot{display:inline-block;background:#a53229;width:8px;height:8px;border-radius:100%;margin-right:13px;vertical-align:1px;box-shadow:0 0 19px rgba(194,58,46,.7)}
+  .vertical-sep{position:absolute;left:393px;top:54px;bottom:63px;width:1px;
+    background:linear-gradient(to bottom,transparent,rgba(255,255,255,.18),rgba(255,255,255,.09),transparent)}
+  .content{position:absolute;left:445px;top:56px;right:60px;z-index:3}
+  .eyebrow{display:flex;align-items:center;gap:13px;font-size:18px;letter-spacing:.06em;
+    color:#a9a7ad;font-weight:500}
+  .eyebrow .mark{height:13px;width:4px;border-radius:5px;background:#b8362d;box-shadow:0 0 22px rgba(192,45,39,.35)}
+  h1{font-size:88px;line-height:1.07;letter-spacing:-3.9px;font-weight:800;
+    margin:22px 0 11px 0;color:#f8f7f8;text-shadow:0 4px 23px rgba(0,0,0,.18)}
+  .sub{font-size:24px;color:#c2bec3;line-height:1.2;letter-spacing:.005em;margin:0}
+  .separator{height:1px;margin-top:27px;
+    background:linear-gradient(90deg,rgba(182,51,41,.95),rgba(147,45,39,.36),transparent)}
+  .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:26px}
+  .stat{min-height:101px;border-radius:12px;padding:16px 18px;border:1px solid rgba(255,255,255,.095);
+    background:linear-gradient(145deg,rgba(255,255,255,.062),rgba(255,255,255,.025))}
+  .stat .label{display:block;font-size:16px;color:#a19ca4;margin-bottom:10px}
+  .stat .value{display:block;font-size:22px;font-weight:600;letter-spacing:-.3px;color:#f1eff0}
+  .stat:first-child{border-left:2px solid #9c2923}
+  .tiny{position:absolute;bottom:19px;right:61px;font-size:14px;color:#747178;z-index:6;letter-spacing:.09em}
+  .bottomline{position:absolute;bottom:0;height:6px;left:0;width:1200px;
+    background:linear-gradient(90deg,#4d100f,#7a1712,#421012)}
+</style>
+</head>
+<body>
+  <main class="poster">
+    <div class="topline"></div>
+    <div class="logo-frame"><img src="cloudy-c-logo-static.png" alt="Cloudy Inc. logo"></div>
+    <div class="side-label"><span class="side-dot"></span>Cloudy Inc.</div>
+    <div class="vertical-sep"></div>
+    <section class="content">
+      <div class="eyebrow"><i class="mark"></i>Rust console / community updates</div>
+      <h1>Wipe center</h1>
+      <p class="sub">Your next wipe. One clear overview.</p>
+      <div class="separator"></div>
+      <div class="stats">
+        <div class="stat"><span class="label">Next wipe</span><span class="value">Not scheduled</span></div>
+        <div class="stat"><span class="label">Map vote</span><span class="value">Not started</span></div>
+        <div class="stat"><span class="label">Wipe kit</span><span class="value">Not active</span></div>
+      </div>
+    </section>
+    <div class="tiny">Preview / live data pending</div>
+    <div class="bottomline"></div>
+  </main>
+</body>
+</html>
