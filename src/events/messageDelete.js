@@ -13,7 +13,7 @@ import { storeDeletedVideo } from '../services/deletedMediaService.js';
 import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 
 // The log description holds up to 4096 characters; keep room for the
-// header lines. Longer text is attached in full as a .txt file.
+// header lines and truncate the body to fit inside the embed.
 const MAX_LOGGED_MESSAGE_CONTENT_LENGTH = 3500;
 
 export default {
@@ -213,18 +213,17 @@ export async function logDeletedMessage(message, options = {}) {
   const stickerNames = stickers.length ? stickers : (uncached ? snapshot?.stickers || [] : []);
   if (stickerNames.length) fullBody = [fullBody, `Stickers: ${stickerNames.join(', ')}`].filter(Boolean).join('\n\n');
 
-  let messageBody = fullBody
-    ? truncateMessageLogText(fullBody, MAX_LOGGED_MESSAGE_CONTENT_LENGTH)
-    : null;
-
-  // "Message created" stays the last header line; attachment names belong
-  // to the message itself.
+  const attachmentDetails = [];
   if (attachments.length > 0) {
     const names = attachments.map(attachment => attachment.name).filter(Boolean).join(', ');
-    const summary = formatLogLine('Attachments', names ? `${attachments.length} (${names})`.slice(0, 300) : String(attachments.length));
-    messageBody = messageBody ? `${messageBody}\n\n${summary}` : summary;
-    if (media.links.length) fullBody += `\n\nAttachments not copied:\n${media.links.join('\n')}`;
+    attachmentDetails.push(formatLogLine('Attachments', names ? `${attachments.length} (${names})`.slice(0, 300) : String(attachments.length)));
   }
+  if (media.links.length) {
+    attachmentDetails.push(`**Attachments not copied**\n${truncateMessageLogText(media.links.join('\n'), 1024)}`);
+  }
+  const details = attachmentDetails.join('\n\n');
+  const bodyLimit = MAX_LOGGED_MESSAGE_CONTENT_LENGTH - (details ? details.length + 2 : 0);
+  const messageBody = [truncateMessageLogText(fullBody, bodyLimit), details].filter(Boolean).join('\n\n');
 
   let files = [...media.files];
   // Videos cannot play inside a bot embed. Host them on Cloudy's own page
@@ -243,16 +242,14 @@ export async function logDeletedMessage(message, options = {}) {
   // banner, fields) under the log details instead of its text.
   const embedCopies = deletedBy.source === 'embed-builder' && !uncached
     ? deletedEmbedCopies(message, attachments, files) : [];
-  if (embedCopies.length) messageBody = null;
   // The first photo is shown inside the embed (clickable there). It must be
   // in the first upload batch of 10, which carries the embed.
   const embedImage = embedCopies.length ? null : (media.images || []).find(name => {
     const index = files.findIndex(file => file.name === name);
     return index >= 0 && index < 10;
   });
-  if ((!embedCopies.length && fullBody.length > MAX_LOGGED_MESSAGE_CONTENT_LENGTH) || media.links.length) {
-    files.push({ attachment: Buffer.from(fullBody), name: `deleted-message-${message.id}.txt` });
-  }
+  // Keep content and fallback links inside the log embed.
+  const sectionBody = embedCopies.length ? (media.links.length ? attachmentDetails.at(-1) : '') : messageBody;
 
   await logEvent({
     client: message.client,
@@ -264,7 +261,7 @@ export async function logDeletedMessage(message, options = {}) {
       attachmentFallback: attachments.map(attachment => attachment.url).filter(Boolean).join('\n'),
       lines: metaLines,
       quoted: true,
-      section: messageBody ? { title: 'Message', body: messageBody } : null,
+      section: sectionBody ? { title: 'Message', body: sectionBody } : null,
       image: embedImage ? `attachment://${embedImage}` : null,
       userId: resolvedAuthorId,
       authorBot,
