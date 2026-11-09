@@ -490,6 +490,41 @@ async function markLogControlsCleaned(client, key, audience) {
   });
 }
 
+// Some older #89 staff logs predate persistent case records. Locate those
+// exact bot-owned messages in the private log channel and edit titles in place.
+// Never repost or alter unrelated reports, audiences, fields or action details.
+async function backfillUnlinkedReport89Logs(client) {
+  if (!client.channels?.fetch || !client.db?.get) return;
+  const key = 'global:report-log-89-title-backfill';
+  if (await client.db.get(key)) return;
+  const logs = await client.channels.fetch(REPORT_LOG_CHANNEL_ID).catch(() => null);
+  if (!logs?.messages?.fetch) return;
+  const found = new Set();
+  let before;
+  for (let page = 0; page < 4 && found.size < 2; page++) {
+    const batch = await logs.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+    if (!batch?.size) break;
+    for (const message of batch.values()) {
+      if (message.author?.id !== client.user?.id) continue;
+      const embed = message.embeds?.[0];
+      if (!embed || !embed.fields?.some(field => field.name === 'Report' && field.value === '#89')) continue;
+      const name = embed.fields.find(field => field.name === 'Audience')?.value;
+      const audience = name === 'Reporter' ? 'reporter' : name === 'Reported member' ? 'target' : null;
+      if (!audience) continue;
+      const expected = audience === 'reporter' ? 'Report n•89 update' : 'Moderation n•89 update';
+      if (embed.title === 'Report created') {
+        await message.edit({ embeds: [EmbedBuilder.from(embed).setTitle(expected)] });
+      } else if (embed.title !== expected) {
+        continue;
+      }
+      found.add(audience);
+    }
+    before = batch.last()?.id;
+    if (!before || batch.size < 100) break;
+  }
+  if (found.size === 2) await client.db.set(key, true);
+  logger.info('Report #89 historical staff-log title check', { found: [...found], complete: found.size === 2 });
+}
 export async function restoreReportCaseTimers(client) {
   let restored = 0;
   for (const key of await client.db.list('global:report:')) {
@@ -560,5 +595,6 @@ export async function restoreReportCaseTimers(client) {
       scheduleReportCaseExpiry(client, guild, record); restored++;
     } catch (error) { logger.warn(`Report case restore failed: ${error.message}`); }
   }
+  await backfillUnlinkedReport89Logs(client).catch(error => logger.warn('Report #89 staff-log backfill failed: ' + error.message));
   startupLog(`Report case expiry restored: ${restored} active case(s).`);
 }

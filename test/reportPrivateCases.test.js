@@ -487,3 +487,39 @@ test('startup updates both existing #89 Report created staff logs in place', asy
   await restoreReportCaseTimers(f.client);
   assert.equal(f.logs.messages.cache.size, messagesBefore);
 });
+
+test('orphaned #89 Report created staff logs are corrected in place without a case record', async () => {
+  const f = fixture();
+  const originals = [];
+  for (const audience of ['Reporter', 'Reported member']) {
+    originals.push(await f.logs.send({ embeds: [{
+      title: 'Report created', fields: [
+        { name: 'Report', value: '#89' },
+        { name: 'Audience', value: audience },
+      ],
+    }] }));
+  }
+  const unrelated = await f.logs.send({ embeds: [{
+    title: 'Report created', fields: [
+      { name: 'Report', value: '#88' },
+      { name: 'Audience', value: 'Reporter' },
+    ],
+  }] });
+  const messagesBefore = f.logs.messages.cache.size;
+  const fetchById = f.logs.messages.fetch;
+  f.logs.messages.fetch = async arg => typeof arg === 'object'
+    ? f.logs.messages.cache : fetchById(arg);
+  f.client.channels = { fetch: async id => {
+    assert.equal(id, REPORT_LOG_CHANNEL_ID);
+    return f.logs;
+  } };
+
+  await restoreReportCaseTimers(f.client);
+  assert.equal(json(originals[0].embeds[0]).title, 'Report n•89 update');
+  assert.equal(json(originals[1].embeds[0]).title, 'Moderation n•89 update');
+  assert.equal(unrelated.embeds[0].title, 'Report created');
+  assert.equal(f.logs.messages.cache.size, messagesBefore);
+  assert.equal(await f.client.db.get('global:report-log-89-title-backfill'), true);
+  await restoreReportCaseTimers(f.client);
+  assert.equal(f.logs.messages.cache.size, messagesBefore);
+});
