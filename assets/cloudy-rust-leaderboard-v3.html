@@ -1,0 +1,41 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}html,body{width:1200px;height:480px;overflow:hidden;margin:0;background:#0d0d11}
+body{font-family:"Bahnschrift","Arial",sans-serif;color:#f6f4f5;-webkit-font-smoothing:antialiased}
+.poster{height:480px;width:1200px;position:relative;overflow:hidden;background:
+ radial-gradient(ellipse 560px 470px at 44% 8%,rgba(122,23,18,.25),transparent 83%),
+ radial-gradient(ellipse 540px 430px at 98% 99%,rgba(122,23,18,.30),transparent 83%),
+ linear-gradient(124deg,#0c0d10,#141217 76%,#191013)}
+.poster:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(132deg,transparent 0 79px,rgba(255,255,255,.026) 80px,transparent 82px)}
+.top{height:5px;position:absolute;top:0;left:0;right:0;background:linear-gradient(90deg,#40100d,#a12f27,#47100f)}
+.brand{position:absolute;top:42px;right:57px;display:flex;align-items:center;gap:15px;color:#9f9ca2;font-size:18px;letter-spacing:.08em}
+.brand img{width:108px;height:108px;object-fit:contain;mix-blend-mode:screen;opacity:.94}
+.eyebrow{position:absolute;top:49px;left:60px;font-size:17px;color:#aaa3aa;letter-spacing:.06em}
+.eyebrow:before{content:"";width:4px;height:13px;display:inline-block;background:#b23429;margin-right:14px;border-radius:5px}
+h1{position:absolute;top:73px;left:55px;font-size:74px;line-height:1;margin:0;letter-spacing:-3.2px;font-weight:800}
+.subtitle{position:absolute;top:165px;left:61px;font-size:21px;color:#a6a2a8}
+.separator{position:absolute;top:207px;left:60px;right:60px;height:1px;background:linear-gradient(90deg,#932821,rgba(160,56,45,.26),transparent)}
+.cards{position:absolute;top:234px;left:60px;right:60px;display:grid;grid-template-columns:1fr 1.05fr 1fr;gap:13px}
+.card{height:174px;border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:22px 24px;
+background:linear-gradient(130deg,rgba(255,255,255,.065),rgba(255,255,255,.025));position:relative}
+.card.first{border:1px solid rgba(187,66,55,.52);background:linear-gradient(135deg,rgba(122,23,18,.18),rgba(255,255,255,.028))}
+.card:before{content:"";position:absolute;top:-1px;left:21px;right:21px;height:2px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.17),transparent)}
+.card.first:before{background:linear-gradient(90deg,transparent,#bd3e33,transparent)}
+.rank{font-size:44px;font-weight:800;line-height:1;color:#918c95}
+.card.first .rank{color:#e69f97}
+.place{position:absolute;left:89px;top:27px;font-size:20px;font-weight:600;color:#f2edef}
+.player{position:absolute;left:25px;top:94px;font-size:24px;font-weight:600;letter-spacing:-.3px}
+.metric{position:absolute;left:25px;top:137px;font-size:16px;color:#a9a5ae}
+.status{position:absolute;bottom:19px;left:62px;font-size:14px;color:#89858e;letter-spacing:.04em}
+.bottom{position:absolute;bottom:0;left:0;right:0;height:6px;background:linear-gradient(90deg,#41100d,#7a1712,#40100d)}
+</style></head><body><main class="poster">
+<div class="top"></div><div class="eyebrow">Cloudy Inc. / Rust console</div>
+<h1>Rust leaderboard</h1><div class="subtitle">Current wipe · The leading players</div>
+<div class="brand"><span>Cloudy Inc.</span><img src="cloudy-c-logo-static.png" alt="Cloudy logo"></div>
+<div class="separator"></div>
+<section class="cards">
+<div class="card"><div class="rank">02</div><div class="place">Second place</div><div class="player">Awaiting players</div><div class="metric">Kills —　Deaths —　K/D —</div></div>
+<div class="card first"><div class="rank">01</div><div class="place">First place</div><div class="player">Awaiting players</div><div class="metric">Kills —　Deaths —　K/D —</div></div>
+<div class="card"><div class="rank">03</div><div class="place">Third place</div><div class="player">Awaiting players</div><div class="metric">Kills —　Deaths —　K/D —</div></div>
+</section>
+<div class="status">Preview / Rankings update after Rust server connection</div>
+<div class="bottom"></div></main></body></html>
