@@ -919,10 +919,13 @@ test('saving again and again, re-adding the same picture, keeps one message, one
   await b.edit('title', 'Rules');
   await b.edit('message', 'Version 0');
   await b.addGif(upload(1));
+  const previewUrl = b.preview.embeds[0].toJSON().image.url;
+  assert.match(previewUrl, /^https:\/\/cloudy\.example\.com\/cloudy-embed-media\/[a-f0-9]{64}\.png$/);
   await b.post();
   await drainGateway(world);
   const [posted] = physical(world);
   const permanent = posted.embeds[0].image.url;
+  assert.equal(permanent, previewUrl);
   assert.match(permanent, /^https:\/\/cloudy\.example\.com\/cloudy-embed-media\/[a-f0-9]{64}\.png$/);
 
   for (let round = 1; round <= 3; round += 1) {
