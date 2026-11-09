@@ -1,5 +1,5 @@
 import { AUTOMOD_LOG_CHANNEL_ID, isCloudyInteractionMessage, resolveMessageDeleter, wasDeletedForMove } from '../services/deletionAttributionService.js';
-import { Events, SnowflakeUtil } from 'discord.js';
+import { Events, MessageFlags, SnowflakeUtil } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { getReactionRoleMessage, deleteReactionRoleMessage } from '../services/reactionRoleService.js';
@@ -152,12 +152,9 @@ export async function logDeletedMessage(message, options = {}) {
   const channelId = message.channelId || message.channel?.id || null;
   if ([OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, AUTOMOD_LOG_CHANNEL_ID, EMBED_LOG_CHANNEL_ID].includes(channelId)) return;
   const detectedAt = options.detectedAt ?? Date.now();
-  // Reappear and sticky guides delete the old copy to move it to the bottom:
-  // that is not a removal, so it is not logged. Cloudy's own replies to an
-  // action (status, command and button replies) are not logged either.
-  // Cloudy's private replies are known by ID only: they were never cached.
-  if (isMessageLogFeedback(message) || isCloudyInteractionMessage(message.id)
-    || await wasDeletedForMove(message.id)) {
+  // Private replies and moves never represent a public message removal.
+  if (message.flags?.has?.(MessageFlags.Ephemeral)
+    || isCloudyInteractionMessage(message.id) || await wasDeletedForMove(message.id)) {
     await forgetMessageSnapshot(guildId, message.id);
     return;
   }
@@ -167,10 +164,6 @@ export async function logDeletedMessage(message, options = {}) {
   const uncached = message.partial || !message.author;
   const snapshot = !uncached ? null
     : options.snapshot !== undefined ? options.snapshot : await getMessageSnapshot(guildId, message.id);
-  if (snapshot?.feedback) {
-    await forgetMessageSnapshot(guildId, message.id);
-    return;
-  }
   const authorId = message.author?.id || snapshot?.authorId || null;
   const authorBot = message.author ? message.author.bot === true : snapshot?.authorBot === true;
   const attachments = attachmentList(message, snapshot);
@@ -178,6 +171,13 @@ export async function logDeletedMessage(message, options = {}) {
   const deletedBy = options.deletedBy || await resolveMessageDeleter(message, {
     bulk: options.bulk === true, authorId, authorBot, detectedAt,
   });
+  // Public bot responses can be deleted by staff too. Only verified human
+  // removals should log these messages, so bot cleanup stays silent.
+  if ((snapshot?.feedback || isMessageLogFeedback(message))
+    && !(deletedBy.id && !deletedBy.bot && ['audit', 'staff', 'embed-builder'].includes(deletedBy.source))) {
+    await forgetMessageSnapshot(guildId, message.id);
+    return;
+  }
   // A partial event without a snapshot or a verified deletion only adds noise.
   if (uncached && !snapshot && !authorId && !attachments.length
     && ['cloudy', 'unknown'].includes(deletedBy.source)) return;

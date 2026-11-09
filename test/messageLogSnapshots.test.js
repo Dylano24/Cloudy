@@ -113,6 +113,32 @@ test('Cloudy replies to an action are never message-logged, also after a restart
   assert.equal(sent[1].id, MEMBER_MESSAGE_LOG_ID);
 });
 
+test('staff manually removing a public bot reply is logged, including an uncached reply', async () => {
+  const { client, guild, sent } = setup();
+  const reply = {
+    id: '1300000000000000206', guild, guildId: guild.id, channelId: 'source', client,
+    author: { id: 'bot', bot: true }, content: 'Public bot response',
+    interactionMetadata: { id: 'command' }, attachments: new Collection(),
+  };
+  guild.fetchAuditLogs = async () => ({
+    entries: new Collection([['audit', {
+      id: 'audit', createdTimestamp: Date.now(), executor: { id: 'moderator', bot: false },
+      target: { id: 'bot' }, extra: { channel: { id: 'source' }, count: 1 },
+    }]]),
+  });
+  await logDeletedMessage(reply, { detectedAt: Date.now() - 1000 });
+  assert.equal(sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.match(sent[0].embed.description, /Deleted by:.*<@moderator>.*Type:.*Staff/s);
+  assert.match(sent[0].embed.description, /Public bot response/);
+
+  await captureMessageSnapshot(reply);
+  await logDeletedMessage({ id: reply.id, guild, channelId: 'source', client, partial: true },
+    { deletedBy: { id: 'moderator', label: '<@moderator>', source: 'audit' } });
+  assert.equal(sent[1].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.match(sent[1].embed.description, /Message author:.*<@bot>/);
+  assert.doesNotMatch(sent[1].embed.description, /not cached/);
+});
+
 test('edit logs use the stored "before", one channel mention, and skip link-preview updates', async () => {
   const { client, guild, sent } = setup();
   const base = { id: '1300000000000000003', guild, guildId: guild.id, channelId: 'source', client, createdTimestamp: 1_700_000_000_000,
