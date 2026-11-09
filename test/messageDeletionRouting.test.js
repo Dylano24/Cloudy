@@ -31,8 +31,8 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(message('mod'));
   await logDeletedMessage(message('member'));
   await logDeletedMessage(message('bot', { content: '', embeds: [{ title: 'Bot embed', description: 'Original bot content' }] }));
-  // A deleted Cloudy embed goes to the Embed log.
-  assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID]);
+  // A Discord deletion of a Cloudy embed uses the standard message logs.
+  assert.deepEqual(sent.map(entry => entry.id), [OWNER_MOD_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, OWNER_MOD_MESSAGE_LOG_ID]);
   // No audit log here, so who deleted these cannot be verified: Type follows
   // the deleter, never the author.
   for (const index of [0, 1, 2, 3]) {
@@ -97,6 +97,10 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   await logDeletedMessage(message('staff'), { deletedBy: { id: 'staff', label: '<@staff>', source: 'self' } });
   assert.equal(sent.at(-1).id, OWNER_MOD_MESSAGE_LOG_ID);
   assert.match(sent.at(-1).embed.description, /Deleted by:.*<@staff>\n> \*\*Type:\*\* Staff/);
+
+  await logDeletedMessage(message('member'), { deletedBy: { id: 'member', label: '<@member>', source: 'self' } });
+  assert.equal(sent.at(-1).id, MEMBER_MESSAGE_LOG_ID);
+  assert.match(sent.at(-1).embed.description, /Deleted by:.*<@member>\n> \*\*Type:\*\* Member/);
 
   const automatic = message('member', { id: 'automod-message' });
   rememberMessageDeleter(automatic, client.user, 'automod');

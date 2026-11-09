@@ -326,9 +326,7 @@ export async function logEvent({
     }
 
     const config = await getGuildConfig(client, guildId);
-    // Embed Builder Deletes and other deleted Cloudy embed posts are logged
-    // in the Embed log (owner's choice).
-    const embedLog = eventType === EVENT_TYPES.MESSAGE_DELETE && (data.deletionSource === 'embed-builder' || data.embedPost === true);
+    const embedLog = eventType === EVENT_TYPES.MESSAGE_DELETE && data.deletionSource === 'embed-builder';
     const automod = !embedLog && (data.deletionSource === 'automod' || /^automod\b/i.test(data.title || '') || (data.lines || []).some(line => /reason.*(?:automod|automatic protection):/i.test(line)));
     const deleter = data.deletedById ? guild.members.cache?.get(data.deletedById) || await guild.members.fetch(data.deletedById).catch(() => ({ id: data.deletedById })) : null;
     const requiredMessageDeletion = guildId === CLOUDY_GUILD_ID && eventType === EVENT_TYPES.MESSAGE_DELETE;
@@ -378,7 +376,7 @@ export async function logEvent({
     }
     const logChannelId = embedLog ? EMBED_LOG_CHANNEL_ID
       : automod ? AUTOMOD_LOG_CHANNEL_ID : audienceChannelId || getLogChannelForEvent(config, eventType, overrideChannelId);
-    if (!logChannelId) {
+    if (!logChannelId || (logChannelId === EMBED_LOG_CHANNEL_ID && !embedLog)) {
       return null;
     }
 
