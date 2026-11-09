@@ -19,6 +19,7 @@ import {
   CLOUDY_GUILD_ID,
   DEDICATED_MESSAGE_LOG_CHANNEL_IDS,
   EMBED_LOG_CHANNEL_ID,
+  OWNER_MOD_MESSAGE_LOG_ID,
   messageLogAuthorType,
   messageLogDestination,
 } from './messageLogDestination.js';
@@ -357,15 +358,19 @@ export async function logEvent({
     const author = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType) && data.userId
       ? guild.members.cache?.get(data.userId) || await guild.members.fetch(data.userId).catch(() => null)
       : null;
-    const audienceChannelId = [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
-      ? messageLogDestination(guild, data.userId, author, config, data.authorBot, deleter) : null;
+    // Audit-confirmed removals by a human are moderation actions even if
+    // the executor has since left the guild or lost their permissions.
+    const staffDeletion = eventType === EVENT_TYPES.MESSAGE_DELETE && data.deletedById && !data.deletedByBot
+      && ['audit', 'ban', 'staff', 'embed-builder'].includes(data.deletionSource);
+    const audienceChannelId = requiredMessageDeletion && staffDeletion ? OWNER_MOD_MESSAGE_LOG_ID
+      : [EVENT_TYPES.MESSAGE_DELETE, EVENT_TYPES.MESSAGE_EDIT].includes(eventType)
+        ? messageLogDestination(guild, data.userId, author, config, data.authorBot, deleter) : null;
     if (requiredMessageDeletion && data.lines) {
       // "Type", right under "Deleted by": Staff, Member or Bot for the one
       // who DELETED the message (the author is shown as Message author).
       // Member only when a member deleted their own message.
-      const type = data.deletedById
-        ? messageLogAuthorType(guild, data.deletedById, deleter?.user ? deleter : null, config, data.deletedByBot === true)
-        : 'Unknown';
+      const type = staffDeletion ? 'Staff'
+        : messageLogAuthorType(guild, data.deletedById, deleter, config, data.deletedByBot === true);
       const lines = [...data.lines];
       const deletedByIndex = lines.findIndex(line => line.startsWith('**Deleted by:**'));
       lines.splice(deletedByIndex + 1, 0, formatLogLine('Type', type));

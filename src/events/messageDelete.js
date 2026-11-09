@@ -192,15 +192,11 @@ export async function logDeletedMessage(message, options = {}) {
     options.deletedBy || resolveMessageDeleter(message, { bulk: options.bulk === true, authorId, authorBot, detectedAt }),
     prepareDeletedMessageMedia({ attachments: new Map(attachments.map((attachment, index) => [attachment.id || String(index), attachment])) }),
   ]);
-  // Cloudy removed one of its own messages that it no longer had in memory and
-  // has no stored copy of (e.g. a Builder left over from before a restart).
-  // Without author or content such a log only says "Unknown": Cloudy's own
-  // cleanup is never logged. Deletions with a reason (AutoMod, Embed Builder
-  // Delete, staff) are not affected.
-  if (uncached && !snapshot && !attachments.length && deletedBy.source === 'cloudy') return;
+  // A partial event without a snapshot or a verified deletion only adds noise.
+  if (uncached && !snapshot && !authorId && !attachments.length
+    && ['cloudy', 'unknown'].includes(deletedBy.source)) return;
 
-  // With neither cache nor snapshot, the matching audit entry names the author.
-  const resolvedAuthorId = authorId || deletedBy.authorId || null;
+  const resolvedAuthorId = authorId;
   const created = createdTimestamp(message, snapshot);
 
   const metaLines = [

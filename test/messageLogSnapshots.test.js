@@ -64,9 +64,10 @@ test('an uncached deleted message is logged from its stored copy: author, time, 
   assert.equal(await getMessageSnapshot(guild.id, original.id), null);
 });
 
-test('without any stored copy the creation time still comes from the message ID', async () => {
+test('a confirmed removal without a stored copy still shows the creation time from the message ID', async () => {
   const { client, guild, sent } = setup();
-  await logDeletedMessage({ id: '1300000000000000002', guild, guildId: guild.id, channelId: 'source', client, partial: true, author: null, content: null, attachments: new Collection() });
+  await logDeletedMessage({ id: '1300000000000000002', guild, guildId: guild.id, channelId: 'source', client, partial: true, author: null, content: null, attachments: new Collection() },
+    { bulk: true, deletedBy: { id: 'moderator', label: '<@moderator>', source: 'audit' } });
   const description = sent.at(-1).embed.description;
   assert.match(description, /\*\*Message created:\*\* <t:\d+:f>/);
   assert.match(description, /not cached before deletion/);

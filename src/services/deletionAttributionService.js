@@ -1,4 +1,5 @@
 import { AuditLogEvent, MessageFlags, MessageType } from 'discord.js';
+import { MUSIC_BUTTON_IDS } from './music/musicButtonIds.js';
 
 export const AUTOMOD_LOG_CHANNEL_ID = '1556209466679238696';
 
@@ -245,13 +246,13 @@ function absorbDeleteEntries(tracker, entries, now = Date.now()) {
         entry,
         count,
         seenAt: now,
-        increments: fresh ? Array.from({ length: count }, () => ({ at: createdAt, fresh: true })) : [],
+        increments: fresh ? Array.from({ length: count }, () => ({ at: createdAt })) : [],
       });
       continue;
     }
     record.entry = entry;
     record.seenAt = now;
-    for (let index = record.count; index < count; index += 1) record.increments.push({ at: now, fresh: false });
+    for (let index = record.count; index < count; index += 1) record.increments.push({ at: now });
     record.count = Math.max(record.count, count);
   }
   for (const [id, record] of tracker.entries) {
@@ -361,15 +362,9 @@ function decide(tracker, item, { final }) {
     return { status: 'ambiguous' };
   }
 
-  const enough = item.authorId
-    ? evidence.length > 0 && evidence.length >= group.length
-    // Unknown author: only a lone deletion with exactly one candidate.
-    : group.length === 1 && evidence.length === 1;
-  // Before the last check, only accept evidence that Discord dated before
-  // this deletion was seen (or a count increment), so a deletion that
-  // happens a moment later cannot be claimed by this one.
-  const settled = final || evidence.every(({ increment }) => !increment.fresh || increment.at <= item.detectedAt + 250);
-  if (enough && settled) {
+  // An audit entry identifies an author and channel, never a message ID.
+  // Channel-only evidence cannot identify who deleted an uncached message.
+  if (final && item.authorId && evidence.length >= group.length) {
     const chosen = evidence.sort((left, right) => left.increment.at - right.increment.at)[0];
     chosen.record.increments.splice(chosen.record.increments.indexOf(chosen.increment), 1);
     return { status: 'matched', entry: chosen.record.entry };
@@ -467,9 +462,7 @@ export async function resolveMessageDeleter(message, {
       const decision = decide(tracker, item, { final });
       if (decision.status === 'ambiguous') return { ...UNKNOWN };
       if (decision.status === 'matched') {
-        const result = executorResult(decision.entry.executor, message.client);
-        if (!item.authorId && decision.entry.target?.id) result.authorId = String(decision.entry.target.id);
-        return result;
+        return executorResult(decision.entry.executor, message.client);
       }
       if (decision.status === 'none') nobodyElse = true;
     }
@@ -583,6 +576,8 @@ export function isBotActionFeedback(message) {
   if (message.interactionMetadata || message.interaction) return true;
   if (message.type === MessageType.Reply && message.reference?.messageId) return true;
   if (transientBotMessages.has(String(message.id))) return true;
+  if (message.components?.some(row => row.components?.some(button =>
+    (button.customId || button.custom_id) === MUSIC_BUTTON_IDS.STOP))) return true;
   return (message.embeds || []).some(embed => ACTION_FEEDBACK_TITLE.test(feedbackTitle(embed)));
 }
 

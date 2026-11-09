@@ -1,27 +1,14 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
+import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
+
+export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
 const QUEUE_PAGE_SIZE = 10;
 // Cloudy's logo and footer on every music embed (owner's choice).
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-
-export const MUSIC_BUTTON_IDS = {
-    PAUSE: 'music_pause',
-    RESUME: 'music_resume',
-    SKIP: 'music_skip',
-    STOP: 'music_stop',
-    SHUFFLE: 'music_shuffle',
-    LOOP: 'music_loop',
-    VOL_DOWN: 'music_vol_down',
-    VOL_UP: 'music_vol_up',
-    QUEUE: 'music_queue',
-    QUEUE_FIRST: 'music_queue_first',
-    QUEUE_PREV: 'music_queue_prev',
-    QUEUE_NEXT: 'music_queue_next',
-    QUEUE_LAST: 'music_queue_last',
-};
 
 export function formatDuration(ms) {
     if (!ms || Number.isNaN(ms)) {
