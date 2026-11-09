@@ -1,7 +1,7 @@
 import { isGameFeedEmbed } from './gameFeedTitles.js';
 import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { hasRequiredPatchBanner } from './patchNotesBannerService.js';
-import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
+import { hasReportActions, isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 import { isDedicatedGamblingGuideMessage } from '../utils/gamblingGuideIdentity.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { BALANCE_RESPONSE_KEY, balanceResponseIdentity, readLegacyBalanceTemplate } from './balanceResponseIdentity.js';
@@ -448,7 +448,7 @@ function decorateEmbedData(embed, stored, options = {}) {
     }
   }
 
-  if (Number.isInteger(template.color)) data.color = template.color;
+  if (!options.preserveRuntimeColor && Number.isInteger(template.color)) data.color = template.color;
 
   if (template.applyFooter === false) {
     // Keep the current footer when Save changed another part of the embed.
@@ -592,11 +592,13 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
 
     let matched = false;
     let changed = false;
-    const embeds = message.embeds.map(embed => {
+    const isReport = hasReportActions(message);
+    const embeds = message.embeds.map((embed, index) => {
       const data = embed?.toJSON ? embed.toJSON() : { ...(embed || {}) };
       const sharedRuntimeBody = isSharedRuntimeBodyTitle(data.title);
       const result = decorateEmbedData(embed, stored, {
         preserveRuntimeBody: sharedRuntimeBody,
+        preserveRuntimeColor: isReport && index === 0,
       });
       if (!result.matched) return embed;
       matched = true;

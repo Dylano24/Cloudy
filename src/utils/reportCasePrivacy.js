@@ -5,3 +5,9 @@ export function isPrivateReportCasePayload(payload) {
     String(button.customId || button.custom_id || button.data?.custom_id || '').startsWith('report_case:')))) return true;
   return (payload.embeds || []).some(embed => /^Report (?:notification|created|closed|deleted)$/i.test(String(embed.title || embed.data?.title || '')));
 }
+
+export function hasReportActions(message) {
+  return message?.components?.some(row =>
+    row.components?.some(button => button.customId?.startsWith('report_action:')),
+  ) ?? false;
+}
