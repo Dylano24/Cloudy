@@ -9,8 +9,8 @@ const MAX_RANK = 10;
 const MAX_STALE_MS = 5 * 60_000;
 const THROTTLE_MS = 15_000;
 const pending = new Map();
-const DATE_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit' });
-const localDate = now => DATE_FORMAT.format(new Date(now));
+const lastSentPayloads = new Map();
+const localDate = now => new Date(now).toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
 
 function cleanName(value, max = 45) {
   return String(value ?? '').replace(/[\r\n\x60*_~<>@|[\]]/g, '').trim().slice(0, max) || 'Unknown';
@@ -19,6 +19,10 @@ function stat(value) {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
 }
+function unix(ms) {
+  return Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : null;
+}
+
 export function getLiveRankings(state, filter = null) {
   const all = state?.leaderboard && typeof state.leaderboard === 'object' ? state.leaderboard : {};
   const servers = Object.entries(all)
@@ -34,58 +38,57 @@ export function getLiveRankings(state, filter = null) {
   });
 }
 
-function boardLines(players) {
-  if (!players.length) return 'No verified kill events yet.';
+export function liveRustStatus(status, now = Date.now()) {
+  const lastAt = stat(status?.updatedAt);
+  if (!lastAt) return { icon: '⚪', label: 'Not connected', color: 0xFFFFFF };
+  if (lastAt > now + 60_000 || now - lastAt > MAX_STALE_MS) {
+    return { icon: '🟠', label: 'Delayed', color: 0xFFFFFF };
+  }
+  if (status.online !== true) return { icon: '🔴', label: 'Offline', color: 0x7A1712 };
+  return { icon: '🟢', label: 'Live', color: 0x00C49D };
+}
+
+export function leaderboardLines(players) {
+  if (!players.length) return 'No recorded kills yet.';
   return players.map((player, index) => {
-    const rank = String(index + 1).padStart(2, '0');
-    const kd = player.kd.toFixed(2);
-    return '**' + rank + '.** ' + player.name + '\n'
-      + 'Kills **' + player.kills + '**  ·  Deaths **' + player.deaths + '**  ·  K/D **' + kd + '**';
+    const rank = index < 3 ? ['🥇', '🥈', '🥉'][index] : '**' + (index + 1) + '.**';
+    return rank + ' **' + cleanName(player.name, 26) + '**\n'
+      + player.kills + ' kills  ·  ' + player.deaths + ' deaths  ·  ' + player.kd.toFixed(2) + ' K/D';
   }).join('\n\n');
 }
 
-function asUnix(value) {
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return Math.floor(value / 1000);
-}
-
 export function buildRustLiveBoard(state, filter = null, now = Date.now()) {
-  const servers = getLiveRankings(state, filter);
-  const selected = servers[0] || null;
-  const allStatuses = state?.servers || {};
-  const status = selected ? allStatuses[selected.server] : filter ? allStatuses[filter] : Object.values(allStatuses)[0];
-  const serverName = cleanName(selected?.server || filter || Object.keys(allStatuses)[0] || 'Rust Console');
-  const lastAt = stat(status?.updatedAt);
-  const liveStatus = status?.online === true && lastAt > 0 && now - lastAt <= MAX_STALE_MS;
-  const statusText = status == null || lastAt === 0 ? 'Not connected'
-    : liveStatus ? 'Online' : 'Offline / data delayed';
-  const playerCount = liveStatus && Number.isFinite(status?.players) ? String(status.players)
-    + (Number.isFinite(status.max) ? '/' + status.max : '') : '—';
-  const storedDaily = state?.daily?.[selected?.server || filter] || null;
-  const daily = storedDaily?.date === localDate(now) ? storedDaily : null;
-  const dailyTop = Object.entries(daily?.kills || {}).sort(([, a], [, b]) => b - a)[0];
-  const since = asUnix(selected?.since);
-  const lastUpdate = asUnix(lastAt);
-  const nextWipe = asUnix(status?.nextWipe);
+  const rankings = getLiveRankings(state, filter);
+  const selected = rankings[0] || null;
+  const statuses = state?.servers || {};
+  const serverName = selected?.server || filter || Object.keys(statuses)[0] || 'Rust Console';
+  const status = statuses[serverName] || null;
+  const info = liveRustStatus(status, now);
+  const connected = info.label === 'Live';
+  const players = connected && Number.isFinite(status.players) ? String(stat(status.players))
+    + (Number.isFinite(status.max) ? '/' + stat(status.max) : '') : '—';
+  const storedDaily = state?.daily?.[serverName];
+  const today = storedDaily?.date === localDate(now) ? storedDaily : null;
+  const topToday = Object.entries(today?.kills || {}).sort(([, a], [, b]) => Number(b) - Number(a))[0];
+  const since = unix(selected?.since);
+  const nextWipe = unix(status?.nextWipe);
+  const lastAt = unix(status?.updatedAt);
 
   return {
     title: 'Rust leaderboard',
-    color: 0xFFFFFF,
-    description: '**' + serverName + '**\n\n'
-      + (selected?.players.length ? '**Top 10 — current wipe**\n\n' + boardLines(selected.players)
-        : '**Top 10 — current wipe**\n\nNo verified kill events yet.'),
+    color: info.color,
+    description: '**' + cleanName(serverName, 60) + '**  ' + info.icon + ' **' + info.label + '**'
+      + '\n\n**Current wipe · Top 10**\n\n' + leaderboardLines(selected?.players || []),
     fields: [
-      { name: 'Server', value: '**Status:** ' + statusText
-        + '\n**Players:** ' + playerCount
-        + '\n**Map:** ' + cleanName(status?.map || 'Unavailable', 40), inline: true },
-      { name: 'Wipe', value: '**Started:** ' + (since ? '<t:' + since + ':d>' : 'Not confirmed')
-        + '\n**Next:** ' + (nextWipe ? '<t:' + nextWipe + ':R>' : 'Not scheduled')
+      { name: 'Server', value: '**Players:** ' + players
+        + '\n**Map:** ' + cleanName(status?.map || 'Unavailable', 40)
+        + '\n**Updated:** ' + (lastAt ? '<t:' + lastAt + ':R>' : 'No data'), inline: true },
+      { name: 'Wipe', value: '**Tracking since:** ' + (since ? '<t:' + since + ':d>' : 'Not started')
+        + '\n**Next wipe:** ' + (nextWipe ? '<t:' + nextWipe + ':R>' : 'Not scheduled')
         + '\n**Tracked players:** ' + (selected?.count || 0), inline: true },
-      { name: 'Daily top killer', value: dailyTop
-        ? '**' + cleanName(dailyTop[0], 30) + '** · ' + stat(dailyTop[1]) + ' kills'
-        : 'No verified kills today.', inline: false },
-      { name: 'Data', value: lastUpdate ? 'Last server update <t:' + lastUpdate + ':R>'
-        : 'Waiting for a Rust game-server connection.', inline: false },
+      { name: 'Daily top killer', value: topToday
+        ? '**' + cleanName(topToday[0], 30) + '** · ' + stat(topToday[1]) + ' kills'
+        : 'No recorded kills today.', inline: false },
     ],
     thumbnail: { url: CLOUDY_C_LOGO_URL },
     footer: { text: CLOUDY_FOOTER },
@@ -98,7 +101,9 @@ export async function getRustLiveBoardConfig(client, guildId) {
 }
 
 async function saveConfig(client, guildId, config) {
-  if (await client.db.set(CONFIG_KEY(guildId), config) === false) throw new Error('Could not save the leaderboard settings.');
+  if (await client.db.set(CONFIG_KEY(guildId), config) === false) {
+    throw new Error('Could not save leaderboard settings.');
+  }
 }
 
 function canPost(channel, client) {
@@ -113,18 +118,22 @@ async function readSourceBoard(client, sourceGuildId) {
 
 async function renderRustLiveBoard(client, guild, config) {
   const channel = await guild.channels.fetch(config.channelId).catch(() => null);
-  if (!canPost(channel, client)) throw new Error('Cloudy needs permission to post in the leaderboard channel.');
+  if (!canPost(channel, client)) throw new Error('Cloudy cannot post in the leaderboard channel.');
   const state = await readSourceBoard(client, config.sourceGuildId);
   const payload = { embeds: [buildRustLiveBoard(state, config.server)], allowedMentions: { parse: [] } };
+  const digest = JSON.stringify(payload.embeds);
+  const cacheKey = guild.id + ':' + channel.id;
   if (config.messageId) {
     const existing = await channel.messages.fetch(config.messageId).catch(() => null);
-    if (existing && existing.author?.id === client.user?.id) {
-      await existing.edit(payload);
+    if (existing?.author?.id === client.user?.id) {
+      if (lastSentPayloads.get(cacheKey) !== digest) await existing.edit(payload);
+      lastSentPayloads.set(cacheKey, digest);
       return existing;
     }
   }
   const sent = await channel.send(payload);
   await saveConfig(client, guild.id, { ...config, messageId: sent.id });
+  lastSentPayloads.set(cacheKey, digest);
   return sent;
 }
 
@@ -140,7 +149,6 @@ export async function startRustLiveBoard(client, guild, channel, sourceGuildId, 
   const posted = await renderRustLiveBoard(client, guild, updated);
   const saved = { ...updated, messageId: posted.id };
   await saveConfig(client, guild.id, saved);
-  // An old board remains intact; it does not keep updating when disabled.
   return { config: saved, message: posted };
 }
 
@@ -161,13 +169,16 @@ export async function refreshRustLiveBoardMirrors(client, sourceGuildId) {
       if (pending.has(key)) continue;
       const timer = setTimeout(() => {
         pending.delete(key);
-        void renderRustLiveBoard(client, guild, config)
-          .catch(error => logger.warn('[RUST_LIVEBOARD] Update failed:', error));
+        void (async () => {
+          const latest = await getRustLiveBoardConfig(client, guild.id);
+          if (!latest?.enabled || latest.sourceGuildId !== sourceGuildId || latest.channelId !== config.channelId) return;
+          await renderRustLiveBoard(client, guild, latest);
+        })().catch(error => logger.warn('[RUST_LIVEBOARD] Update failed:', error));
       }, THROTTLE_MS);
       timer.unref?.();
       pending.set(key, timer);
     } catch (error) {
-      logger.warn('[RUST_LIVEBOARD] Cannot read mirror configuration:', error);
+      logger.warn('[RUST_LIVEBOARD] Cannot load mirror settings:', error);
     }
   }
 }
@@ -175,4 +186,5 @@ export async function refreshRustLiveBoardMirrors(client, sourceGuildId) {
 export function resetRustLiveBoardTimers() {
   for (const timer of pending.values()) clearTimeout(timer);
   pending.clear();
+  lastSentPayloads.clear();
 }
