@@ -3,6 +3,7 @@ import { afterEach, test } from 'node:test';
 import { ChannelType } from 'discord.js';
 import {
   buildRustLiveBoard, getLiveRankings, getRustLiveBoardConfig,
+  leaderboardLines, liveRustStatus,
   startRustLiveBoard, stopRustLiveBoard, refreshRustLiveBoardMirrors,
   resetRustLiveBoardTimers,
 } from '../src/services/rustLiveLeaderboardService.js';
@@ -63,8 +64,8 @@ test('Sorts real players and sanitizes their names', () => {
 test('Uses live status only when fresh and never invents players or kills', () => {
   const now = Date.parse('2026-11-09T13:00:00Z');
   const empty = buildRustLiveBoard({}, null, now);
-  assert.match(empty.description, /No verified kill events yet/);
-  assert.match(empty.fields[0].value, /Not connected/);
+  assert.match(empty.description, /No recorded kills yet/);
+  assert.match(empty.description, /⚪ \*\*Not connected\*\*/);
   assert.match(empty.thumbnail.url, /cloudy-c-logo/);
   assert.match(empty.footer.text, /Cloudy Inc/);
 
@@ -74,12 +75,33 @@ test('Uses live status only when fresh and never invents players or kills', () =
     daily: { Rust: { date: '2026-11-09', kills: { Alpha: 4 } } },
   };
   const live = buildRustLiveBoard(state, 'Rust', now);
-  assert.match(live.fields[0].value, /Online/);
+  assert.match(live.description, /🟢 \*\*Live\*\*/);
   assert.match(live.fields[0].value, /14\/50/);
-  assert.match(live.description, /K\/D \*\*3.50\*\*/);
+  assert.match(live.description, /3.50 K\/D/);
   assert.match(live.fields[2].value, /Alpha.*4 kills/);
-  assert.doesNotMatch(buildRustLiveBoard(state, 'Rust', now + 600_000).fields[0].value, /\*\*Status:\*\* Online/);
-  assert.match(buildRustLiveBoard(state, 'Rust', now + 86_400_000).fields[2].value, /No verified kills today/);
+  assert.match(buildRustLiveBoard(state, 'Rust', now + 600_000).description, /🟠 \*\*Delayed\*\*/);
+  assert.match(buildRustLiveBoard(state, 'Rust', now + 86_400_000).fields[2].value, /No recorded kills today/);
+});
+
+test('Top three receive medals, rank four onward stays compact', () => {
+  const players = Array.from({ length: 10 }, (_, i) => ({
+    name: i === 0 ? 'Serseny' : i === 1 ? 'Mindzset' : 'Player' + (i + 1),
+    kills: 100 - i, deaths: 10, kd: (100 - i) / 10,
+  }));
+  const lines = leaderboardLines(players);
+  assert.match(lines, /🥇 \*\*Serseny\*\*/);
+  assert.match(lines, /🥈 \*\*Mindzset\*\*/);
+  assert.match(lines, /🥉 \*\*Player3\*\*/);
+  assert.match(lines, /\*\*4\.\*\* \*\*Player4\*\*/);
+  assert.doesNotMatch(lines, /Rank 01|Rank 06/);
+});
+
+test('Live status never claims live without a recent online event', () => {
+  const now = Date.parse('2026-11-09T13:00:00Z');
+  assert.equal(liveRustStatus(null, now).label, 'Not connected');
+  assert.equal(liveRustStatus({ online: true, updatedAt: now - 1_000 }, now).label, 'Live');
+  assert.equal(liveRustStatus({ online: false, updatedAt: now - 1_000 }, now).label, 'Offline');
+  assert.equal(liveRustStatus({ online: true, updatedAt: now - 600_000 }, now).label, 'Delayed');
 });
 
 test('Posts once, edits existing Cloudy-owned message, and pauses', async () => {
@@ -93,6 +115,11 @@ test('Posts once, edits existing Cloudy-owned message, and pauses', async () => 
   assert.match(sent[0].embeds[0].description, /Alpha/);
   await startRustLiveBoard(client, guild, channel, sourceGuildId, 'Rust');
   assert.equal(sent.length, 1);
+  assert.equal(edited.length, 0);
+  db.set('guild:' + sourceGuildId + ':gameserver:boards:v1', {
+    leaderboard: { Rust: { players: { Alpha: { kills: 5, deaths: 2 } } } },
+  });
+  await startRustLiveBoard(client, guild, channel, sourceGuildId, 'Rust');
   assert.equal(edited.length, 1);
   assert.equal((await getRustLiveBoardConfig(client, guild.id)).enabled, true);
   await stopRustLiveBoard(client, guild.id);
