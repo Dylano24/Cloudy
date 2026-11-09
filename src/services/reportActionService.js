@@ -376,7 +376,6 @@ async function completeReportAction(interaction, client, report, action, userId,
       record,
       outcomeActions,
       actorId,
-      reason,
     );
 
     for (const name of outcomeActions) {

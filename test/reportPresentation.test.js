@@ -89,7 +89,7 @@ test('report logs are informational only and private reports own the Close butto
   assert.equal(close.style, 2);
   assert.equal(close.custom_id, 'report_case:close:report:target');
   assert.doesNotMatch(source, /This report has been read by|title: 'Thank you\.'|title: 'Delete report'/);
-  assert.match(source, /title: 'Report notification'/);
+  assert.match(source, /n•\$\{record.number\} update/);
   assert.match(source, /'Report closed'/);
   assert.match(source, /'Report automatically deleted'/);
   assert.match(source, /'Report created'/);
@@ -103,7 +103,7 @@ test('report logs are informational only and private reports own the Close butto
 test('report lifecycle embeds use compact Report + hash-number presentation', () => {
   const lifecycle = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
   const matches = lifecycle.match(/name: 'Report', value: `#\$\{record\.number\}`, inline: true/g) || [];
-  assert.equal(matches.length, 2);
+  assert.equal(matches.length, 1);
   assert.doesNotMatch(lifecycle, /name: 'Case'/);
   assert.doesNotMatch(lifecycle, /value: `report-\$\{record\.number\}`/);
 

@@ -1,5 +1,9 @@
 // CLOUDY_INTERACTION_LATENCY_V1
-import { EmbedBuilder, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
+import { EmbedBuilder, escapeMarkdown, ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
+import { formatDuration } from '../utils/embeds.js';
+import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
+import { REPORT_MODERATION_FOOTER } from '../utils/reportCasePrivacy.js';
+import { feedEmoji } from './feedEmojiService.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
@@ -16,7 +20,8 @@ const audiences = ['reporter', 'target'];
 const reportDeletePresentationJobs = new Map();
 
 function caseEmbed(data) {
-  const embed = buildStandardLogEmbed({ ...data, color: null, footer: { text: CLOUDY_STANDARD_FOOTER }, thumbnail: CLOUDY_LOGO_URL });
+  const embed = buildStandardLogEmbed({ ...data, color: null, footer: data.footer || { text: CLOUDY_STANDARD_FOOTER }, thumbnail: CLOUDY_LOGO_URL });
+  if (data.footer) embed.data.footer = data.footer;
   setPreservedEmbedColor(embed, data.color ?? 0xFFFFFF);
   return embed;
 }
@@ -215,7 +220,52 @@ async function refreshLogControls(client, guild, record, audience) {
   }
 }
 
-export async function publishReportOutcome(client, guild, report, record, action, actorId, reason) {
+function reportedMessageText(record, report) {
+  if (typeof record.reportedMessageText === 'string') return record.reportedMessageText;
+  const fields = (report.embeds || []).flatMap(embed => embed.fields || []);
+  const direct = fields.find(field => /^reported message$/i.test(field.name))?.value;
+  if (direct) return direct;
+  const evidence = fields.find(field => /^evidence$/i.test(field.name))?.value;
+  return evidence?.match(/(?:^|\n)(?:\*\*Content\*\*\n|Content: *)([\s\S]*?)(?=\n(?:\*\*Channel\*\*|Channel:)|$)/i)?.[1] || '';
+}
+
+function reportUpdateEmbed(record, audience, actions, messageText) {
+  const reporter = audience === 'reporter';
+  const removed = actions.includes('delete');
+  const timedOut = actions.includes('timeout');
+  const actionTaken = removed || timedOut || actions.includes('ban');
+  const green = feedEmoji('online') || '🟢';
+  const red = feedEmoji('offline') || '🔴';
+  const duration = Number(record.actions?.timeout?.durationMs);
+  const mute = duration > 0 ? `Temporary mute (${formatDuration(duration)})` : 'Temporary mute';
+  const measure = timedOut ? (removed ? `Message removed & ${mute.toLowerCase()}` : mute) : 'Message removed';
+  const outcome = reporter
+    ? actionTaken
+      ? `${green} Action taken\n\nAppropriate action has been taken regarding the reported member in accordance with our server rules.`
+      : `${red} No action taken\n\nNo further action was deemed necessary.`
+    : actionTaken
+      ? `${red} Action taken\n\n🟠 ${measure}`
+      : `${green} No action taken\n\nAfter reviewing the report, our team has decided that no further action is necessary at this time.`;
+  return caseEmbed({
+    title: `${reporter ? 'Report' : 'Moderation'} n•${record.number} update`,
+    description: reporter
+      ? '🔵 Reviewed\n\nYour report has been reviewed by our moderation team.'
+      : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.',
+    fields: [
+      ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>` }] : []),
+      { name: 'Reported message', value: truncateMessageLogText(escapeMarkdown(messageText.trim()), 1024) || 'No text available.' },
+      { name: reporter || actionTaken ? 'Outcome' : 'Review outcome', value: reporter
+        ? outcome + '\n\nThank you for bringing this to our attention. We appreciate your contribution to keeping our community fair and safe.'
+        : outcome },
+      { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
+    ],
+    footer: { text: REPORT_MODERATION_FOOTER },
+    timestamp: false,
+    preserveRuntimeEmoji: true,
+  });
+}
+
+export async function publishReportOutcome(client, guild, report, record, action, actorId) {
   if (record.closedAt || (record.expiresAt && record.expiresAt <= Date.now())) throw new Error('This report has expired or was deleted.');
   const config = await getGuildConfig(client, guild.id);
   const source = report.channel || await fetchChannel(guild, record.reportChannelId);
@@ -225,29 +275,7 @@ export async function publishReportOutcome(client, guild, report, record, action
   const activeAudiences = actions.includes('ban') ? ['reporter'] : audiences;
   record = await ensurePrivateCases(client, guild, report, record, config, activeAudiences);
 
-  const actionText = actions.map(name => ({
-    delete: 'The reported message has been deleted.',
-    timeout: 'The reported member has been timed out.',
-    ban: 'The reported member has been banned.',
-    no_sanction: 'The report was reviewed and no sanction was applied.',
-  })[name]).filter(Boolean).join('\n');
-
-  const targetActionText = (() => {
-    const actionSet = new Set(actions);
-    if (actionSet.has('delete') && actionSet.has('timeout')) {
-      return 'A message you sent was reported and has been removed by our staff. You have also been timed out.';
-    }
-    if (actionSet.size === 1 && actionSet.has('delete')) {
-      return 'A message you sent was reported and has been removed by our staff.';
-    }
-    if (actionSet.size === 1 && actionSet.has('timeout')) {
-      return 'A report involving you has been reviewed by our staff and you have been timed out.';
-    }
-    if (actionSet.size === 1 && actionSet.has('no_sanction')) {
-      return 'A report about you has been reviewed by our staff, and no sanction was applied.';
-    }
-    return actionText;
-  })();
+  const messageText = reportedMessageText(record, report);
 
   for (const audience of activeAudiences) {
     const entry = record.cases[audience];
@@ -256,21 +284,9 @@ export async function publishReportOutcome(client, guild, report, record, action
     const channel = await fetchChannel(guild, entry.channelId);
     const existing = await fetchMessage(channel, entry.messageId);
     const participant = participantId(record, audience);
-    const showReason = audience === 'target' && !actions.includes('no_sanction');
-    const fields = [
-      { name: 'Report', value: `#${record.number}`, inline: true },
-      ...(showReason ? [{ name: 'Reason', value: reason || 'No reason recorded' }] : []),
-      { name: 'Automatic deletion', value: 'This report notification will be automatically deleted after 24 hours.' },
-    ];
-
     const payload = {
       content: `<@${participant}>`,
-      embeds: [caseEmbed({
-        title: 'Report notification',
-        description: audience === 'target' ? targetActionText : actionText,
-        color: 0xFFFFFF,
-        fields,
-      })],
+      embeds: [reportUpdateEmbed(record, audience, actions, messageText)],
       components: reportCaseControls(record, false, false, audience),
       allowedMentions: { parse: [], users: [participant], roles: [] },
     };
@@ -487,8 +503,8 @@ export async function restoreReportCaseTimers(client) {
           const source = await fetchChannel(guild, record.reportChannelId);
           const actions = completed.map(([name]) => name);
           const actorId = completed[0][1].actorId;
-          const reason = completed[0][1].reason;
-          record = await publishReportOutcome(client, guild, { channel: source }, record, actions, actorId, reason);
+          const originalReport = await fetchMessage(source, record.messageId);
+          record = await publishReportOutcome(client, guild, originalReport || { channel: source }, record, actions, actorId);
           for (const [name, outcome] of completed) {
             record.actions[name] = { ...outcome, notified: true };
           }

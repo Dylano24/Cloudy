@@ -1,3 +1,4 @@
+import { isReportUpdateTitle } from '../utils/reportCasePrivacy.js';
 import { PRESERVE_EXISTING_EMBEDS } from './existingEmbedPolicy.js';
 import { EmbedBuilder } from 'discord.js';
 
@@ -31,7 +32,7 @@ function cleanBrandingText(value) {
 export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
   const source = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...embed };
 
-  if (source.type && source.type !== 'rich') {
+  if (isReportUpdateTitle(source.title) || (source.type && source.type !== 'rich')) {
     return { embed, changed: false };
   }
 
