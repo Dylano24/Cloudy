@@ -70,7 +70,7 @@ test('a confirmed removal without a stored copy still shows the creation time fr
     { bulk: true, deletedBy: { id: 'moderator', label: '<@moderator>', source: 'audit' } });
   const description = sent.at(-1).embed.description;
   assert.match(description, /\*\*Message created:\*\* <t:\d+:f>/);
-  assert.match(description, /not cached before deletion/);
+  assert.doesNotMatch(description, /not cached before deletion/);
 });
 
 test('message logs are never stored; Cloudy status replies keep only a not-logged marker', async () => {
@@ -95,10 +95,17 @@ test('Cloudy replies to an action are never message-logged, also after a restart
   assert.equal(sent.length, 0);
   assert.equal(await getMessageSnapshot(guild.id, reply.id), null);
 
+  const builder = { ...base, id: '1300000000000000205', embeds: [{ title: 'Message builder' }] };
+  await captureMessageSnapshot(builder);
+  assert.equal((await getMessageSnapshot(guild.id, builder.id)).feedback, true);
+  await logDeletedMessage({ id: builder.id, guild, channelId: 'gambling', client, partial: true });
+  await logDeletedMessage(builder);
+  assert.equal(sent.length, 0);
+
   // An embed Cloudy posted to the channel (Embed Builder, panel) is still logged.
   await logDeletedMessage({ ...base, id: '1300000000000000203', embeds: [{ title: 'Server rules', description: 'Be kind.' }] });
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].id, EMBED_LOG_CHANNEL_ID);
+  assert.equal(sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
   assert.match(sent[0].embed.description, /Server rules/);
   // A member's message is still logged.
   await logDeletedMessage({ ...base, id: '1300000000000000204', author: { id: 'member', bot: false }, content: 'hello', embeds: [] });

@@ -1,4 +1,4 @@
-import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback, isCloudyInteractionMessage, resolveMessageDeleter, wasDeletedForMove } from '../services/deletionAttributionService.js';
+import { AUTOMOD_LOG_CHANNEL_ID, isCloudyInteractionMessage, resolveMessageDeleter, wasDeletedForMove } from '../services/deletionAttributionService.js';
 import { Events, SnowflakeUtil } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
@@ -8,7 +8,7 @@ import { removeEmbedRegistryMessage } from '../services/embedRegistryService.js'
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID } from '../services/messageLogDestination.js';
 import { prepareDeletedMessageMedia } from '../services/deletedMessageMediaService.js';
 import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogService.js';
-import { forgetMessageSnapshot, getMessageSnapshot } from '../services/messageSnapshotService.js';
+import { forgetMessageSnapshot, getMessageSnapshot, isMessageLogFeedback } from '../services/messageSnapshotService.js';
 import { storeDeletedVideo } from '../services/deletedMediaService.js';
 import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 
@@ -169,7 +169,7 @@ export async function logDeletedMessage(message, options = {}) {
   // that is not a removal, so it is not logged. Cloudy's own replies to an
   // action (status, command and button replies) are not logged either.
   // Cloudy's private replies are known by ID only: they were never cached.
-  if (isBotActionFeedback(message) || isCloudyInteractionMessage(message.id)
+  if (isMessageLogFeedback(message) || isCloudyInteractionMessage(message.id)
     || await wasDeletedForMove(message.id)) {
     await forgetMessageSnapshot(guildId, message.id);
     return;
@@ -216,9 +216,6 @@ export async function logDeletedMessage(message, options = {}) {
   let messageBody = fullBody
     ? truncateMessageLogText(fullBody, MAX_LOGGED_MESSAGE_CONTENT_LENGTH)
     : null;
-  if (!messageBody && uncached && !snapshot && !attachments.length) {
-    messageBody = 'Content unavailable: this message was not cached before deletion.';
-  }
 
   // "Message created" stays the last header line; attachment names belong
   // to the message itself.
@@ -274,10 +271,6 @@ export async function logDeletedMessage(message, options = {}) {
       deletedById: deletedBy.id,
       deletedByBot: deletedBy.bot === true,
       deletionSource: deletedBy.source,
-      // A deleted Cloudy embed post (Builder post, panel, guide) belongs in
-      // the Embed log, whoever deleted it.
-      embedPost: Boolean(resolvedAuthorId && resolvedAuthorId === message.client?.user?.id
-        && ((message.embeds || []).some(embed => !embed.type || embed.type === 'rich') || (uncached && snapshot?.embedText))),
       videoLinks,
       embedCopies,
       channelId,

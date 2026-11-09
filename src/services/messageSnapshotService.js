@@ -1,4 +1,6 @@
 import { MessageFlags, SnowflakeUtil } from 'discord.js';
+import { isBuilderUiMessage } from '../utils/builderSessionCleanup.js';
+import { isBuilderOwnedMessage } from '../utils/builderOwnedSends.js';
 import { redisDelete, redisGetJson, redisSetJson } from '../utils/redisCache.js';
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID } from './messageLogDestination.js';
 import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback } from './deletionAttributionService.js';
@@ -52,6 +54,12 @@ export function attachmentSummary(attachment) {
   };
 }
 
+export function isMessageLogFeedback(message) {
+  return isBotActionFeedback(message) || Boolean(message.author?.bot
+    && message.author.id === message.client?.user?.id
+    && isBuilderUiMessage(message) && !isBuilderOwnedMessage(message));
+}
+
 export function shouldSnapshotMessage(message) {
   if (!message?.guildId || !message.id || message.partial) return false;
   if (LOG_CHANNEL_IDS.has(String(message.channelId))) return false;
@@ -60,7 +68,7 @@ export function shouldSnapshotMessage(message) {
   if (message.system) return false;
   // Cloudy's own replies to an action are never logged when deleted. Only a
   // bare marker is kept, so that still holds after a restart.
-  if (isBotActionFeedback(message)) return true;
+  if (isMessageLogFeedback(message)) return true;
   return Boolean(message.content || message.attachments?.size || message.embeds?.length || message.stickers?.size);
 }
 
@@ -73,7 +81,7 @@ export function buildMessageSnapshot(message) {
     authorId: message.author?.id ? String(message.author.id) : null,
     authorBot: message.author?.bot === true,
   };
-  if (isBotActionFeedback(message)) return { ...identity, feedback: true };
+  if (isMessageLogFeedback(message)) return { ...identity, feedback: true };
   return {
     ...identity,
     webhookId: message.webhookId ? String(message.webhookId) : null,

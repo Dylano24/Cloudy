@@ -41,12 +41,12 @@ test('an embed deleted with the Embed Builder is logged in the Embed log, by the
   assert.equal(sent[0].copies[0].title, 'Server rules');
   assert.equal(sent[0].copies[0].description, 'Be kind.');
 
-  // The same embed deleted by a staff member in Discord is embed-related too:
-  // it goes to the Embed log as well, never the AutoMod log.
+  // Deleting the same embed directly in Discord uses the staff log.
   const manual = { ...embed, id: '1300000000000000502' };
   rememberMessageDeleter(manual, { id: 'staffer' });
   await logDeletedMessage(manual);
-  assert.equal(sent[1].id, EMBED_LOG_CHANNEL_ID);
+  assert.equal(sent[1].id, OWNER_MOD_MESSAGE_LOG_ID);
+  assert.equal(sent[1].copies.length, 0);
   assert.ok(!sent.some(entry => entry.id === AUTOMOD_LOG_CHANNEL_ID));
 });
 
