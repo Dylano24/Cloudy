@@ -24,6 +24,7 @@ import {
   messageLogDestination,
 } from './messageLogDestination.js';
 import { normalizeCloudyEmbed } from './cloudyBrandingService.js';
+import { CLOUDY_NEUTRAL_COLOR } from '../utils/embedColorPolicy.js';
 
 const LOG_DESTINATIONS = ['audit', 'applications', 'reports'];
 const PERMANENT_KICK_LOG_CHANNEL_ID = '1539375620885323826';
@@ -123,7 +124,7 @@ const EVENT_COLORS = {
   'counter.config': 0x5865F2,
   'application.submit': 0x5865F2,
   'application.review': 0x57F287,
-  'report.file': CLOUDY_DARK_RED,
+  'report.file': CLOUDY_NEUTRAL_COLOR,
 };
 
 const EVENT_ICONS = {

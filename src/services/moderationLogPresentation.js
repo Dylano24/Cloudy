@@ -1,4 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
+import { CLOUDY_NEUTRAL_COLOR } from '../utils/embedColorPolicy.js';
 
 export const CLOUDY_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const MODERATION_RESTRICT_COLOR = 0xFCFFA1;
@@ -12,7 +13,7 @@ export function enforceFixedLogPresentation(embed, { eventType = null, inviteTyp
 
   if (RESTRICT_TYPES.has(eventType)) data.color = MODERATION_RESTRICT_COLOR;
   if (RESTORE_TYPES.has(eventType)) data.color = MODERATION_RESTORE_COLOR;
-  if (inviteType === 'created') data.color = 0xFFFFFF;
+  if (inviteType === 'created' || eventType === 'report.file') data.color = CLOUDY_NEUTRAL_COLOR;
   if (inviteType === 'joined') data.color = MODERATION_RESTORE_COLOR;
   if (inviteType || eventType) data.thumbnail = { url: CLOUDY_LOGO_URL };
 

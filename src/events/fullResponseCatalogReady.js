@@ -1,6 +1,6 @@
 import { isGameFeedEmbed } from '../services/gameFeedTitles.js';
 import { isPatchBannerRepairInProgress } from '../services/patchNotesBannerService.js';
-import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
+import { hasReportActions, isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 // BUILDER_SAVED_PARITY_V1
 import { isTransientStatusEmbed, rememberTransientPayloadIntent } from '../utils/transientResponse.js';
 import { commercialUnsavedBotTitle } from '../utils/builderCommercialTitle.js';
@@ -298,6 +298,14 @@ function enforceCasinoOutcomePresentation(runtimePayload, outgoing, source, meth
   return { ...outgoing, embeds };
 }
 
+function preserveReportSideColor(message, runtimePayload, outgoing) {
+  if (!hasReportActions(message) || !outgoing?.embeds?.length) return outgoing;
+  const color = embedJson(runtimePayload?.embeds?.[0] || {}).color;
+  if (!Number.isInteger(color)) return outgoing;
+  const [report, ...otherEmbeds] = outgoing.embeds;
+  return { ...outgoing, embeds: [{ ...embedJson(report), color }, ...otherEmbeds] };
+}
+
 function shouldPrepareMessageEdit(message) {
   return Boolean(
     message?.guildId
@@ -319,7 +327,8 @@ export function prepareMessageEditPayload(message, payload) {
   if (!shouldPrepareMessageEdit(message)) return payload;
   const source = messageContext(message);
   const outgoing = applyPayloadTemplates(payload, source);
-  return enforceCasinoOutcomePresentation(payload, outgoing, source, 'message.edit');
+  return preserveReportSideColor(message, payload,
+    enforceCasinoOutcomePresentation(payload, outgoing, source, 'message.edit'));
 }
 
 function patchMessageEdits() {
@@ -340,6 +349,7 @@ function patchMessageEdits() {
       outgoing = prepareMessageEditPayload(this, payload);
       if (shouldPrepareMessageEdit(this)) {
         outgoing = await applySavedResponsePayloadTemplates(outgoing, messageContext(this));
+        outgoing = preserveReportSideColor(this, payload, outgoing);
         void rememberBuilderRuntimePreview(outgoing, messageContext(this)).catch(error => logger.debug(`Builder runtime preview capture skipped: ${error.message}`));
       }
     } catch (error) {
@@ -424,7 +434,7 @@ export async function applyTemplatesToExistingMessage(message, { initialCreation
     content: message.content || '',
     embeds: message.embeds || [],
   };
-  const templated = applyPayloadTemplates(runtimePayload, source);
+  const templated = preserveReportSideColor(message, runtimePayload, applyPayloadTemplates(runtimePayload, source));
 
   const currentContent = String(message.content || '');
   const nextContent = typeof templated?.content === 'string' ? templated.content : currentContent;

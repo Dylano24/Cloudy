@@ -273,16 +273,31 @@ test('report logEvent delivers three buttons and an explicit Staff ping in suppl
   const f = fixture(); const sent = []; const id = '1554538663512248350';
   f.guild.channels.cache.set(id, { id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
     send: async p => { sent.push(p); return { id: 'report' }; } });
+  const { applySavedEmbedTemplates, saveEmbedTemplateDecoration } = await import('../src/services/embedTemplateService.js');
+  await saveEmbedTemplateDecoration(f.guild.id, id, ['New report'], { title: 'New report', color: 0x00C49D });
   await logEvent({ client: f.client, guildId: f.guild.id, eventType: EVENT_TYPES.REPORT_FILE,
     data: { title: 'New report' },
     content: '<@&1534506224312389810>',
     allowedMentions: { parse: [], roles: ['1534506224312389810'] },
     components: buildReportActions('1534506224312389801') });
   assert.equal(sent.length, 1);
+  assert.equal(sent[0].embeds[0].toJSON().color, 0xFFFFFF);
   assert.equal(sent[0].content, '<@&1534506224312389810>');
   assert.deepEqual(sent[0].allowedMentions, { parse: [], roles: ['1534506224312389810'] });
   assert.equal(sent[0].components[0].toJSON().components.length, 4);
   assert.equal(sent[0].components[1].toJSON().components.length, 2);
+  const message = {
+    guildId: f.guild.id,
+    channelId: id,
+    editable: true,
+    embeds: sent[0].embeds,
+    components: sent[0].components.map(row => ({
+      components: row.toJSON().components.map(button => ({ customId: button.custom_id })),
+    })),
+    edit: async ({ embeds }) => { message.embeds = embeds; return message; },
+  };
+  await applySavedEmbedTemplates(message, { initialCreation: true });
+  assert.equal(message.embeds[0].toJSON().color, 0xFFFFFF);
 });
 test('Join to Create resolves username Room template for different members', () => {
   assert.equal(formatChannelName("{username}'s Room", { username: 'Dylano' }), "Dylano's Room");
