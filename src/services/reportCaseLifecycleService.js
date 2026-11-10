@@ -20,7 +20,7 @@ const audiences = ['reporter', 'target'];
 const reportDeletePresentationJobs = new Map();
 
 function caseEmbed(data) {
-  const embed = buildStandardLogEmbed({ ...data, color: null, footer: data.footer || { text: CLOUDY_STANDARD_FOOTER }, thumbnail: CLOUDY_LOGO_URL });
+  const embed = buildStandardLogEmbed({ ...data, color: null, footer: data.footer || { text: CLOUDY_STANDARD_FOOTER }, thumbnail: data.thumbnail === undefined ? CLOUDY_LOGO_URL : data.thumbnail });
   if (data.footer) embed.data.footer = data.footer;
   setPreservedEmbedColor(embed, data.color ?? 0xFFFFFF);
   return embed;
@@ -270,37 +270,37 @@ function reportUpdateEmbed(record, audience, actions, messageText) {
   const mute = duration > 0 ? `Temporary mute (${formatDuration(duration)})` : 'Temporary mute';
   const measure = removed && timedOut ? `Message removed & ${mute.charAt(0).toLowerCase()}${mute.slice(1)}`
     : timedOut ? mute : 'Message removed';
-  const reportText = truncateMessageLogText(escapeMarkdown(messageText.trim()), 1024) || 'No text available.';
+  const reportText = truncateMessageLogText(escapeMarkdown(messageText.trim()), 1022) || 'No text available.';
   const thanks = 'Thank you for bringing this to our attention. We appreciate your contribution to keeping our community fair and safe.';
   const outcome = reporter
     ? actionTaken
-      ? `${green} Action taken\n\nAppropriate action has been taken regarding the reported member in accordance with our server rules.\n\n${thanks}`
-      : `${red} No action taken\n\nNo further action was deemed necessary.\n\n${thanks}`
+      ? `${green} Action taken\nAppropriate action has been taken regarding the reported member in accordance with our server rules.\n${thanks}`
+      : `${red} No action taken\nNo further action was deemed necessary.\n${thanks}`
     : actionTaken
       ? `${red} Action taken`
-      : `${green} No action taken\n\nAfter reviewing the report, our team has decided that no further action is necessary at this time.`;
+      : `${green} No action taken\nAfter reviewing the report, our team has decided that no further action is necessary at this time.`;
   const sanctionReason = ['timeout', 'delete', 'ban']
     .map(action => record.actions?.[action]?.reason)
     .find(reason => typeof reason === 'string' && reason.trim())?.trim()
     || 'No reason provided.';
   return caseEmbed({
-    title: `${reporter ? 'Report' : 'Moderation'} n•${record.number} update`,
+    title: reporter ? 'Report update' : 'Moderation update',
     description: reporter
-      ? `${blue} Reviewed\n\nYour report has been reviewed by our moderation team.`
+      ? `${blue} Reviewed\nYour report has been reviewed by our moderation team.`
       : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.',
     fields: [
-      ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>` }] : []),
-      { name: 'Reported message', value: reportText },
-      // Leave one visual blank line between the reporter's closing thanks
-      // and the following Auto-close heading, without adding another field.
-      { name: 'Review outcome', value: reporter ? `${outcome}\n\u200b` : outcome },
+      ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>\n\u200b` }] : []),
+      { name: 'Reported message', value: `${reportText}\n\u200b` },
+      // A single invisible spacer separates sections; paragraphs within them stay compact.
+      { name: 'Review outcome', value: `${outcome}\n\u200b` },
       ...(!reporter && actionTaken ? [
-        { name: 'Moderation action', value: `${orange} ${measure}` },
-        { name: 'Reason', value: truncateMessageLogText(escapeMarkdown(sanctionReason), 1024) },
+        { name: 'Moderation action', value: `${orange} ${measure}\n\u200b` },
+        { name: 'Reason', value: `${truncateMessageLogText(escapeMarkdown(sanctionReason), 1022)}\n\u200b` },
       ] : []),
       { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
     ],
-    footer: { text: REPORT_MODERATION_FOOTER },
+    footer: { text: `${REPORT_MODERATION_FOOTER} • R${record.number}` },
+    thumbnail: null,
     timestamp: false,
     preserveRuntimeEmoji: true,
   });
