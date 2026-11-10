@@ -148,7 +148,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
       assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /Action taken\n\nAppropriate action/);
       assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /server rules\.\n\nThank you/);
     } else {
-      assert.ok(embed.description.startsWith('Your recent message'));
+      assert.ok(embed.description.startsWith('\u200b\nYour recent message'), 'moderation title has one spacer before its description');
       assert.ok(embed.description.endsWith('\n\u200b'));
     }
     assert.equal(embed.color, 0xFFFFFF);
