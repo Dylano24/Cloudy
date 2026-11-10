@@ -15,10 +15,14 @@ test('Cloudy report modal requires Reason and positions exact explanation and wa
   assert.equal(modal.title, 'Cloudy report');
   assert.equal(modal.components.length, 2);
   assert.equal(modal.components[0].label, 'Reason');
-  assert.equal(modal.components[0].description, "Please briefly explain why you're reporting this message and provide any relevant context.");
+  assert.equal(modal.components[0].description, undefined, 'no duplicated mobile description below the input');
+  assert.equal(modal.components[0].component.style, 1, 'compact single-line input on mobile');
+  assert.equal(modal.components[0].component.placeholder, "Please briefly explain why you're reporting this message and provide any relevant context.");
   assert.equal(modal.components[0].component.required, true);
+  assert.equal(modal.components[0].component.min_length, 3);
+  assert.equal(modal.components[0].component.max_length, 1000);
   assert.equal(modal.components[0].component.custom_id, 'reason');
-  assert.equal(modal.components[1].content, '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.');
+  assert.equal(modal.components[1].content, '**Important note**\n-# Please ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.');
 });
 
 test('both report submission routes share exact private confirmation with real values', () => {
