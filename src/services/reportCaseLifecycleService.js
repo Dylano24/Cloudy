@@ -272,7 +272,8 @@ function reportSectionText(value) {
 }
 
 function reportNoticeDescription(intro, fields) {
-  return [reportSectionText(intro), ...fields.map(({ name, value }) =>
+  const normalizedIntro = reportSectionText(intro).replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
+  return [normalizedIntro, ...fields.map(({ name, value }) =>
     `**${name}**\n${reportSectionText(value)}`)].join('\n\n');
 }
 
