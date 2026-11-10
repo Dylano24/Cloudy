@@ -4,6 +4,7 @@ import { isBuilderOwnedMessage } from '../utils/builderOwnedSends.js';
 import { redisDelete, redisGetJson, redisSetJson } from '../utils/redisCache.js';
 import { OWNER_MOD_MESSAGE_LOG_ID, MEMBER_MESSAGE_LOG_ID, EMBED_LOG_CHANNEL_ID } from './messageLogDestination.js';
 import { AUTOMOD_LOG_CHANNEL_ID, isBotActionFeedback } from './deletionAttributionService.js';
+import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 
 // A deleted message that Discord no longer has in Cloudy's memory (after a
 // restart, or beyond discord.js' per-channel cache) arrives as an empty
@@ -91,6 +92,12 @@ export function buildMessageSnapshot(message) {
     authorId: message.author?.id ? String(message.author.id) : null,
     authorBot: message.author?.bot === true,
   };
+  // A report outcome or staff case-log is an internal notification, not an
+  // ordinary message. Keep a tiny marker so post-restart partial deletions
+  // cannot generate an unrelated "Deleted by Cloudy" message log.
+  if (message.author?.id === message.client?.user?.id && isPrivateReportCasePayload(message)) {
+    return { ...identity, privateReport: true };
+  }
   if (isMessageLogFeedback(message)) return { ...identity, feedback: true };
   return {
     ...identity,
