@@ -89,7 +89,7 @@ test('report logs are informational only and private reports own the Close butto
   assert.equal(close.style, 2);
   assert.equal(close.custom_id, 'report_case:close:report:target');
   assert.doesNotMatch(source, /This report has been read by|title: 'Thank you\.'|title: 'Delete report'/);
-  assert.match(source, /n•\$\{record.number\} update/);
+  assert.match(source, /title: reporter \? 'Report update' : 'Moderation update'/);
   assert.match(logBody, /audience === 'reporter' \? 'Report' : 'Moderation'/);
   assert.match(logBody, /event === 'close' \? 'closed'/);
   assert.match(logBody, /event === 'delete' \? 'automatically deleted'/);
