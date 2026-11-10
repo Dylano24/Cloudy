@@ -5,7 +5,8 @@ import { logger } from '../utils/logger.js';
 // Mirror the report status dots into the owner's Dylano server as real guild emoji.
 const DYLANO_GUILD_ID = '1532882647838228723';
 const DOTS = [
-  { name: 'cloudy_report_dot_blue', file: '../../assets/feed-emojis/report_dot_blue.png' },
+  // Replace only the known oversized Cloudy blue dot, never unrelated emojis.
+  { name: 'cloudy_report_dot_blue', replacesId: '1569611084598611998', file: '../../assets/feed-emojis/report_dot_blue.png' },
   { name: 'cloudy_report_dot_orange', file: '../../assets/feed-emojis/report_dot_orange.png' },
   { name: 'cloudy_report_dot_white', sourceId: '1543291335036108830', aliases: ['W87205667glowingdotwhite'] },
   { name: 'cloudy_report_dot_green', sourceId: '1567760480439771286', animated: true, aliases: ['glowing_dot_green'] },
@@ -37,11 +38,23 @@ export async function ensureReportGuildDots(client) {
     const errors = [];
     for (const dot of DOTS) {
       const found = existing.find(emoji => [dot.name, ...(dot.aliases || [])].includes(emoji.name));
-      if (found) {
+      if (found && (!dot.replacesId || String(found.id) !== dot.replacesId)) {
         alreadyPresent.push(`${dot.name}=${found.id}`);
         continue;
       }
       try {
+        if (found && dot.replacesId === String(found.id)) {
+          // Validate replacement image before touching the old guild emoji.
+          const png = await dotImage(dot);
+          if (!png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+            throw new Error('Replacement artwork must be a PNG.');
+          }
+          if (typeof found.delete !== 'function') {
+            throw new Error('Existing blue emoji cannot be replaced with available permissions.');
+          }
+          await found.delete('Replace old oversized Cloudy blue dot with matching glow');
+          existing.delete(found.id);
+        }
         // Preserve the original animation when supported. If the guild has no
         // animated emoji slot, gracefully fall back to a static PNG.
         let created;
