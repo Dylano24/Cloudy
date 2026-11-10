@@ -82,8 +82,8 @@ export default {
     const modal = new ModalBuilder()
       .setCustomId(modalId)
       .setTitle('Cloudy report')
-      .addTextDisplayComponents(note)
-      .addLabelComponents(reasonLabel);
+      .addLabelComponents(reasonLabel)
+      .addTextDisplayComponents(note);
     await interaction.showModal(modal);
 
     const submitted = await interaction.awaitModalSubmit({
