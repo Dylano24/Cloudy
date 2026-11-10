@@ -69,13 +69,11 @@ export default {
       .setMinLength(3)
       .setMaxLength(1000);
 
-    // Discord's built-in yellow notice is not editable. Keep the exact
-    // Cloudy warning at the top and the guidance above the Reason input.
-    const note = new TextDisplayBuilder().setContent(
-      '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.',
-    );
+    // Discord's security warning is a native banner, not a customizable
+    // modal component. Keep the form compact: quiet help text between that
+    // notice and the mandatory multiline Reason field.
     const guidance = new TextDisplayBuilder().setContent(
-      "Please briefly explain why you're reporting this message and provide any relevant context.",
+      "-# Please briefly explain why you're reporting this message and provide any relevant context.",
     );
     const reasonLabel = new LabelBuilder()
       .setLabel('Reason')
@@ -83,7 +81,6 @@ export default {
     const modal = new ModalBuilder()
       .setCustomId(modalId)
       .setTitle('Cloudy report')
-      .addTextDisplayComponents(note)
       .addTextDisplayComponents(guidance)
       .addLabelComponents(reasonLabel);
     await interaction.showModal(modal);
