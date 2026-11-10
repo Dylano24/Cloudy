@@ -269,10 +269,10 @@ function spacedReportDescription(description) {
   return String(value || '').replace(/(?:\n\u200b|\n)+$/, '');
 }
 
-// Add only one line break after each section, matching the natural gap
-// below the Moderation update title without adding an empty spacer line.
+// A small, consistent visible break follows each section's value.
+// Unlike an invisible spacer field, this keeps the embed compact.
 function sectionGap(value) {
-  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n`;
+  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n\n`;
 }
 
 function spacedReportOutcome(value) {
