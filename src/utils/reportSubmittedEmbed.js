@@ -12,7 +12,7 @@ export function buildReportSubmittedEmbed({ reportNumber, reportedMemberId, repo
   ];
   const embed = createEmbed({
     title: 'Report submitted',
-    description: 'Your report n•' + reportNumber + ' has been successfully submitted to our moderation team.'
+    description: 'Your report has been successfully submitted to our moderation team.'
       + '\n\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.',
     fields,
   });
@@ -22,6 +22,6 @@ export function buildReportSubmittedEmbed({ reportNumber, reportedMemberId, repo
   embed.setColor(0xFFFFFF);
   // The generic embed builder suppresses nonstandard footer text; set this
   // explicitly so both paths retain the requested moderation-team signature.
-  embed.data.footer = { text: REPORT_MODERATION_FOOTER };
+  embed.data.footer = { text: `${REPORT_MODERATION_FOOTER} • R${reportNumber}` };
   return embed;
 }
