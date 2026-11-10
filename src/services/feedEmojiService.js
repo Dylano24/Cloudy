@@ -11,7 +11,7 @@ const BASE_EMOJIS = {
   online: { name: 'glowing_dot_green', id: '1567760480439771286', fallback: '<a:glowing_dot_green:1567760480439771286>' },
   offline: { name: 'W8733476glowingdotred', id: '1543291468377104436', fallback: '<:W8733476glowingdotred:1543291468377104436>' },
   dot: { name: 'W87205667glowingdotwhite', id: '1543291335036108830', fallback: '<:W87205667glowingdotwhite:1543291335036108830>' },
-  report_blue: { name: 'cloudy_report_dot_blue', file: '../../assets/feed-emojis/report_dot_blue.png', fallback: '🔵' },
+  report_blue: { name: 'cloudy_report_dot_blue', id: '1569611084598611998', file: '../../assets/feed-emojis/report_dot_blue.png', fallback: '<:cloudy_report_dot_blue:1569611084598611998>' },
   report_orange: { name: 'cloudy_report_dot_orange', file: '../../assets/feed-emojis/report_dot_orange.png', fallback: '🟠' },
   ban: { name: 'ban', id: '1567878137059082414', fallback: '<a:ban:1567878137059082414>' },
   kit: { name: 'cloudy_kit', id: '1568298883682009109', fallback: '<a:cloudy_kit:1568298883682009109>' },
