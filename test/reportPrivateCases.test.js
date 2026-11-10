@@ -340,7 +340,7 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   const timeoutClick = f.interaction(); await handleReportAction(timeoutClick, f.client, ['timeout', 'target']);
   assert.deepEqual(timeoutClick.modal.components.map(row => [row.components[0].custom_id, row.components[0].required]), [['minutes', true], ['reason', true]]);
   const record = await f.submit('timeout');
-  assert.equal(timedOut[0].reason, 'Private action reason\n'); assert.equal(timedOut[0].durationMs, 600_000);
+  assert.equal(timedOut[0].reason, 'Private action reason'); assert.equal(timedOut[0].durationMs, 600_000);
   assert.equal(f.dms.length, 0);
   const targetNotice = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
   const reporterNotice = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
@@ -358,7 +358,7 @@ test('Ban keeps the existing ban-only DM path, creates only the reporter case an
   const banned = [];
   t.mock.method(ModerationService, 'banUser', async data => { banned.push(data); });
   const record = await f.submit('ban', f.roleOwner.user);
-  assert.equal(banned[0].reason, 'Private action reason\n'); assert.equal(banned[0].notifyBeforeBan, true);
+  assert.equal(banned[0].reason, 'Private action reason'); assert.equal(banned[0].notifyBeforeBan, true);
   const banDm = banned[0].notificationPayload;
   assert.deepEqual(banDm.allowedMentions, { parse: [] });
   const banEmbed = json(banDm.embeds[0]);
