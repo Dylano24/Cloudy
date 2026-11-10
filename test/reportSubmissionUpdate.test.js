@@ -4,7 +4,7 @@ import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js'
 import { isPrivateReportCasePayload, isReportUpdateTitle } from '../src/utils/reportCasePrivacy.js';
 import reportMessage from '../src/commands/Utility/reportMessage.js';
 
-test('Cloudy report modal shows SMALL guidance between Discord notice and required Reason input', async () => {
+test('Cloudy report modal puts exact guidance under Reason as a multiline placeholder', async () => {
   let modal;
   const interaction = {
     id: 'modal-id', user: { id: 'reporter' }, targetMessage: { id: 'message', author: { id: 'target' } },
@@ -13,12 +13,14 @@ test('Cloudy report modal shows SMALL guidance between Discord notice and requir
   };
   await reportMessage.execute(interaction, {}, {});
   assert.equal(modal.title, 'Cloudy report');
-  assert.equal(modal.components.length, 2, 'no bulky Important note text block in the modal');
-  assert.equal(modal.components[0].content, "-# Please briefly explain why you're reporting this message and provide any relevant context.");
-  assert.equal(modal.components[1].label, 'Reason');
-  assert.equal(modal.components[1].component.style, 2, 'Reason remains a multi-line field');
-  assert.equal(modal.components[1].component.required, true);
-  assert.equal(modal.components[1].component.custom_id, 'reason');
+  assert.equal(modal.components.length, 1, 'no separate explanatory or warning blocks');
+  assert.equal(modal.components[0].label, 'Reason');
+  assert.equal(modal.components[0].component.placeholder, "Please briefly explain why you're reporting this message and provide any relevant context.");
+  assert.equal(modal.components[0].component.style, 2, 'Reason remains a multi-line field');
+  assert.equal(modal.components[0].component.required, true);
+  assert.equal(modal.components[0].component.min_length, 3);
+  assert.equal(modal.components[0].component.max_length, 1000);
+  assert.equal(modal.components[0].component.custom_id, 'reason');
 });
 
 test('both report submission routes share exact private confirmation with real values', () => {
