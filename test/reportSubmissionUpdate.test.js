@@ -13,14 +13,15 @@ test('Cloudy report modal puts exact guidance under Reason as a multiline placeh
   };
   await reportMessage.execute(interaction, {}, {});
   assert.equal(modal.title, 'Cloudy report');
-  assert.equal(modal.components.length, 1, 'no separate explanatory or warning blocks');
-  assert.equal(modal.components[0].label, 'Reason');
-  assert.equal(modal.components[0].component.placeholder, "Please briefly explain why you're reporting this message and provide any relevant context.");
-  assert.equal(modal.components[0].component.style, 2, 'Reason remains a multi-line field');
-  assert.equal(modal.components[0].component.required, true);
-  assert.equal(modal.components[0].component.min_length, 3);
-  assert.equal(modal.components[0].component.max_length, 1000);
-  assert.equal(modal.components[0].component.custom_id, 'reason');
+  assert.equal(modal.components.length, 2, 'Important note above one required Reason field');
+  assert.equal(modal.components[0].content, '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.');
+  assert.equal(modal.components[1].label, 'Reason');
+  assert.equal(modal.components[1].component.placeholder, "Please briefly explain why you're reporting this message and provide any relevant context.");
+  assert.equal(modal.components[1].component.style, 2, 'Reason remains a multi-line field');
+  assert.equal(modal.components[1].component.required, true);
+  assert.equal(modal.components[1].component.min_length, 3);
+  assert.equal(modal.components[1].component.max_length, 1000);
+  assert.equal(modal.components[1].component.custom_id, 'reason');
 });
 
 test('both report submission routes share exact private confirmation with real values', () => {
