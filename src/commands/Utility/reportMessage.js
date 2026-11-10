@@ -62,19 +62,21 @@ export default {
     if (!message?.id || !message.author?.id) return;
 
     const modalId = `cloudy_report:${interaction.id}:${message.id}`.slice(0, 100);
+    // Keep the required field compact on mobile. The explanation belongs inside
+    // the input, not in a separate paragraph beneath an oversized text area.
     const reasonInput = new TextInputBuilder()
       .setCustomId('reason')
-      .setStyle(TextInputStyle.Paragraph)
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder("Please briefly explain why you're reporting this message and provide any relevant context.")
       .setRequired(true)
       .setMinLength(3)
       .setMaxLength(1000);
 
     const reasonLabel = new LabelBuilder()
       .setLabel('Reason')
-      .setDescription("Please briefly explain why you're reporting this message and provide any relevant context.")
       .setTextInputComponent(reasonInput);
     const note = new TextDisplayBuilder().setContent(
-      '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.',
+      '**Important note**\n-# Please ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.',
     );
     const modal = new ModalBuilder()
       .setCustomId(modalId)
