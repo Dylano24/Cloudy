@@ -265,8 +265,13 @@ function reportFooterText(record, channelName) {
 }
 
 function spacedReportDescription(description) {
-  const value = String(description || '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return value.replace(/^\u200b\n/, '');
+  const value = String(description || '').replace(/^\u200b\n/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
+  return sectionGap(value);
+}
+
+// Keep the same visual separation after every section, including the intro.
+function sectionGap(value) {
+  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n\u200b`;
 }
 
 function spacedReportOutcome(value) {
@@ -282,9 +287,9 @@ function refreshedReportNoticeEmbed(embed, record, channelName) {
   const description = spacedReportDescription(source.description);
   const fields = (source.fields || []).map(field => ({
     ...field,
-    value: field.name === 'Review outcome'
-      ? spacedReportOutcome(field.value).replace(/\n\u200b$/, '')
-      : String(field.value).replace(/\n\u200b$/, ''),
+    value: sectionGap(field.name === 'Review outcome'
+      ? spacedReportOutcome(field.value)
+      : field.value),
   }));
   const footerText = reportFooterText(record, channelName);
   if (source.description === description
@@ -325,13 +330,13 @@ function reportUpdateEmbed(record, audience, actions, messageText, channelName) 
       ? `${blue} Reviewed\nYour report has been reviewed by our moderation team.`
       : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.'),
     fields: [
-      ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>` }] : []),
-      { name: 'Reported message', value: reportText },
-      // A single invisible spacer separates sections; paragraphs within them stay compact.
-      { name: 'Review outcome', value: spacedReportOutcome(outcome) },
+      ...(reporter ? [{ name: 'Reported member', value: sectionGap(`<@${record.targetId}>`) }] : []),
+      { name: 'Reported message', value: sectionGap(reportText) },
+      // Match the gap after the intro and every other section.
+      { name: 'Review outcome', value: sectionGap(spacedReportOutcome(outcome)) },
       ...(!reporter && actionTaken ? [
-        { name: 'Moderation action', value: `${orange} ${measure}` },
-        { name: 'Reason', value: truncateMessageLogText(escapeMarkdown(sanctionReason), 1022) },
+        { name: 'Moderation action', value: sectionGap(`${orange} ${measure}`) },
+        { name: 'Reason', value: sectionGap(truncateMessageLogText(escapeMarkdown(sanctionReason), 1020)) },
       ] : []),
       { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
     ],
