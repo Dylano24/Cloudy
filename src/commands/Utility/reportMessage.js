@@ -1,7 +1,6 @@
 import { nextReportNumber, registerReport, reportStaffRole } from '../../services/reportCaseService.js';
 import {
   LabelBuilder,
-  TextDisplayBuilder,
   ApplicationCommandType,
   ContextMenuCommandBuilder,
   MessageFlags,
@@ -62,26 +61,23 @@ export default {
     if (!message?.id || !message.author?.id) return;
 
     const modalId = `cloudy_report:${interaction.id}:${message.id}`.slice(0, 100);
+    // Discord's yellow security banner is native and cannot be customized.
+    // Place the exact guidance immediately under "Reason" as a placeholder,
+    // matching the compact mobile reference without adding separate blocks.
     const reasonInput = new TextInputBuilder()
       .setCustomId('reason')
       .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder("Please briefly explain why you're reporting this message and provide any relevant context.")
       .setRequired(true)
       .setMinLength(3)
       .setMaxLength(1000);
 
-    // Discord's security warning is a native banner, not a customizable
-    // modal component. Keep the form compact: quiet help text between that
-    // notice and the mandatory multiline Reason field.
-    const guidance = new TextDisplayBuilder().setContent(
-      "-# Please briefly explain why you're reporting this message and provide any relevant context.",
-    );
     const reasonLabel = new LabelBuilder()
       .setLabel('Reason')
       .setTextInputComponent(reasonInput);
     const modal = new ModalBuilder()
       .setCustomId(modalId)
       .setTitle('Cloudy report')
-      .addTextDisplayComponents(guidance)
       .addLabelComponents(reasonLabel);
     await interaction.showModal(modal);
 
