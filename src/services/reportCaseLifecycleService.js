@@ -266,13 +266,14 @@ function reportFooterText(record, channelName) {
 
 function spacedReportDescription(description) {
   const value = String(description || '').replace(/^\u200b\n+/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return String(value || '').replace(/(?:\n\u200b|\n)+$/, '');
+  return sectionGap(value);
 }
 
-// A small, consistent visible break follows each section's value.
-// Unlike an invisible spacer field, this keeps the embed compact.
+// Discord collapses plain trailing newlines in embed field values.
+// A single invisible character on the next line preserves one visible
+// section break without adding any spacer fields or changing the title gap.
 function sectionGap(value) {
-  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n\n`;
+  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n\u200b`;
 }
 
 function spacedReportOutcome(value) {
@@ -288,9 +289,11 @@ function refreshedReportNoticeEmbed(embed, record, channelName) {
   const description = spacedReportDescription(source.description);
   const fields = (source.fields || []).map(field => ({
     ...field,
-    value: sectionGap(field.name === 'Review outcome'
-      ? spacedReportOutcome(field.value)
-      : field.value),
+    value: field.name === 'Auto-close'
+      ? String(field.value).replace(/(?:\n\u200b|\n)+$/, '')
+      : sectionGap(field.name === 'Review outcome'
+        ? spacedReportOutcome(field.value)
+        : field.value),
   }));
   const footerText = reportFooterText(record, channelName);
   if (source.description === description
@@ -333,7 +336,7 @@ function reportUpdateEmbed(record, audience, actions, messageText, channelName) 
     fields: [
       ...(reporter ? [{ name: 'Reported member', value: sectionGap(`<@${record.targetId}>`) }] : []),
       { name: 'Reported message', value: sectionGap(reportText) },
-      // No manual spacer: use the same Discord-native spacing as the title and description.
+      // Add one visible break between sections, with no extra space under the title.
       { name: 'Review outcome', value: sectionGap(spacedReportOutcome(outcome)) },
       ...(!reporter && actionTaken ? [
         { name: 'Moderation action', value: sectionGap(`${orange} ${measure}`) },
