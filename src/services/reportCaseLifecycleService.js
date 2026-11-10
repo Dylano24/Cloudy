@@ -266,13 +266,13 @@ function reportFooterText(record, channelName) {
 
 function spacedReportDescription(description) {
   const value = String(description || '').replace(/^\u200b\n+/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return sectionGap(value);
+  return String(value || '').replace(/(?:\n\u200b|\n)+$/, '');
 }
 
-// Let Discord apply its native, consistent spacing to every section.
-// Remove only trailing spacer lines added by previous versions.
+// Add only one line break after each section, matching the natural gap
+// below the Moderation update title without adding an empty spacer line.
 function sectionGap(value) {
-  return String(value || '').replace(/(?:\n\u200b|\n)+$/, '');
+  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n`;
 }
 
 function spacedReportOutcome(value) {
