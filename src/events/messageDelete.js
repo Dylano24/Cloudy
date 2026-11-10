@@ -11,6 +11,7 @@ import { removeSystemEmbedCatalogMessage } from '../services/systemEmbedCatalogS
 import { forgetMessageSnapshot, getMessageSnapshot, isMessageLogFeedback, messageEmbedImageUrl } from '../services/messageSnapshotService.js';
 import { storeDeletedVideo } from '../services/deletedMediaService.js';
 import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
+import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 
 // The log description holds up to 4096 characters; keep room for the
 // header lines and truncate the body to fit inside the embed.
@@ -164,6 +165,15 @@ export async function logDeletedMessage(message, options = {}) {
   const uncached = message.partial || !message.author;
   const snapshot = !uncached ? null
     : options.snapshot !== undefined ? options.snapshot : await getMessageSnapshot(guildId, message.id);
+  // Private report updates already have dedicated close/24-hour staff logs.
+  // Do not also log their disposal as a normal "Message deleted" event.
+  // The snapshot marker covers uncached deletions after a bot restart.
+  const privateReportNotice = snapshot?.privateReport === true
+    || (message.author?.id === message.client?.user?.id && isPrivateReportCasePayload(message));
+  if (privateReportNotice) {
+    await forgetMessageSnapshot(guildId, message.id);
+    return;
+  }
   const authorId = message.author?.id || snapshot?.authorId || null;
   const authorBot = message.author ? message.author.bot === true : snapshot?.authorBot === true;
   const attachments = attachmentList(message, snapshot);
