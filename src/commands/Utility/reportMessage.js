@@ -69,18 +69,23 @@ export default {
       .setMinLength(3)
       .setMaxLength(1000);
 
-    const reasonLabel = new LabelBuilder()
-      .setLabel('Reason')
-      .setDescription("Please briefly explain why you're reporting this message and provide any relevant context.")
-      .setTextInputComponent(reasonInput);
+    // Discord's built-in yellow notice is not editable. Keep the exact
+    // Cloudy warning at the top and the guidance above the Reason input.
     const note = new TextDisplayBuilder().setContent(
       '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.',
     );
+    const guidance = new TextDisplayBuilder().setContent(
+      "Please briefly explain why you're reporting this message and provide any relevant context.",
+    );
+    const reasonLabel = new LabelBuilder()
+      .setLabel('Reason')
+      .setTextInputComponent(reasonInput);
     const modal = new ModalBuilder()
       .setCustomId(modalId)
       .setTitle('Cloudy report')
-      .addLabelComponents(reasonLabel)
-      .addTextDisplayComponents(note);
+      .addTextDisplayComponents(note)
+      .addTextDisplayComponents(guidance)
+      .addLabelComponents(reasonLabel);
     await interaction.showModal(modal);
 
     const submitted = await interaction.awaitModalSubmit({
@@ -94,6 +99,13 @@ export default {
 
     await InteractionHelper.safeDefer(submitted, { flags: MessageFlags.Ephemeral });
     const reason = submitted.fields.getTextInputValue('reason').trim();
+    if (reason.length < 3) {
+      await InteractionHelper.safeEditReply(submitted, {
+        content: 'Please provide a valid report reason of at least three characters.',
+      });
+      scheduleTicketReplyDeletion(submitted, 10_000);
+      return;
+    }
 
     const reportNumber = await nextReportNumber(client, interaction.guildId);
     const staffRoleId = reportStaffRole(interaction.guild, config);
