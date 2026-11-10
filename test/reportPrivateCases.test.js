@@ -143,7 +143,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.equal(embed.fields.find(field => field.name === 'Reported message').value, 'Original message text\n');
     assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R1');
     assert.equal(embed.thumbnail, undefined, 'private update embeds must not have a C logo');
-    assert.ok(embed.fields.filter(field => field.name !== 'Auto-close').every(field => field.value.endsWith('\n') && !field.value.endsWith('\n\u200b')), 'each section has exactly one newline, not an invisible empty row');
+    assert.ok(embed.fields.filter(field => field.name !== 'Auto-close').every(field => field.value.endsWith('\n') && !field.value.endsWith('\n\n') && !field.value.endsWith('\n\u200b')), 'each section has exactly one newline, not an invisible empty row');
     if (notice === reporterNotice) {
       assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /Action taken\n\nAppropriate action/);
       assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /server rules\.\n\nThank you/);
