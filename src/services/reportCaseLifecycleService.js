@@ -264,16 +264,17 @@ function reportFooterText(record, channelName) {
   return `${REPORT_MODERATION_FOOTER} • R${channelNumber || record.number}`;
 }
 
-function spacedReportDescription(description) {
-  const value = String(description || '').replace(/^\u200b\n+/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return sectionGap(value);
+// Discord's embed fields have fixed spacing that does not match the title-to-description
+// spacing. Render these two private notifications as one Markdown description instead:
+// every section then gets the same single paragraph break across mobile and desktop.
+function reportSectionText(value) {
+  return String(value || '').replace(/^\u200b\n+/, '').replace(/(?:\n\u200b|\n)+$/, '');
 }
 
-// Discord collapses plain trailing newlines in embed field values.
-// A single invisible character on the next line preserves one visible
-// section break without adding any spacer fields or changing the title gap.
-function sectionGap(value) {
-  return `${String(value || '').replace(/(?:\n\u200b|\n)+$/, '')}\n\u200b`;
+function reportNoticeDescription(intro, fields) {
+  const normalizedIntro = reportSectionText(intro).replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
+  return [normalizedIntro, ...fields.map(({ name, value }) =>
+    `**${name}**\n${reportSectionText(value)}`)].join('\n\n');
 }
 
 function spacedReportOutcome(value) {
@@ -286,20 +287,18 @@ function spacedReportOutcome(value) {
 function refreshedReportNoticeEmbed(embed, record, channelName) {
   const source = embed?.toJSON?.() || embed;
   if (source?.title !== 'Report update' && source?.title !== 'Moderation update') return null;
-  const description = spacedReportDescription(source.description);
-  const fields = (source.fields || []).map(field => ({
-    ...field,
-    value: field.name === 'Auto-close'
-      ? String(field.value).replace(/(?:\n\u200b|\n)+$/, '')
-      : sectionGap(field.name === 'Review outcome'
-        ? spacedReportOutcome(field.value)
-        : field.value),
-  }));
+  const oldFields = source.fields || [];
+  const description = oldFields.length
+    ? reportNoticeDescription(source.description, oldFields.map(field => ({
+      ...field,
+      value: field.name === 'Review outcome' ? spacedReportOutcome(field.value) : field.value,
+    })))
+    : source.description;
   const footerText = reportFooterText(record, channelName);
   if (source.description === description
       && source.footer?.text === footerText
-      && (source.fields || []).every((field, index) => field.value === fields[index].value)) return null;
-  return new EmbedBuilder({ ...source, description, fields, footer: { text: footerText } });
+      && oldFields.length === 0) return null;
+  return new EmbedBuilder({ ...source, description, fields: [], footer: { text: footerText } });
 }
 
 function reportUpdateEmbed(record, audience, actions, messageText, channelName) {
@@ -328,22 +327,22 @@ function reportUpdateEmbed(record, audience, actions, messageText, channelName) 
     .map(action => record.actions?.[action]?.reason)
     .find(reason => typeof reason === 'string' && reason.trim())?.trim()
     || 'No reason provided.';
+  const intro = reporter
+    ? `${blue} Reviewed\n\nYour report has been reviewed by our moderation team.`
+    : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.';
+  const sections = [
+    ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>` }] : []),
+    { name: 'Reported message', value: reportText },
+    { name: 'Review outcome', value: spacedReportOutcome(outcome) },
+    ...(!reporter && actionTaken ? [
+      { name: 'Moderation action', value: `${orange} ${measure}` },
+      { name: 'Reason', value: truncateMessageLogText(escapeMarkdown(sanctionReason), 1020) },
+    ] : []),
+    { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
+  ];
   return caseEmbed({
     title: reporter ? 'Report update' : 'Moderation update',
-    description: spacedReportDescription(reporter
-      ? `${blue} Reviewed\nYour report has been reviewed by our moderation team.`
-      : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.'),
-    fields: [
-      ...(reporter ? [{ name: 'Reported member', value: sectionGap(`<@${record.targetId}>`) }] : []),
-      { name: 'Reported message', value: sectionGap(reportText) },
-      // Add one visible break between sections, with no extra space under the title.
-      { name: 'Review outcome', value: sectionGap(spacedReportOutcome(outcome)) },
-      ...(!reporter && actionTaken ? [
-        { name: 'Moderation action', value: sectionGap(`${orange} ${measure}`) },
-        { name: 'Reason', value: sectionGap(truncateMessageLogText(escapeMarkdown(sanctionReason), 1020)) },
-      ] : []),
-      { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
-    ],
+    description: reportNoticeDescription(intro, sections),
     footer: { text: reportFooterText(record, channelName) },
     thumbnail: null,
     timestamp: false,
