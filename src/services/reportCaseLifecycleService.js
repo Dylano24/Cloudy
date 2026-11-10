@@ -264,9 +264,10 @@ function reportFooterText(record, channelName) {
   return `${REPORT_MODERATION_FOOTER} • R${channelNumber || record.number}`;
 }
 
-function spacedReportDescription(description) {
+function spacedReportDescription(description, moderation = false) {
   const value = String(description || '').replace(/^\u200b\n/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return sectionGap(value);
+  // Only the moderation notice needs a title-to-description gap.
+  return `${moderation ? '\u200b\n' : ''}${sectionGap(value)}`;
 }
 
 // Keep the same visual separation after every section, including the intro.
@@ -284,7 +285,7 @@ function spacedReportOutcome(value) {
 function refreshedReportNoticeEmbed(embed, record, channelName) {
   const source = embed?.toJSON?.() || embed;
   if (source?.title !== 'Report update' && source?.title !== 'Moderation update') return null;
-  const description = spacedReportDescription(source.description);
+  const description = spacedReportDescription(source.description, source.title === 'Moderation update');
   const fields = (source.fields || []).map(field => ({
     ...field,
     value: sectionGap(field.name === 'Review outcome'
@@ -328,7 +329,7 @@ function reportUpdateEmbed(record, audience, actions, messageText, channelName) 
     title: reporter ? 'Report update' : 'Moderation update',
     description: spacedReportDescription(reporter
       ? `${blue} Reviewed\nYour report has been reviewed by our moderation team.`
-      : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.'),
+      : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.', !reporter),
     fields: [
       ...(reporter ? [{ name: 'Reported member', value: sectionGap(`<@${record.targetId}>`) }] : []),
       { name: 'Reported message', value: sectionGap(reportText) },
