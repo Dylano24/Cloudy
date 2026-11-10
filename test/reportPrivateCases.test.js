@@ -134,17 +134,22 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(outcome(reporterNotice).endsWith('\n\u200b'), 'one invisible spacer line before Auto-close');
   assert.match(outcome(targetNotice), /glowingdotred/);
   assert.ok(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Moderation action').value.startsWith(feedEmoji('report_orange')));
-  assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed'));
+  assert.ok(json(reporterNotice.embeds[0]).description.startsWith('\u200b\n' + feedEmoji('report_blue') + ' Reviewed\n\n'));
   assert.match(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Moderation action').value, /Message removed/);
   assert.match(outcome(reporterNotice), /Action taken/);
   assert.doesNotMatch(outcome(reporterNotice), /Message removed/);
   for (const notice of [targetNotice, reporterNotice]) {
     const embed = json(notice.embeds[0]);
     assert.equal(embed.fields.find(field => field.name === 'Reported message').value, 'Original message text\n\u200b');
-    assert.equal(embed.footer.text, 'Cloudy Inc. Moderation team • R1');
+    assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R1');
     assert.equal(embed.thumbnail, undefined, 'private update embeds must not have a C logo');
     assert.ok(embed.fields.filter(field => field.name !== 'Auto-close').every(field => field.value.endsWith('\n\u200b')), 'sections have one spacer line');
-    assert.doesNotMatch(embed.fields.find(field => field.name === 'Review outcome').value, /\n\n/, 'paragraphs do not contain extra blank lines');
+    if (notice === reporterNotice) {
+      assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /Action taken\n\nAppropriate action/);
+      assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /server rules\.\n\nThank you/);
+    } else {
+      assert.ok(embed.description.startsWith('\u200b\nYour recent message'));
+    }
     assert.equal(embed.color, 0xFFFFFF);
   }
   assert.deepEqual(targetNotice.components[0].toJSON().components.map(button => button.label), ['Close']);
@@ -159,6 +164,47 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.equal(json(created.embeds[0]).title, audience === 'reporter' ? 'Report n•1 update' : 'Moderation n•1 update');
   }
   assert.equal(f.dms.length, 0);
+});
+
+test('report update footers match the visible channel number and repair existing notices', async () => {
+  const f = fixture(); await f.register();
+  const record = await f.submit();
+  const count = f.payloads.length;
+  for (const audience of ['reporter', 'target']) {
+    const entry = record.cases[audience];
+    const channel = f.channels.get(entry.channelId);
+    channel.name = 'report-104';
+    const notice = channel.messages.cache.get(entry.messageId);
+    const old = json(notice.embeds[0]);
+    notice.embeds = [{ ...old,
+      description: old.description.replace(/^\u200b\n/, '').replace('Reviewed\n\n', 'Reviewed\n'),
+      footer: { text: 'Cloudy Inc. Moderation team • R103' },
+      fields: old.fields.map(field => field.name === 'Review outcome'
+        ? { ...field, value: field.value.replace('Action taken\n\n', 'Action taken\n').replace('server rules.\n\n', 'server rules.\n') }
+        : field),
+    }];
+  }
+
+  await restoreReportCaseTimers(f.client);
+  for (const audience of ['reporter', 'target']) {
+    const entry = record.cases[audience];
+    const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
+    const embed = json(notice.embeds[0]);
+    assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R104');
+    assert.ok(embed.description.startsWith('\u200b\n'));
+    if (audience === 'reporter') {
+      assert.match(embed.description, /Reviewed\n\nYour report/);
+      assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /server rules\.\n\nThank you/);
+    }
+  }
+  assert.equal(f.payloads.length, count, 'existing notices are edited, never reposted');
+  assert.equal(record.number, 1, 'do not rewrite stored report identity');
+  await publishReportOutcome(f.client, f.guild, f.report, record, ['delete'], 'staff');
+  for (const audience of ['reporter', 'target']) {
+    const entry = record.cases[audience];
+    const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
+    assert.equal(json(notice.embeds[0]).footer.text, 'Cloudy Inc. • Moderation team • R104');
+  }
 });
 
 test('empty reason, invalid duration and unauthorized submissions cannot perform actions or create cases', async t => {
