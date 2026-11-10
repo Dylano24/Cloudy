@@ -131,6 +131,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.deepEqual(json(reporterNotice.embeds[0]).fields.map(field => field.name), ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']);
   assert.deepEqual(json(targetNotice.embeds[0]).fields.map(field => field.name), ['Reported message', 'Review outcome', 'Moderation action', 'Reason', 'Auto-close']);
   assert.match(outcome(reporterNotice), /Appropriate action has been taken/);
+  assert.ok(outcome(reporterNotice).endsWith('\n\u200b'), 'one invisible spacer line before Auto-close');
   assert.match(outcome(targetNotice), /glowingdotred/);
   assert.ok(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Moderation action').value.startsWith(feedEmoji('report_orange')));
   assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed'));
