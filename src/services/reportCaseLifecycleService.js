@@ -265,9 +265,9 @@ function reportFooterText(record, channelName) {
 }
 
 function spacedReportDescription(description, moderation = false) {
-  const value = String(description || '').replace(/^\u200b\n/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  // Only the moderation notice needs a title-to-description gap.
-  return `${moderation ? '\u200b\n' : ''}${sectionGap(value)}`;
+  const value = String(description || '').replace(/^(?:\u200b\n+)*/, '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
+  // Discord needs a complete empty line after the invisible first line to show the gap.
+  return `${moderation ? '\u200b\n\n' : ''}${sectionGap(value)}`;
 }
 
 // Keep the same visual separation after every section, including the intro.
