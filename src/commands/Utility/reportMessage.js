@@ -1,6 +1,7 @@
 import { nextReportNumber, registerReport, reportStaffRole } from '../../services/reportCaseService.js';
 import {
   LabelBuilder,
+  TextDisplayBuilder,
   ApplicationCommandType,
   ContextMenuCommandBuilder,
   MessageFlags,
@@ -72,12 +73,16 @@ export default {
       .setMinLength(3)
       .setMaxLength(1000);
 
+    const note = new TextDisplayBuilder().setContent(
+      '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.',
+    );
     const reasonLabel = new LabelBuilder()
       .setLabel('Reason')
       .setTextInputComponent(reasonInput);
     const modal = new ModalBuilder()
       .setCustomId(modalId)
       .setTitle('Cloudy report')
+      .addTextDisplayComponents(note)
       .addLabelComponents(reasonLabel);
     await interaction.showModal(modal);
 
