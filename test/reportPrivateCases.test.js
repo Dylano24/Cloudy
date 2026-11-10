@@ -13,7 +13,17 @@ import { CLOUDY_GREEN_COLOR } from '../src/utils/embedColorPolicy.js';
 
 const settle = async () => { await new Promise(resolve => { setImmediate(resolve); }); };
 const json = embed => embed.toJSON?.() || embed;
-const outcome = notice => json(notice.embeds[0]).fields.find(field => /outcome/i.test(field.name)).value;
+const noticeSections = notice => [...(json(notice.embeds[0]).description || '').matchAll(/\*\*([^\n*]+)\*\*\n/g)].map(match => match[1]);
+const noticeSection = (notice, name) => {
+  const description = json(notice.embeds[0]).description || '';
+  const marker = `**${name}**\n`;
+  const start = description.indexOf(marker);
+  if (start < 0) return undefined;
+  const from = start + marker.length;
+  const next = description.indexOf('\n\n**', from);
+  return description.slice(from, next < 0 ? undefined : next).trim();
+};
+const outcome = notice => noticeSection(notice, 'Review outcome');
 // A handled report is marked in place (as appeals are): no separate message,
 // green side line, Handled by + Handled at where Submitted was, no buttons.
 function assertHandledInPlace(f, actorId, outcome) {
@@ -125,33 +135,33 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.deepEqual(reporterNotice.allowedMentions, { parse: [], users: ['reporter'], roles: [] });
   assert.doesNotMatch(JSON.stringify(json(reporterNotice.embeds[0])), /Private action reason|Reason|staff/);
   assert.equal(targetNotice.content, '<@target>');
-  assert.equal(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Reason').value, 'Private action reason\n\u200b');
+  assert.equal(noticeSection(targetNotice, 'Reason'), 'Private action reason');
   assert.equal(json(targetNotice.embeds[0]).title, 'Moderation update');
   assert.equal(json(reporterNotice.embeds[0]).title, 'Report update');
-  assert.deepEqual(json(reporterNotice.embeds[0]).fields.map(field => field.name), ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']);
-  assert.deepEqual(json(targetNotice.embeds[0]).fields.map(field => field.name), ['Reported message', 'Review outcome', 'Moderation action', 'Reason', 'Auto-close']);
+  assert.deepEqual(noticeSections(reporterNotice), ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']);
+  assert.deepEqual(noticeSections(targetNotice), ['Reported message', 'Review outcome', 'Moderation action', 'Reason', 'Auto-close']);
   assert.match(outcome(reporterNotice), /Appropriate action has been taken/);
-  assert.ok(outcome(reporterNotice).endsWith('\n\u200b'), 'a visible section break before Auto-close');
+  assert.ok(json(reporterNotice.embeds[0]).description.includes('\n\n**Auto-close**'), 'equal paragraph spacing before Auto-close');
   assert.match(outcome(targetNotice), /glowingdotred/);
-  assert.ok(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Moderation action').value.startsWith(feedEmoji('report_orange')));
+  assert.ok(noticeSection(targetNotice, 'Moderation action').startsWith(feedEmoji('report_orange')));
   assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed\n\n'));
-  assert.match(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Moderation action').value, /Message removed/);
+  assert.match(noticeSection(targetNotice, 'Moderation action'), /Message removed/);
   assert.match(outcome(reporterNotice), /Action taken/);
   assert.doesNotMatch(outcome(reporterNotice), /Message removed/);
   for (const notice of [targetNotice, reporterNotice]) {
     const embed = json(notice.embeds[0]);
-    assert.equal(embed.fields.find(field => field.name === 'Reported message').value, 'Original message text\n\u200b');
+    assert.equal(noticeSection(notice, 'Reported message'), 'Original message text');
     assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R1');
     assert.equal(embed.thumbnail, undefined, 'private update embeds must not have a C logo');
-    assert.ok(embed.description.endsWith('\n\u200b'), 'intro has the same visible gap before the first field');
-    assert.ok(!embed.fields.find(field => field.name === 'Auto-close').value.endsWith('\n\u200b'), 'no extra spacing after the final field');
-    assert.ok(embed.fields.filter(field => field.name !== 'Auto-close').every(field => field.value.endsWith('\n\u200b') && !field.value.endsWith('\n\n\u200b')), 'each section has one visible separator, never doubled');
+    assert.ok(embed.description.includes('\n\n**Reported message**'), 'paragraph gap matches the title-to-intro gap');
+    assert.ok(!embed.description.endsWith('\n\n'), 'no extra spacing after the last section');
+    assert.ok(!embed.fields?.length, 'private notice sections are rendered as one description for consistent spacing');
     if (notice === reporterNotice) {
-      assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /Action taken\n\nAppropriate action/);
-      assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /server rules\.\n\nThank you/);
+      assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n\nAppropriate action/);
+      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\n\nThank you/);
     } else {
       assert.ok(embed.description.startsWith('Your recent message'), 'no artificial gap below moderation title');
-      assert.ok(embed.description.endsWith('\n\u200b'));
+      assert.ok(!embed.description.endsWith('\n\u200b'));
     }
     assert.equal(embed.color, 0xFFFFFF);
   }
@@ -180,11 +190,14 @@ test('report update footers match the visible channel number and repair existing
     const notice = channel.messages.cache.get(entry.messageId);
     const old = json(notice.embeds[0]);
     notice.embeds = [{ ...old,
-      description: old.description.replace(/^\u200b\n/, '').replace('Reviewed\n\n', 'Reviewed\n'),
+      // Simulate an older, field-based notice to verify migration on restart.
+      description: old.description.split('\n\n**')[0].replace('Reviewed\n\n', 'Reviewed\n'),
       footer: { text: 'Cloudy Inc. Moderation team • R103' },
-      fields: old.fields.map(field => field.name === 'Review outcome'
-        ? { ...field, value: field.value.replace('Action taken\n\n', 'Action taken\n').replace('server rules.\n\n', 'server rules.\n') }
-        : field),
+      fields: noticeSections(notice).map(name => ({
+        name,
+        value: noticeSection(notice, name).replace('Action taken\n\n', 'Action taken\n')
+          .replace('server rules.\n\n', 'server rules.\n'),
+      })),
     }];
   }
 
@@ -194,10 +207,10 @@ test('report update footers match the visible channel number and repair existing
     const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
     const embed = json(notice.embeds[0]);
     assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R104');
-    assert.ok(embed.description.endsWith('\n\u200b'));
+    assert.ok(!embed.description.endsWith('\n\u200b'));
     if (audience === 'reporter') {
       assert.match(embed.description, /Reviewed\n\nYour report/);
-      assert.match(embed.fields.find(field => field.name === 'Review outcome').value, /server rules\.\n\nThank you/);
+      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\n\nThank you/);
     }
   }
   assert.equal(f.payloads.length, count, 'existing notices are edited, never reposted');
@@ -317,7 +330,7 @@ test('later outcomes reuse the same pair and deadline without exposing a new rea
   assert.doesNotMatch(outcome(reporter), /Temporary mute/);
   assert.doesNotMatch(JSON.stringify(json(reporter.embeds[0])), /Another private reason/);
   assert.doesNotMatch(JSON.stringify(json(target.embeds[0])), /Another private reason/);
-  assert.match(json(target.embeds[0]).fields.find(field => field.name === 'Moderation action').value, /Temporary mute/);
+  assert.match(noticeSection(target, 'Moderation action'), /Temporary mute/);
   const actionsBeforeStaleSubmit = structuredClone((await f.client.db.get(reportKey(f.guild.id, 'report'))).actions);
   await f.submit();
   assert.deepEqual((await f.client.db.get(reportKey(f.guild.id, 'report'))).actions, actionsBeforeStaleSubmit);
@@ -346,8 +359,8 @@ test('Timeout passes the required reason and duration, sends no DM, consumes con
   assert.equal(f.dms.length, 0);
   const targetNotice = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
   const reporterNotice = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
-  assert.match(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Moderation action').value, /Temporary mute \(10m\)/);
-  assert.equal(json(targetNotice.embeds[0]).fields.find(field => field.name === 'Reason').value, 'Private action reason\n\u200b');
+  assert.match(noticeSection(targetNotice, 'Moderation action'), /Temporary mute \(10m\)/);
+  assert.equal(noticeSection(targetNotice, 'Reason'), 'Private action reason');
   assert.match(outcome(reporterNotice), /Action taken/);
   assert.doesNotMatch(outcome(reporterNotice), /Temporary mute|10m/);
   assert.deepEqual(f.report.components, []);
@@ -418,10 +431,10 @@ test('No sanction closes the report without moderation and notifies both members
     assert.deepEqual(notice.allowedMentions, { parse: [], users: [participant], roles: [] });
     assert.match(outcome(notice), /No action taken/);
     assert.match(outcome(notice), audience === 'target' ? /glowing_dot_green/ : /glowingdotred/);
-    assert.deepEqual(json(notice.embeds[0]).fields.map(field => field.name), audience === 'reporter'
+    assert.deepEqual(noticeSections(notice), audience === 'reporter'
       ? ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']
       : ['Reported message', 'Review outcome', 'Auto-close']);
-    assert.ok(!json(notice.embeds[0]).fields.some(field => field.name === 'Reason' || field.name === 'Moderation action'));
+    assert.ok(!noticeSections(notice).some(name => name === 'Reason' || name === 'Moderation action'));
     assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
   }
   assertHandledInPlace(f, 'staff', 'The report was reviewed and no sanction was applied.');
@@ -483,8 +496,8 @@ test('Delete + timeout performs both actions once and explains both outcomes', a
   assertHandledInPlace(f, 'staff', 'The reported message has been deleted.\nThe reported member has been timed out.');
   const reporter = f.channels.get(record.cases.reporter.channelId).messages.cache.get(record.cases.reporter.messageId);
   const target = f.channels.get(record.cases.target.channelId).messages.cache.get(record.cases.target.messageId);
-  assert.match(json(target.embeds[0]).fields.find(field => field.name === 'Moderation action').value, /Message removed & temporary mute \(10m\)/);
-  assert.equal(json(target.embeds[0]).fields.find(field => field.name === 'Reason').value, 'Private action reason\n\u200b');
+  assert.match(noticeSection(target, 'Moderation action'), /Message removed & temporary mute \(10m\)/);
+  assert.equal(noticeSection(target, 'Reason'), 'Private action reason');
   assert.match(outcome(reporter), /Action taken/);
   assert.doesNotMatch(outcome(reporter), /message removed|temporary mute|10m/i);
 });
