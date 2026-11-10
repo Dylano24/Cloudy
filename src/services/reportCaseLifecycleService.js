@@ -266,7 +266,7 @@ function reportFooterText(record, channelName) {
 
 function spacedReportDescription(description) {
   const value = String(description || '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return value.startsWith('\u200b\n') ? value : `\u200b\n${value}`;
+  return value.replace(/^\u200b\n/, '');
 }
 
 function spacedReportOutcome(value) {
@@ -280,9 +280,12 @@ function refreshedReportNoticeEmbed(embed, record, channelName) {
   const source = embed?.toJSON?.() || embed;
   if (source?.title !== 'Report update' && source?.title !== 'Moderation update') return null;
   const description = spacedReportDescription(source.description);
-  const fields = (source.fields || []).map(field => field.name === 'Review outcome'
-    ? { ...field, value: spacedReportOutcome(field.value) }
-    : field);
+  const fields = (source.fields || []).map(field => ({
+    ...field,
+    value: field.name === 'Review outcome'
+      ? spacedReportOutcome(field.value).replace(/\n\u200b$/, '')
+      : String(field.value).replace(/\n\u200b$/, ''),
+  }));
   const footerText = reportFooterText(record, channelName);
   if (source.description === description
       && source.footer?.text === footerText
@@ -322,13 +325,13 @@ function reportUpdateEmbed(record, audience, actions, messageText, channelName) 
       ? `${blue} Reviewed\nYour report has been reviewed by our moderation team.`
       : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.'),
     fields: [
-      ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>\n\u200b` }] : []),
-      { name: 'Reported message', value: `${reportText}\n\u200b` },
+      ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>` }] : []),
+      { name: 'Reported message', value: reportText },
       // A single invisible spacer separates sections; paragraphs within them stay compact.
-      { name: 'Review outcome', value: `${spacedReportOutcome(outcome)}\n\u200b` },
+      { name: 'Review outcome', value: spacedReportOutcome(outcome) },
       ...(!reporter && actionTaken ? [
-        { name: 'Moderation action', value: `${orange} ${measure}\n\u200b` },
-        { name: 'Reason', value: `${truncateMessageLogText(escapeMarkdown(sanctionReason), 1022)}\n\u200b` },
+        { name: 'Moderation action', value: `${orange} ${measure}` },
+        { name: 'Reason', value: truncateMessageLogText(escapeMarkdown(sanctionReason), 1022) },
       ] : []),
       { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
     ],
