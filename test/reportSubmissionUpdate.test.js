@@ -4,7 +4,7 @@ import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js'
 import { isPrivateReportCasePayload, isReportUpdateTitle } from '../src/utils/reportCasePrivacy.js';
 import reportMessage from '../src/commands/Utility/reportMessage.js';
 
-test('Cloudy report modal positions warning and explanation ABOVE the required Reason input', async () => {
+test('Cloudy report modal shows SMALL guidance between Discord notice and required Reason input', async () => {
   let modal;
   const interaction = {
     id: 'modal-id', user: { id: 'reporter' }, targetMessage: { id: 'message', author: { id: 'target' } },
@@ -13,13 +13,12 @@ test('Cloudy report modal positions warning and explanation ABOVE the required R
   };
   await reportMessage.execute(interaction, {}, {});
   assert.equal(modal.title, 'Cloudy report');
-  assert.equal(modal.components.length, 3);
-  assert.equal(modal.components[0].content, '**Important note**\nPlease ensure your report is accurate and submitted in good faith. False or malicious reports may result in moderation action.');
-  assert.equal(modal.components[1].content, "Please briefly explain why you're reporting this message and provide any relevant context.");
-  assert.equal(modal.components[2].label, 'Reason');
-  assert.equal(modal.components[2].component.style, 2, 'Reason must remain a multi-line field');
-  assert.equal(modal.components[2].component.required, true);
-  assert.equal(modal.components[2].component.custom_id, 'reason');
+  assert.equal(modal.components.length, 2, 'no bulky Important note text block in the modal');
+  assert.equal(modal.components[0].content, "-# Please briefly explain why you're reporting this message and provide any relevant context.");
+  assert.equal(modal.components[1].label, 'Reason');
+  assert.equal(modal.components[1].component.style, 2, 'Reason remains a multi-line field');
+  assert.equal(modal.components[1].component.required, true);
+  assert.equal(modal.components[1].component.custom_id, 'reason');
 });
 
 test('both report submission routes share exact private confirmation with real values', () => {
