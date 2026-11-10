@@ -291,7 +291,9 @@ function reportUpdateEmbed(record, audience, actions, messageText) {
     fields: [
       ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>` }] : []),
       { name: 'Reported message', value: reportText },
-      { name: 'Review outcome', value: outcome },
+      // Leave one visual blank line between the reporter's closing thanks
+      // and the following Auto-close heading, without adding another field.
+      { name: 'Review outcome', value: reporter ? `${outcome}\n\u200b` : outcome },
       ...(!reporter && actionTaken ? [
         { name: 'Moderation action', value: `${orange} ${measure}` },
         { name: 'Reason', value: truncateMessageLogText(escapeMarkdown(sanctionReason), 1024) },
