@@ -257,7 +257,40 @@ function reportedMessageText(record, report) {
   return evidence?.match(/(?:^|\n)(?:\*\*Content\*\*\n|Content: *)([\s\S]*?)(?=\n(?:\*\*Channel\*\*|Channel:)|$)/i)?.[1] || '';
 }
 
-function reportUpdateEmbed(record, audience, actions, messageText) {
+function reportFooterText(record, channelName) {
+  // A case's channel may have been renamed since its number was stored.
+  // Match the visible channel number without changing the report's database identity.
+  const channelNumber = /^report-([1-9]\d*)$/i.exec(String(channelName || ''))?.[1];
+  return `${REPORT_MODERATION_FOOTER} • R${channelNumber || record.number}`;
+}
+
+function spacedReportDescription(description) {
+  const value = String(description || '').replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
+  return value.startsWith('\u200b\n') ? value : `\u200b\n${value}`;
+}
+
+function spacedReportOutcome(value) {
+  return String(value || '')
+    .replace(/(Action taken|No action taken)\n(?=[^\n])/, '$1\n\n')
+    .replace(/(server rules\.|deemed necessary\.)\n(?=Thank you for bringing this)/, '$1\n\n');
+}
+
+// Update only active private notices in place on startup (including mismatched R-numbers).
+function refreshedReportNoticeEmbed(embed, record, channelName) {
+  const source = embed?.toJSON?.() || embed;
+  if (source?.title !== 'Report update' && source?.title !== 'Moderation update') return null;
+  const description = spacedReportDescription(source.description);
+  const fields = (source.fields || []).map(field => field.name === 'Review outcome'
+    ? { ...field, value: spacedReportOutcome(field.value) }
+    : field);
+  const footerText = reportFooterText(record, channelName);
+  if (source.description === description
+      && source.footer?.text === footerText
+      && (source.fields || []).every((field, index) => field.value === fields[index].value)) return null;
+  return new EmbedBuilder({ ...source, description, fields, footer: { text: footerText } });
+}
+
+function reportUpdateEmbed(record, audience, actions, messageText, channelName) {
   const reporter = audience === 'reporter';
   const removed = actions.includes('delete');
   const timedOut = actions.includes('timeout');
@@ -285,21 +318,21 @@ function reportUpdateEmbed(record, audience, actions, messageText) {
     || 'No reason provided.';
   return caseEmbed({
     title: reporter ? 'Report update' : 'Moderation update',
-    description: reporter
+    description: spacedReportDescription(reporter
       ? `${blue} Reviewed\nYour report has been reviewed by our moderation team.`
-      : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.',
+      : 'Your recent message has been brought to the attention of our moderation team and has been reviewed.'),
     fields: [
       ...(reporter ? [{ name: 'Reported member', value: `<@${record.targetId}>\n\u200b` }] : []),
       { name: 'Reported message', value: `${reportText}\n\u200b` },
       // A single invisible spacer separates sections; paragraphs within them stay compact.
-      { name: 'Review outcome', value: `${outcome}\n\u200b` },
+      { name: 'Review outcome', value: `${spacedReportOutcome(outcome)}\n\u200b` },
       ...(!reporter && actionTaken ? [
         { name: 'Moderation action', value: `${orange} ${measure}\n\u200b` },
         { name: 'Reason', value: `${truncateMessageLogText(escapeMarkdown(sanctionReason), 1022)}\n\u200b` },
       ] : []),
       { name: 'Auto-close', value: "You can close this notification once you've read it. Otherwise, it will be automatically deleted after 24 hours." },
     ],
-    footer: { text: `${REPORT_MODERATION_FOOTER} • R${record.number}` },
+    footer: { text: reportFooterText(record, channelName) },
     thumbnail: null,
     timestamp: false,
     preserveRuntimeEmoji: true,
@@ -327,7 +360,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const participant = participantId(record, audience);
     const payload = {
       content: `<@${participant}>`,
-      embeds: [reportUpdateEmbed(record, audience, actions, messageText)],
+      embeds: [reportUpdateEmbed(record, audience, actions, messageText, channel?.name)],
       components: reportCaseControls(record, false, false, audience),
       allowedMentions: { parse: [], users: [participant], roles: [] },
     };
@@ -568,10 +601,15 @@ export async function restoreReportCaseTimers(client) {
       if (record.expiresAt > Date.now()) {
         for (const audience of audiences) {
           const entry = record.cases?.[audience];
-          if (!entry?.messageId || entry.deletedAt || entry.closedAt || entry.closeNoticeReady) continue;
-          const notice = await fetchMessage(await fetchChannel(guild, entry.channelId), entry.messageId);
+          if (!entry?.messageId || entry.deletedAt || entry.closedAt) continue;
+          const channel = await fetchChannel(guild, entry.channelId);
+          const notice = await fetchMessage(channel, entry.messageId);
           if (notice?.author?.id !== client.user.id) continue;
-          const embeds = notice.embeds.map(embed => setPreservedEmbedColor(EmbedBuilder.from(embed), 0xFFFFFF));
+          const refreshed = refreshedReportNoticeEmbed(notice.embeds?.[0], record, channel?.name);
+          if (refreshed) await notice.edit({ embeds: [refreshed] });
+          if (entry.closeNoticeReady) continue;
+          const embeds = (refreshed ? [refreshed] : notice.embeds).map(embed =>
+            setPreservedEmbedColor(EmbedBuilder.from(embed), 0xFFFFFF));
           await notice.edit({ embeds, components: reportCaseControls(record, false, false, audience) });
           await saveCasePresentationField(client, key, audience, 'closeNoticeReady', true);
         }
