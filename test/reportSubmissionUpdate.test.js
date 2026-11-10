@@ -41,7 +41,7 @@ test('both report submission routes share exact private confirmation with real v
 });
 
 test('renamed audience-specific staff log titles remain within private report handling', () => {
-  for (const title of ['Report n•89 update', 'Moderation n•89 update', 'Report n•89 closed', 'Moderation n•89 automatically deleted']) {
+  for (const title of ['Report update', 'Moderation update', 'Report n•89 update', 'Moderation n•89 update', 'Report n•89 closed', 'Moderation n•89 automatically deleted']) {
     assert.equal(isReportUpdateTitle(title), true);
     assert.equal(isPrivateReportCasePayload({ embeds: [{ title }] }), true);
   }
