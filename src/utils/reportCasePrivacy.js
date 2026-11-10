@@ -1,7 +1,7 @@
 export const REPORT_MODERATION_FOOTER = 'Cloudy Inc. Moderation team';
 
 export function isReportUpdateTitle(title) {
-  return /^(?:Report|Moderation) n•\d+ (?:update|closed|automatically deleted)$/i.test(String(title || ''));
+  return /^(?:(?:Report|Moderation) update|(?:Report|Moderation) n•\d+ (?:update|closed|automatically deleted))$/i.test(String(title || ''));
 }
 
 // Separate audiences must never inherit another case's saved description or fields.
