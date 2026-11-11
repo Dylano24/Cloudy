@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
+import { setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 import { feedEmoji } from '../feedEmojiService.js';
@@ -33,7 +34,9 @@ function getTrackArtwork(track) {
         track?.info?.thumbnail,
         track?.info?.albumArt,
         track?.pluginInfo?.artworkUrl,
-    ].find(url => typeof url === 'string' && /^https?:\/\//i.test(url)) || null;
+    ].find(url => typeof url === 'string' && /^https?:\/\//i.test(url))
+        || (track?.info?.sourceName === 'youtube' && /^[\w-]{11}$/.test(track?.info?.identifier || '')
+            ? `https://i.ytimg.com/vi/${track.info.identifier}/hqdefault.jpg` : null);
 }
 
 function getAlbumName(track) {
@@ -164,15 +167,15 @@ export function buildNowPlayingEmbed(track, player, guildData) {
     // through the editable system-embed catalog: a saved Cloudy template can
     // otherwise replace the Dylano layout on the next progress refresh.
     const fields = [
-        { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
-        ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
-        { name: 'Requested by', value: requesterLabel, inline: true },
-        { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
-        { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
-        { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: true },
+        { name: 'Artist', value: track?.info?.author || 'Unknown', inline: false },
+        ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: false }] : []),
+        { name: 'Requested by', value: requesterLabel, inline: false },
+        { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: false },
+        { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: false },
+        { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: false },
     ];
     const artwork = getTrackArtwork(track);
-    return new EmbedBuilder({
+    const embed = new EmbedBuilder({
         title: 'Now playing',
         description: `**${String(track?.info?.title || 'Unknown track').slice(0, 220)}**${progressBar ? `\n\n${progressBar}` : ''}`,
         color: 0xFFFFFF,
@@ -181,6 +184,7 @@ export function buildNowPlayingEmbed(track, player, guildData) {
         ...(artwork ? { image: { url: artwork } } : {}),
         footer: { text: CLOUDY_FOOTER },
     });
+    return setPreservedEmbedColor(embed, 0xFFFFFF);
 }
 
 export function buildQueueEmbed(queue, currentTrack, page = 0) {
