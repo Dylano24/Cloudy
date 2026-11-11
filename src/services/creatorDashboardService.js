@@ -51,7 +51,7 @@ function keepSessionAlive(session, modalOpen = false) {
 
 function baseEmbed(description) {
   const embed = new EmbedBuilder().setColor(0xFFFFFF).setThumbnail(CLOUDY_LOGO_URL)
-    .setFooter({ text: CLOUDY_BRANDING }).setTitle('Creator notifications');
+    .setFooter({ text: CLOUDY_BRANDING }).setTitle('Creator feed');
   return description ? embed.setDescription(description) : embed;
 }
 

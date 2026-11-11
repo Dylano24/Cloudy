@@ -41,7 +41,7 @@ This file is the persistent working context for every Codex session that edits t
 
 ## Creator notifications
 
-- `/creator-notify` (global command, Manage Server) opens a private dashboard like `/auto feed` (`creatorDashboardService.js`, ids `creatornotify:`, 5-minute idle rule, own listener `creatorNotifyInteractionCreate.js`, skipped in `interactionCreate.js`): Add creator (channel step, profile-link form) and Manage creator (change channel, pause/resume, delete). The platform is detected from the pasted link; YouTube lookups send a consent cookie because EU servers are redirected to consent.youtube.com (never report that as an invalid link). Errors are red and removed after 10 seconds.
+- `/creator-notify` (global command, Manage Server) opens a private dashboard like `/auto feed` (`creatorDashboardService.js`, ids `creatornotify:`, 5-minute idle rule, own listener `creatorNotifyInteractionCreate.js`, skipped in `interactionCreate.js`): Add creator (channel step, profile-link form) and Manage creator (change channel, pause/resume, delete). The platform is detected from the pasted link; YouTube lookups send a consent cookie because EU servers are redirected to consent.youtube.com (never report that as an invalid link). Errors are red and removed after 10 seconds. The dashboard title is `Creator feed` on purpose: the old `/creator-notify list` answer was titled `Creator notifications` (green) and the response catalog re-applied that green to any new reply with the same title.
 
 ## Staff/Member/AutoMod message logs
 
