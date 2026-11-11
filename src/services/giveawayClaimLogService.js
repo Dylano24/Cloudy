@@ -10,6 +10,18 @@ import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 export const GIVEAWAY_CLAIM_LOG_CHANNEL_ID = '1566390264291917874';
 export const GIVEAWAY_CLAIM_LOG_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
+// One claim-log channel belongs to one Discord guild. On a bot shared by
+// multiple guilds, never run its historical migrations in another guild:
+// guild.channels.fetch(a foreign ID) produces errors and unnecessary REST calls.
+function isForeignClaimLogGuild(client, guild) {
+  for (const candidate of client.guilds?.cache?.values?.() || []) {
+    if (candidate.channels?.cache?.has?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID)) {
+      return candidate.id !== guild.id;
+    }
+  }
+  return false;
+}
+
 const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
   revealed: { title: 'Giveaway code revealed', color: 0xFFFFFF, action: 'Reveal my code' },
@@ -82,6 +94,7 @@ export async function sendGiveawayClaimLog(client, guild, detail) {
 // their embed timestamp. Preserve the message, logo, fields and exact footer.
 export async function removeExistingClaimLogTimestamps(client) {
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:no-timestamp-v1';
     try {
       if (await client.db?.get?.(marker, false)) continue;
@@ -113,6 +126,7 @@ export async function removeExistingClaimLogTimestamps(client) {
  // original message, links, logo, footer and all other fields untouched.
 export async function refreshExistingGiveawayClaimLogPresentation(client) {
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:compact-fields-orange-close-v1';
     try {
       if (await client.db?.get?.(marker, false)) continue;
@@ -156,6 +170,7 @@ export async function refreshExistingGiveawayClaimLogPresentation(client) {
  // Update old closing logs in place so the former channel ID remains usable.
 export async function refreshClosedGiveawayClaimLogChannels(client) {
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:closed-channel-id-v1';
     try {
       if (await client.db?.get?.(marker, false)) continue;
@@ -254,6 +269,7 @@ export async function updateClosedClaimChannelLogs(client, guild, closedChannelI
 // name or a failed Discord mention lookup.
 export async function refreshClosedClaimReferencesInEarlierLogs(client) {
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:closed-all-audit-refs-v1';
     try {
       if (await client.db?.get?.(marker, false)) continue;
@@ -277,6 +293,7 @@ export async function refreshClosedClaimReferencesInEarlierLogs(client) {
 export async function refreshHistoricalGiveawayClaimNumbersAndDates(client) {
   if (!client?.db?.get || !client?.db?.set) return;
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:number-date-v1';
     try {
       if (await client.db.get(marker, false)) continue;
@@ -367,6 +384,7 @@ export async function refreshHistoricalGiveawayClaimNumbersAndDates(client) {
 export async function refreshGiveawayAutoExpiryLogAction(client) {
   if (!client?.db?.get || !client?.db?.set) return;
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:auto-expiry-action-v1';
     try {
       if (await client.db.get(marker, false)) continue;
@@ -415,6 +433,7 @@ export async function refreshGiveawayAutoExpiryLogAction(client) {
 export async function refreshGiveawayClaimTitlesWithoutAction(client) {
   if (!client?.db?.get || !client?.db?.set) return;
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:title-only-v1';
     try {
       if (await client.db.get(marker, false)) continue;
@@ -470,6 +489,7 @@ const REDUNDANT_CLAIM_LOG_TITLES = new Set([
 export async function removeRedundantGiveawayClaimLogs(client) {
   if (!client?.db?.get || !client?.db?.set) return;
   for (const guild of client.guilds?.cache?.values?.() || []) {
+    if (isForeignClaimLogGuild(client, guild)) continue;
     const marker = 'guild:' + guild.id + ':giveaway-claim:remove-extra-logs-v1';
     try {
       if (await client.db.get(marker, false)) continue;
