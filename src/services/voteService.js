@@ -19,7 +19,7 @@ export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performanc
 // A media-gallery footer expands to image width on desktop. Use Discord's
 // native compact subtext (-#) so Vote has the same small footer on desktop
 // and mobile, with no additional image download or layout shifts.
-export const VOTE_FOOTER_COMPACT = '-# **© Cloudy Inc. • Quality. Innovation. Performance.**';
+export const VOTE_FOOTER_COMPACT = '-# **' + CLOUDY_FOOTER + '**';
 // The card's progress bar is a thin picture (owner's choice: white, rounded),
 // like the footer: Discord's app loads custom emoji again every time it
 // redraws the vote (each vote and each button press), which made emoji bars
