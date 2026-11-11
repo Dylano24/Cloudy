@@ -67,11 +67,53 @@ export async function nextReportNumber(client, guildId) {
   const pool = client.db.db?.pool;
   if (pool?.query) {
     const { pgConfig } = await import('../config/database/postgres.js');
-    const result = await pool.query(`INSERT INTO ${pgConfig.tables.temp_data} (key, value, expires_at, created_at)
-      VALUES ($1, '1'::jsonb, NULL, CURRENT_TIMESTAMP)
-      ON CONFLICT (key) DO UPDATE SET value = to_jsonb(((${pgConfig.tables.temp_data}.value #>> '{}')::bigint) + 1)
-      RETURNING value`, [key]);
-    return Number(result.rows[0].value);
+    // Recover from an older or reset counter using the highest persisted
+    // report-case number for this guild. The conflict update is atomic across
+    // bot processes, so each submission gets a unique increasing number.
+    const table = pgConfig.tables.temp_data;
+    const result = await pool.query(`WITH previous AS (
+      SELECT COALESCE(MAX((value ->> 'number')::bigint), 0) AS max_number
+      FROM ${table}
+      WHERE key LIKE $2 AND value ->> 'number' ~ '^[0-9]{1,12}
+  }
+  return withReportLock(key, async () => {
+    // Match the PostgreSQL recovery behavior when running on a non-SQL store.
+    let highest = Number(await client.db.get(key)) || 0;
+    for (const caseKey of await client.db.list(`global:report:${guildId}:`)) {
+      const stored = await client.db.get(caseKey);
+      const number = Number(stored?.number);
+      if (Number.isSafeInteger(number) && number > highest) highest = number;
+    }
+    const next = highest + 1;
+    if (!Number.isSafeInteger(next) || await client.db.set(key, next) === false) throw new Error('The report counter could not be saved.');
+    return next;
+  });
+}
+
+export { deleteReportCase, scheduleReportCaseExpiry, publishReportOutcome, handleReportCaseControl, restoreReportCaseTimers, validateReportDestinations, REPORT_LOG_CHANNEL_ID } from './reportCaseLifecycleService.js';
+
+    )
+    INSERT INTO ${table} (key, value, expires_at, created_at)
+      SELECT $1, to_jsonb(previous.max_number + 1), NULL, CURRENT_TIMESTAMP FROM previous
+    ON CONFLICT (key) DO UPDATE SET value = to_jsonb(GREATEST(
+      COALESCE(CASE WHEN ${table}.value #>> '{}' ~ '^[0-9]{1,12}
+  }
+  return withReportLock(key, async () => {
+    const next = (Number(await client.db.get(key)) || 0) + 1;
+    if (await client.db.set(key, next) === false) throw new Error('The report counter could not be saved.');
+    return next;
+  });
+}
+
+export { deleteReportCase, scheduleReportCaseExpiry, publishReportOutcome, handleReportCaseControl, restoreReportCaseTimers, validateReportDestinations, REPORT_LOG_CHANNEL_ID } from './reportCaseLifecycleService.js';
+
+        THEN (${table}.value #>> '{}')::bigint END, 0),
+      (SELECT max_number FROM previous)
+    ) + 1)
+    RETURNING value`, [key, `global:report:${guildId}:%`]);
+    const number = Number(result.rows[0]?.value);
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('The report counter returned an invalid number.');
+    return number;
   }
   return withReportLock(key, async () => {
     const next = (Number(await client.db.get(key)) || 0) + 1;
