@@ -276,7 +276,11 @@ function reportSectionText(value) {
 function compactHighlightedReportGaps(description) {
   return String(description || '')
     .replace(/(\*\*Reported member\*\*\n[\s\S]*?)\n\n(?=\*\*Reported message\*\*\n)/, '$1\n')
-    .replace(/(\*\*Reported message\*\*\n[\s\S]*?)\n\n(?=\*\*Review outcome\*\*\n)/, '$1\n');
+    .replace(/(\*\*Reported message\*\*\n[\s\S]*?)\n\n(?=\*\*Review outcome\*\*\n)/, '$1\n')
+    // Only moderation notices contain these three adjoining sections.
+    .replace(/(\*\*Review outcome\*\*\n[\s\S]*?)\n\n(?=\*\*Moderation action\*\*\n)/, '$1\n')
+    .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n')
+    .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n\n(?=\*\*Auto-close\*\*\n)/, '$1\n');
 }
 
 function reportNoticeDescription(intro, fields) {
