@@ -12,7 +12,7 @@ import {
     buildQueuePaginationRow,
     getQueuePageSize,
 } from './musicEmbeds.js';
-import { refreshPlayerMessage } from './playerHandler.js';
+import { refreshPlayerMessage, retirePlayerPanel, markTrackEnding } from './playerHandler.js';
 import { prepareMusicQuery } from './musicLinks.js';
 import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
@@ -518,6 +518,8 @@ export function skipCurrentTrack(player, guildData) {
         return false;
     }
     guildData.lastSkip = { track: player.current, at: now };
+    // Its panel becomes the "Skipped" record of the song.
+    markTrackEnding(guildData, player.current, 'skipped');
     // Under track-loop, stop() would replay the same track. Clear it so the skip
     // advances; trackStart re-applies the stored loop mode to the next track.
     if (player.loop === 'track') {
@@ -816,7 +818,12 @@ export async function destroyPlayerSession(client, guildId, player, guildData, {
     guildData.autoPaused = false;
     guildData.queuePages?.clear();
 
-    if (guildData.playerMessageId && guildData.playerChannelId) {
+    // The song's panel stays as its "Stopped" record (owner's choice); a panel
+    // that shows another song is removed as before.
+    const retired = player?.current
+        ? await retirePlayerPanel(client, guildId, player.current, 'stopped', player)
+        : false;
+    if (!retired && guildData.playerMessageId && guildData.playerChannelId) {
         try {
             const channel = client.channels.cache.get(guildData.playerChannelId);
             if (channel) {

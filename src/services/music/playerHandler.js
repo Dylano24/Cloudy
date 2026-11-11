@@ -7,6 +7,7 @@ import { finishRequestMessage, lastFinishedTrack } from './musicRequestMessages.
 import {
     buildNowPlayingEmbed,
     buildPlayerButtonRows,
+    buildMusicRequestEmbed,
 } from './musicEmbeds.js';
 
 const UPDATE_INTERVAL_MS = 15 * 1000;
@@ -29,7 +30,80 @@ function hasStarted(player) {
     return Boolean(player?.current) && startedTracks.get(player) === player.current;
 }
 
-async function editOrSendPlayerMessage(client, guildData, channelId, embed, components) {
+const ENDED_TITLES = { played: 'Played', skipped: 'Skipped', stopped: 'Stopped', failed: 'Could not play' };
+
+/** Skip and Stop say how the song ended, before the node reports the end. */
+export function markTrackEnding(guildData, track, outcome) {
+    if (track) guildData.endingTrack = { track, outcome };
+}
+
+function endedOutcome(guildData, track, fallback) {
+    if (guildData.endingTrack?.track !== track) return fallback;
+    const { outcome } = guildData.endingTrack;
+    guildData.endingTrack = null;
+    return outcome;
+}
+
+// Owner's choice: when a song ends its player panel stays in the channel as a
+// record of that song ("Played", "Skipped", "Stopped" or "Could not play", the
+// song's cover and details, no buttons) and the next song gets a new panel under
+// it. Only the panel that shows this very song is changed; returns whether it was.
+export async function retirePlayerPanel(client, guildId, track, outcome, player = null) {
+    const guildData = getGuildMusicData(guildId);
+    const messageId = guildData.playerMessageId;
+    const channelId = guildData.playerChannelId;
+    if (!messageId || !channelId || !track || guildData.panelTrack !== track) return false;
+    const channel = client.channels?.cache?.get(channelId);
+    if (!channel?.messages?.edit) return false;
+    // From here on the next refresh posts a new panel; the old one is the record.
+    guildData.playerMessageId = null;
+    guildData.playerChannelId = null;
+    guildData.lastPanel = null;
+    guildData.panelTrack = null;
+    clearUpdateInterval(guildData);
+    if (player && startedTracks.get(player) === track) startedTracks.delete(player);
+    // A refresh that is still being sent must not overwrite the record.
+    await playerRefreshJobs.get(guildData)?.promise?.catch?.(() => {});
+    const embed = buildMusicRequestEmbed(track, { playNow: true }).setTitle(ENDED_TITLES[outcome] || ENDED_TITLES.played);
+    try {
+        await channel.messages.edit(messageId, { embeds: [embed], components: [], allowedMentions: { parse: [] } });
+        return true;
+    } catch (error) {
+        logger.debug(`[MUSIC] Could not mark the player panel as ${outcome}: ${error?.message || error}`);
+        return false;
+    }
+}
+
+async function deletePlayerPanel(client, guildData) {
+    const { playerMessageId, playerChannelId } = guildData;
+    guildData.playerMessageId = null;
+    guildData.playerChannelId = null;
+    guildData.lastPanel = null;
+    guildData.panelTrack = null;
+    if (!playerMessageId || !playerChannelId) return;
+    await client.channels?.cache?.get(playerChannelId)?.messages?.delete?.(playerMessageId).catch(() => {});
+}
+
+// When the queue is done the bot leaves the voice channel after 30 seconds,
+// unless 24/7 is on or something plays again. Riffy keeps the last song as
+// player.current after the queue ends, so that is not a sign of activity.
+function scheduleIdleLeave(client, player, guildData) {
+    if (guildData.twentyFourSeven) return;
+    if (guildData.idleTimeout) clearTimeout(guildData.idleTimeout);
+    guildData.idleTimeout = setTimeout(() => {
+        guildData.idleTimeout = null;
+        try {
+            const currentPlayer = client.riffy.players.get(player.guildId);
+            if (currentPlayer && !currentPlayer.playing && !currentPlayer.paused && !currentPlayer.queue?.length) {
+                currentPlayer.destroy();
+            }
+        } catch {
+            // player already destroyed
+        }
+    }, IDLE_DISCONNECT_MS);
+}
+
+async function editOrSendPlayerMessage(client, guildData, channelId, embed, components, track = null) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) {
         guildData.playerMessageId = null;
@@ -51,6 +125,7 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
                 || await channel.messages.fetch(guildData.playerMessageId);
             await msg.edit(payload);
             guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
+            guildData.panelTrack = track;
             return;
         } catch (error) {
             // A temporary API or permission failure must not create another
@@ -67,6 +142,7 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
         guildData.playerMessageId = newMsg.id;
         guildData.playerChannelId = channel.id;
         guildData.lastPanel = { messageId: newMsg.id, panel };
+        guildData.panelTrack = track;
     } catch (error) {
         logger.error('Failed to send music player message:', error);
     }
@@ -100,7 +176,7 @@ export async function refreshPlayerMessage(client, guildId) {
         const guild = client.guilds?.cache?.get?.(guildId);
         const musicChannel = !guildData.playerMessageId && guild ? musicChannelFor(guild) : null;
         const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
-        await editOrSendPlayerMessage(client, guildData, channelId, embed, components);
+        await editOrSendPlayerMessage(client, guildData, channelId, embed, components, player.current);
       }
     })().catch(error => {
         logger.error('Failed to refresh music player message:', error);
@@ -232,14 +308,22 @@ export function setupPlayerHandler(client) {
 
     client.riffy.on('trackEnd', (player, track, payload) => {
         const reason = String(payload?.reason || '').replace('_', '').toLowerCase();
+        if (reason === 'replaced') return;
         // A song on repeat is still playing.
         if (player?.loop === 'track' && reason === 'finished') return;
         void finishRequestMessage(client, track, reason === 'loadfailed' ? 'failed' : 'played');
+        const guildData = getGuildMusicData(player.guildId);
+        const fallback = reason === 'finished' ? 'played' : reason === 'loadfailed' ? 'failed' : reason === 'stopped' ? 'skipped' : 'stopped';
+        void retirePlayerPanel(client, player.guildId, track, endedOutcome(guildData, track, fallback), player);
+        // A last song that could not be loaded ends without queueEnd.
+        if (reason === 'loadfailed' && !player.queue?.length) scheduleIdleLeave(client, player, guildData);
     });
 
     client.riffy.on('queueEnd', async (player) => {
         try {
-            void finishRequestMessage(client, lastFinishedTrack(player));
+            // Riffy emits only queueEnd (no trackEnd) for the very last song.
+            const last = lastFinishedTrack(player);
+            void finishRequestMessage(client, last);
             const guildData = getGuildMusicData(player.guildId);
             clearUpdateInterval(guildData);
 
@@ -248,36 +332,10 @@ export function setupPlayerHandler(client) {
                 return;
             }
 
-            if (guildData.playerMessageId && guildData.playerChannelId) {
-                try {
-                    const channel = client.channels.cache.get(guildData.playerChannelId);
-                    if (channel) {
-                        const msg = await channel.messages.fetch(guildData.playerMessageId);
-                        await msg.delete();
-                    }
-                } catch {
-                    // already deleted
-                }
-                guildData.playerMessageId = null;
-                guildData.playerChannelId = null;
-            }
+            const retired = await retirePlayerPanel(client, player.guildId, last, endedOutcome(guildData, last, 'played'), player);
+            if (!retired) await deletePlayerPanel(client, guildData);
 
-            if (!guildData.twentyFourSeven) {
-                if (guildData.idleTimeout) {
-                    clearTimeout(guildData.idleTimeout);
-                }
-                guildData.idleTimeout = setTimeout(() => {
-                    try {
-                        const currentPlayer = client.riffy.players.get(player.guildId);
-                        if (currentPlayer && !currentPlayer.playing && !currentPlayer.paused && !currentPlayer.current) {
-                            currentPlayer.destroy();
-                        }
-                    } catch {
-                        // player already destroyed
-                    }
-                    guildData.idleTimeout = null;
-                }, IDLE_DISCONNECT_MS);
-            }
+            scheduleIdleLeave(client, player, guildData);
         } catch (error) {
             logger.error('Music queueEnd error:', error);
         }
@@ -288,20 +346,11 @@ export function setupPlayerHandler(client) {
         const guildData = getGuildMusicData(player.guildId);
         clearUpdateInterval(guildData);
 
-        if (guildData.playerMessageId && guildData.playerChannelId) {
-            try {
-                const channel = client.channels.cache.get(guildData.playerChannelId);
-                if (channel) {
-                    const msg = await channel.messages.fetch(guildData.playerMessageId);
-                    await msg.delete();
-                }
-            } catch {
-                // already deleted
-            }
-        }
+        // The bot left the voice channel (Stop, kicked, idle): the song's panel
+        // becomes its "Stopped" record, or goes away when it shows another song.
+        const retired = await retirePlayerPanel(client, player.guildId, player.current, 'stopped', player);
+        if (!retired) await deletePlayerPanel(client, guildData);
 
-        guildData.playerMessageId = null;
-        guildData.playerChannelId = null;
         guildData.previousTracks = [];
         guildData.autoPaused = false;
         if (guildData.idleTimeout) {
@@ -323,8 +372,9 @@ export function setupPlayerHandler(client) {
     });
 }
 
-// A restart (deploy) ends every music session. Its player panel is removed
-// before the client goes away, so no panel with dead buttons stays behind.
+// A restart (deploy) ends every music session. Before the client goes away the
+// player panel becomes the song's "Stopped" record (or is removed when it shows
+// another song), so no panel with dead buttons stays behind.
 export async function shutdownMusic(client) {
     if (!client.riffy?.players) {
         return;
@@ -334,14 +384,9 @@ export async function shutdownMusic(client) {
     for (const [guildId, player] of [...client.riffy.players]) {
         const guildData = getGuildMusicData(guildId);
         clearUpdateInterval(guildData);
-        const { playerMessageId, playerChannelId } = guildData;
-        guildData.playerMessageId = null;
-        guildData.playerChannelId = null;
-        guildData.lastPanel = null;
-        const channel = playerMessageId && playerChannelId ? client.channels?.cache?.get(playerChannelId) : null;
-        if (channel?.messages?.delete) {
-            removals.push(channel.messages.delete(playerMessageId).catch(() => {}));
-        }
+        removals.push(retirePlayerPanel(client, guildId, player.current, 'stopped', player)
+            .then(retired => retired || deletePlayerPanel(client, guildData))
+            .catch(() => {}));
         try {
             player.destroy();
         } catch (error) {
