@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelType, Collection, MessageFlags } from 'discord.js';
-import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
+import { ChannelType, Collection } from 'discord.js';
+import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress, getTrackArtwork } from '../src/services/music/musicEmbeds.js';
+import { ensureWhiteMusicEmbeds } from '../src/utils/cloudyFooter.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
 import nowCommand from '../src/commands/Music/now.js';
@@ -21,7 +22,8 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   // (plain blocks until the white pieces are uploaded).
   assert.equal(embed.description, '**Song**\n\n▰▰▰▱▱▱▱▱▱▱');
   assert.equal(buildNowPlayingEmbed({ info: { ...track.info, length: 0 } }, { position: 0, queue: [] }, {}).toJSON().description, '**Song**');
-  assert.match(embed.thumbnail.url, /cloudy-c-logo/);
+  assert.match(embed.thumbnail.url, /cloudy-music-icon\.png/);
+  assert.equal(embed.color, 0xFFFFFF);
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
   assert.deepEqual(embed.fields.map(field => [field.name, field.value]), [
@@ -104,7 +106,7 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.ok(now.options.some(o => o.name === 'playing'));
 });
 
-test('play slash confirmation is private while the shared music panel stays public', async t => {
+test('play slash announcement is public in both guilds, like the original player', async t => {
   let deferOptions = 'not-called';
   let publicReply = null;
   t.mock.method(InteractionHelper, 'safeDefer', async (targetInteraction, options) => {
@@ -137,7 +139,7 @@ test('play slash confirmation is private while the shared music panel stays publ
     options: { getString: () => 'Song' },
   };
   await playCommand.execute(interaction, {}, client);
-  assert.equal(deferOptions.flags, MessageFlags.Ephemeral, 'avoid a duplicate public now-playing embed');
+  assert.equal(deferOptions, undefined, 'the slash response must be visible to everyone');
   assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
   assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
   assert.deepEqual(publicReply.allowedMentions, { parse: [] });
@@ -223,4 +225,41 @@ test('unchanged now-playing panels do not generate redundant Discord edits', asy
   } finally {
     deleteGuildMusicData(guildId);
   }
+});
+
+
+test('music embeds preserve original Lavalink artwork even though Riffy drops artworkUrl from info', () => {
+  const rawTrack = { info: {
+    title: 'Original', author: 'Real artist', length: 120_000, sourceName: 'soundcloud',
+    requester: { username: 'Dawg' },
+  }, rawData: { info: { artworkUrl: 'https://cdn.example.com/real-cover.jpg' } } };
+  assert.equal(getTrackArtwork(rawTrack), 'https://cdn.example.com/real-cover.jpg');
+  const panel = buildNowPlayingEmbed(rawTrack, { position: 0, queue: [], paused: false }, {}).toJSON();
+  const request = buildMusicRequestEmbed(rawTrack, { playNow: true }).toJSON();
+  assert.equal(panel.image.url, 'https://cdn.example.com/real-cover.jpg');
+  assert.equal(request.image.url, 'https://cdn.example.com/real-cover.jpg');
+  assert.equal(panel.color, 0xFFFFFF);
+  assert.equal(request.color, 0xFFFFFF);
+  assert.match(panel.thumbnail.url, /cloudy-music-icon\.png/);
+  assert.match(request.thumbnail.url, /cloudy-music-icon\.png/);
+  assert.ok(panel.fields.every(field => field.inline === false));
+  assert.ok(request.fields.every(field => field.inline === false));
+});
+
+test('YouTube fallback uses the source identifier; no promise-based thumbnail getter is accessed', () => {
+  let getterCalls = 0;
+  const info = { identifier: 'dQw4w9WgXcQ', sourceName: 'youtube' };
+  Object.defineProperty(info, 'thumbnail', { get() { getterCalls++; return Promise.resolve('wrong'); } });
+  assert.equal(getTrackArtwork({ info }), 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+  assert.equal(getterCalls, 0);
+});
+
+test('final Discord output forces white only on music request and player embeds', () => {
+  const playing = buildNowPlayingEmbed(track, { position: 5000, queue: [] }, {}).toJSON();
+  const request = buildMusicRequestEmbed(track, { playNow: true }).toJSON();
+  const warning = { title: 'Other', color: 0x00C49D };
+  const result = ensureWhiteMusicEmbeds({ embeds: [
+    { ...playing, color: 0x00C49D }, { ...request, color: 0x00C49D }, warning,
+  ] });
+  assert.deepEqual(result.embeds.map(e => e.color), [0xFFFFFF, 0xFFFFFF, 0x00C49D]);
 });
