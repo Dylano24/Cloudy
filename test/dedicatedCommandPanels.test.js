@@ -116,7 +116,7 @@ test('Gambling title is never visibly edited after a reappeared post with custom
   assert.equal(edits, 0);
 });
 
-test('Music Commands opens the complete slash list privately and expires after five minutes', async t => {
+test('Music Commands shows the current player controls privately and expires after five minutes', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let reply;
   let deleted = false;
@@ -127,9 +127,11 @@ test('Music Commands opens the complete slash list privately and expires after f
   await panels.execute(interaction, {}, ['music']);
   assert.equal(reply.flags, MessageFlags.Ephemeral);
   assert.equal(reply.embeds[0].toJSON().title, 'Music commands');
-  assert.match(reply.embeds[0].toJSON().description, /\/now playing/);
-  assert.match(reply.embeds[0].toJSON().description, /\/music shuffle/);
-  for (const hidden of ['/music seek', '/music 247', '/music guide', '/nowplaying']) {
+  assert.match(reply.embeds[0].toJSON().description, /`\/play`/);
+  assert.match(reply.embeds[0].toJSON().description, /Player buttons/);
+  assert.match(reply.embeds[0].toJSON().description, /⏸️ Pause or continue/);
+  assert.match(reply.embeds[0].toJSON().description, /⏹️ Stop and leave/);
+  for (const hidden of ['/music seek', '/music 247', '/music guide', '/nowplaying', '/now playing', '/music shuffle']) {
     assert.ok(!reply.embeds[0].toJSON().description.includes(hidden));
   }
   assert.ok(!reply.embeds[0].toJSON().description.includes('/blackjack'));
