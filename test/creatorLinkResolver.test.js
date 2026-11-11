@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveCreatorAccount } from '../src/services/creatorLinkResolver.js';
+import { identifyCreatorInput, resolveCreatorAccount } from '../src/services/creatorLinkResolver.js';
 import {
   addCreatorNotification, listCreatorNotifications, removeCreatorNotification,
 } from '../src/services/creatorNotificationService.js';
@@ -167,4 +167,46 @@ test('YouTube share URLs still reject untrusted hosts before fetching', async ()
     /valid link/,
   );
   assert.equal(attempted, 0);
+});
+
+test('pasted profile links identify their platform regardless of Discord dropdown', async () => {
+  assert.deepEqual(identifyCreatorInput('tiktok', 'https://youtube.com/@CreatorExample'), {
+    platform: 'youtube', input: 'https://youtube.com/@CreatorExample',
+  });
+  assert.deepEqual(identifyCreatorInput('youtube', 'https://www.twitch.tv/Example_Name'), {
+    platform: 'twitch', input: 'https://www.twitch.tv/Example_Name',
+  });
+  assert.deepEqual(identifyCreatorInput(null, 'https://www.tiktok.com/@Example.Name'), {
+    platform: 'tiktok', input: 'https://www.tiktok.com/@Example.Name',
+  });
+  assert.deepEqual(identifyCreatorInput(null, ID), { platform: 'youtube', input: ID });
+  assert.deepEqual(identifyCreatorInput(null,
+    'Check out this creator: https://youtube.com/@CreatorExample?si=abc'),
+  { platform: 'youtube', input: 'https://youtube.com/@CreatorExample?si=abc' });
+  await assert.rejects(async () => identifyCreatorInput(null, '@ambiguoususer'),
+    /select a platform/i);
+  assert.throws(() => identifyCreatorInput('youtube', 'https://youtube.com.evil.example/@creator'),
+    /Paste a YouTube, Twitch or TikTok creator link/);
+});
+
+test('adding a YouTube URL when TikTok is selected detects correct provider and can be removed', async () => {
+  const client = fakeClient();
+  const profile = 'https://www.youtube.com/@CreatorExample';
+  const fetcher = async () => response(html);
+  const added = await addCreatorNotification(client, GUILD, 'tiktok', profile, null, { fetcher, env: {} });
+  assert.equal(added.platform, 'youtube');
+  assert.equal(added.id, 'youtube:' + ID);
+  assert.equal(added.account, ID);
+  assert.equal((await listCreatorNotifications(client, GUILD))[0].platform, 'youtube');
+  assert.equal(await removeCreatorNotification(client, GUILD, 'tiktok', profile), true);
+  assert.equal((await listCreatorNotifications(client, GUILD)).length, 0);
+});
+
+test('Twitch and TikTok URLs require no platform selection and normalize profiles', async () => {
+  const client = fakeClient();
+  const twitch = await addCreatorNotification(client, GUILD, null, 'https://www.twitch.tv/Example_Name', null);
+  const tiktok = await addCreatorNotification(client, GUILD, null, 'https://www.tiktok.com/@Example.Name', null);
+  assert.equal(twitch.id, 'twitch:example_name');
+  assert.equal(tiktok.id, 'tiktok:example.name');
+  assert.equal((await listCreatorNotifications(client, GUILD)).length, 2);
 });

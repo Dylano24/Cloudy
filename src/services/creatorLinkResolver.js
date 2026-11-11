@@ -27,6 +27,33 @@ function validateUrl(url, hosts) {
   }
 }
 
+// Discord's platform selector is optional when a supported link is pasted.
+// Infer the provider from the verified hostname rather than rejecting a
+// legitimate YouTube link because TikTok/Twitch was selected accidentally.
+export function identifyCreatorInput(selectedPlatform, raw) {
+  const rawText = String(raw || '').trim();
+  if (rawText.length > 2048) throw new Error('Creator link is too long.');
+  // Mobile share sheets can paste a line of text followed by the actual URL.
+  const embedded = /(?:^|[\s(<])((?:https?:\/\/)?(?:(?:www\.|m\.|music\.)?youtube\.com|(?:www\.)?youtu\.be|(?:www\.)?twitch\.tv|(?:www\.|m\.)?tiktok\.com)\/[^\s<>]+)/i.exec(rawText);
+  const input = (embedded?.[1] || rawText).replace(/^<|>$/g, '').replace(/[),;!?]+$/g, '');
+  const url = urlFromInput(input);
+  if (url) {
+    const hostname = url.hostname.toLowerCase();
+    const platform = YOUTUBE_HOSTS.has(hostname) ? 'youtube'
+      : TWITCH_HOSTS.has(hostname) ? 'twitch'
+        : TIKTOK_HOSTS.has(hostname) ? 'tiktok' : null;
+    if (!platform) throw new Error('Paste a YouTube, Twitch or TikTok creator link.');
+    validateUrl(url, platform === 'youtube' ? YOUTUBE_HOSTS
+      : platform === 'twitch' ? TWITCH_HOSTS : TIKTOK_HOSTS);
+    return { platform, input };
+  }
+  if (CHANNEL_ID.test(input)) return { platform: 'youtube', input };
+  if (!['youtube', 'twitch', 'tiktok'].includes(selectedPlatform)) {
+    throw new Error('Paste a creator profile link or select a platform for usernames.');
+  }
+  return { platform: selectedPlatform, input };
+}
+
 function youtubeReference(raw) {
   const input = String(raw || '').trim();
   if (CHANNEL_ID.test(input)) return { id: input };
