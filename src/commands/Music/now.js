@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { buildNowPlayingReply } from '../../services/music/musicActions.js';
+import { deferMusicPublic } from '../../services/music/prefixSupport.js';
 
 // Natural-language slash form of /nowplaying. Keep the original for
 // existing users and prefix aliases; both display the same public music card.
@@ -15,7 +16,7 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await InteractionHelper.safeDefer(interaction);
+        await deferMusicPublic(interaction);
         const payload = buildNowPlayingReply(client, interaction.guild.id);
         await InteractionHelper.safeEditReply(interaction, payload);
     },

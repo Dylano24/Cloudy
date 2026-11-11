@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { buildQueueReply } from '../../services/music/musicActions.js';
+import { deferMusicPublic } from '../../services/music/prefixSupport.js';
 
 export default {
     slashOnly: true,
@@ -13,7 +14,7 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await InteractionHelper.safeDefer(interaction);
+        await deferMusicPublic(interaction);
         const page = (interaction.options.getInteger('page') || 1) - 1;
         const payload = buildQueueReply(client, interaction.guild.id, page);
         await InteractionHelper.safeEditReply(interaction, {
