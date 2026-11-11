@@ -545,6 +545,8 @@ export async function applyPause(client, guildId) {
         return false;
     }
 
+    const clock = getGuildMusicData(guildId).progressClock;
+    if (clock?.track === player.current && clock.pausedAt == null) clock.pausedAt = Date.now();
     player.pause(true);
     await refreshPlayerMessage(client, guildId);
     return true;
@@ -556,6 +558,11 @@ export async function applyResume(client, guildId) {
         return false;
     }
 
+    const clock = getGuildMusicData(guildId).progressClock;
+    if (clock?.track === player.current && clock.pausedAt != null) {
+        clock.pausedMs += Math.max(0, Date.now() - clock.pausedAt);
+        clock.pausedAt = null;
+    }
     player.pause(false);
     await refreshPlayerMessage(client, guildId);
     return true;

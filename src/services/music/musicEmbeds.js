@@ -92,7 +92,7 @@ export function musicProgressBar(positionMs, lengthMs, steps = 10) {
     if (!Number.isFinite(length) || length <= 0) return null;
     const position = Number(positionMs);
     const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
-    const filled = Math.round(fraction * steps);
+    const filled = fraction > 0 ? Math.max(1, Math.round(fraction * steps)) : 0;
     return Array.from({ length: steps }, (_, index) => {
         const end = index === 0 ? 'l' : index === steps - 1 ? 'r' : 'm';
         return feedEmoji(`bar_${end}${index < filled ? 'f' : 'e'}`);
@@ -180,6 +180,25 @@ function getLoopLabel(loop) {
     }
 }
 
+// Approximate position between Lavalink playerUpdate packets and after the
+// trackStart event when some nodes keep reporting a stale zero position.
+// The clock freezes on Pause and is reset on each new track.
+export function estimatedMusicPosition(player, guildData, now = Date.now()) {
+    const reported = Math.max(0, Number(player?.position) || 0);
+    const clock = guildData?.progressClock;
+    let position = reported;
+    if (clock && clock.track === player?.current && Number.isFinite(clock.startedAt)) {
+        const end = clock.pausedAt != null ? clock.pausedAt : now;
+        position = Math.max(position, Math.max(0, end - clock.startedAt - (clock.pausedMs || 0)));
+    }
+    if (player?.playing && !player.paused && Number.isFinite(player.timestamp)
+        && player.timestamp > now - 30_000 && player.timestamp <= now + 5_000) {
+        position = Math.max(position, reported + Math.max(0, now - player.timestamp));
+    }
+    const length = Number(player?.current?.info?.length);
+    return Number.isFinite(length) && length > 0 ? Math.min(position, length) : position;
+}
+
 export function buildNowPlayingEmbed(track, player, guildData) {
     const requester = track?.info?.requester;
     const requesterLabel = requester
@@ -188,7 +207,7 @@ export function buildNowPlayingEmbed(track, player, guildData) {
 
     const queued = player?.queue?.length || 0;
     const album = getAlbumName(track);
-    const progressBar = musicProgressBar(player?.position || 0, track?.info?.length);
+    const progressBar = musicProgressBar(estimatedMusicPosition(player, guildData), track?.info?.length);
     // The track's cover is the image; the Cloudy logo stays the thumbnail. The
     // white bar sits under the title on its own line and is the only progress
     // indicator (owner's choice: no "position / length" text next to it).

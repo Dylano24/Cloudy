@@ -1,6 +1,8 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { playQuery, replyMusicSuccess } from '../../services/music/musicActions.js';
-import { deferMusicPublic } from '../../services/music/prefixSupport.js';
+import { playQuery } from '../../services/music/musicActions.js';
+import { deferMusicCommand } from '../../services/music/prefixSupport.js';
+import { refreshPlayerMessage } from '../../services/music/playerHandler.js';
+import { removeOldMusicAnnouncements } from '../../services/music/musicRequestMessages.js';
 
 export default {
     slashOnly: true,
@@ -13,11 +15,18 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        // /play is public in both Cloudy Inc. and Dylano. Never defer with
-        // Ephemeral: its response must display to the whole channel.
-        await deferMusicPublic(interaction);
-        const result = await playQuery(client, interaction, interaction.options.getString('query'));
-        await replyMusicSuccess(interaction, result.embed);
+        // Only the persistent Now playing panel with its seven buttons is public.
+        // Defer privately while the music loads; delete the acknowledgement
+        // after a successful request so no second embed remains in the channel.
+        await deferMusicCommand(interaction);
+        await playQuery(client, interaction, interaction.options.getString('query'));
+        await refreshPlayerMessage(client, interaction.guild.id);
+        if (!interaction._isPrefixCommand) {
+            await interaction.deleteReply?.().catch(() => {});
+        }
 
+        // Remove old bot-owned /play announcements from this channel once.
+        // The live player and every other message remain untouched.
+        void removeOldMusicAnnouncements(client, interaction.channel).catch(() => {});
     },
 };

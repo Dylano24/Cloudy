@@ -9,7 +9,7 @@ import {
     buildPlayerButtonRows,
 } from './musicEmbeds.js';
 
-const UPDATE_INTERVAL_MS = 15 * 1000;
+const UPDATE_INTERVAL_MS = 10 * 1000;
 const IDLE_DISCONNECT_MS = 30 * 1000;
 const playerRefreshJobs = new WeakMap();
 
@@ -181,6 +181,15 @@ export function setupPlayerHandler(client) {
     client.riffy.on('trackStart', async (player, _track) => {
         try {
             const guildData = getGuildMusicData(player.guildId);
+            // The private Lavalink node can report position=0 for a while.
+            // Anchor progress to trackStart so the visual bar advances even
+            // between (or without) playerUpdate packets.
+            guildData.progressClock = {
+                track: player.current || _track,
+                startedAt: Date.now() - Math.max(0, Number(player.position) || 0),
+                pausedAt: null,
+                pausedMs: 0,
+            };
 
             // Keep the Lavalink player's loop mode aligned with the stored preference.
             // Skip temporarily clears track-loop so it can advance; restore it here.
@@ -219,6 +228,7 @@ export function setupPlayerHandler(client) {
             void finishRequestMessage(client, lastFinishedTrack(player));
             const guildData = getGuildMusicData(player.guildId);
             clearUpdateInterval(guildData);
+            guildData.progressClock = null;
 
             if (guildData.autoplay) {
                 player.autoplay(player);
@@ -265,6 +275,7 @@ export function setupPlayerHandler(client) {
         void finishRequestMessage(client, player.current);
         const guildData = getGuildMusicData(player.guildId);
         clearUpdateInterval(guildData);
+        guildData.progressClock = null;
 
         if (guildData.playerMessageId && guildData.playerChannelId) {
             try {
