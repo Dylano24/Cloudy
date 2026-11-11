@@ -117,7 +117,7 @@ function fixture() {
 test('new /auto giveaway and /auto vote are real subcommands beside existing feed', () => {
   const command = autoCommand.data.toJSON();
   assert.equal(command.name, 'auto');
-  assert.deepEqual(command.options.map(option => option.name), ['feed', 'giveaway', 'vote']);
+  assert.deepEqual(command.options.map(option => option.name), ['feed', 'giveaway', 'vote', 'start', 'pause', 'stop']);
   assert.deepEqual(command.options[1].options, []);
   assert.deepEqual(command.options[2].options, []);
 });
