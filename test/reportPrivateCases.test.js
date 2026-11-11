@@ -20,8 +20,9 @@ const noticeSection = (notice, name) => {
   const start = description.indexOf(marker);
   if (start < 0) return undefined;
   const from = start + marker.length;
-  const next = description.indexOf('\n\n**', from);
-  return description.slice(from, next < 0 ? undefined : next).trim();
+  const rest = description.slice(from);
+  const next = rest.search(/\n(?:\n)?\*\*[^*\n]+\*\*\n/);
+  return rest.slice(0, next < 0 ? undefined : next).trim();
 };
 const outcome = notice => noticeSection(notice, 'Review outcome');
 // A handled report is marked in place (as appeals are): no separate message,
@@ -153,12 +154,17 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.equal(noticeSection(notice, 'Reported message'), 'Original message text');
     assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R1');
     assert.equal(embed.thumbnail, undefined, 'private update embeds must not have a C logo');
-    assert.ok(embed.description.includes('\n\n**Reported message**'), 'paragraph gap matches the title-to-intro gap');
+    assert.ok(embed.description.includes(notice === reporterNotice
+      ? '\n**Reported message**\n'
+      : '\n\n**Reported message**\n'), 'only the highlighted reporter section gap is compacted');
+    assert.ok(embed.description.includes('Original message text\n**Review outcome**\n'), 'reported message and outcome are closer');
+    assert.ok(!embed.description.includes('Original message text\n\n**Review outcome**\n'), 'no double gap at the highlighted transition');
     assert.ok(!embed.description.endsWith('\n\n'), 'no extra spacing after the last section');
     assert.ok(!embed.fields?.length, 'private notice sections are rendered as one description for consistent spacing');
     if (notice === reporterNotice) {
       assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n\nAppropriate action/);
       assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\n\nThank you/);
+      assert.ok(embed.description.includes('<@target>\n**Reported message**\n'), 'member and reported message are closer');
     } else {
       assert.ok(embed.description.startsWith('Your recent message'), 'no artificial gap below moderation title');
       assert.ok(!embed.description.endsWith('\n\u200b'));
@@ -208,6 +214,7 @@ test('report update footers match the visible channel number and repair existing
     const embed = json(notice.embeds[0]);
     assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R104');
     assert.ok(!embed.description.endsWith('\n\u200b'));
+    assert.ok(embed.description.includes('Original message text\n**Review outcome**\n'));
     if (audience === 'reporter') {
       assert.match(embed.description, /Reviewed\n\nYour report/);
       assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\n\nThank you/);
