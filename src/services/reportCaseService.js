@@ -40,7 +40,12 @@ export async function loadReport(client, guild, report, targetId) {
   if (!reporterId) throw new Error('This older report has no identifiable reporter. Please submit it again.');
   const original = text.match(/https?:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)/);
   if (original && original[1] !== guild.id) throw new Error('The reported message belongs to another server.');
+  // An older logged report already has a report number. Do not assign it a
+  // second, newer number when staff first handle that historical message.
+  const originalNumber = Number(report.embeds?.[0]?.title?.match(/\bNew report #(\d+)\b/i)?.[1]
+    || fields.find(field => /^Report$/i.test(field.name))?.value?.match(/#(\d+)/)?.[1]);
   return registerReport(client, report, { guildId: guild.id, reporterId, targetId,
+    ...(Number.isSafeInteger(originalNumber) && originalNumber > 0 ? { number: originalNumber } : {}),
     sourceChannelId: original?.[2], sourceMessageId: original?.[3] });
 }
 
