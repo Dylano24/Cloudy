@@ -12,8 +12,13 @@ import {
     getQueuePageSize,
 } from './musicEmbeds.js';
 import { refreshPlayerMessage } from './playerHandler.js';
+import { prepareMusicQuery } from './musicLinks.js';
+import { logger } from '../../utils/logger.js';
 
-const YOUTUBE_URL_PATTERN = /(?:youtube\.com|youtu\.be)/i;
+const MUSIC_SERVER_BUSY = 'The music server is not responding right now. Please try again in a moment.';
+const LINK_NOT_PLAYABLE = 'That link could not be opened. It may be private, region-locked or not available right now. Try another link or a song name.';
+const RESOLVE_TIMEOUT_MS = 12_000;
+const PLAYABLE_LOAD_TYPES = new Set(['track', 'playlist', 'search', 'TRACK_LOADED', 'PLAYLIST_LOADED', 'SEARCH_RESULT']);
 
 export function getPlayer(client, guildId) {
     return client.riffy?.players?.get(guildId) || null;
@@ -49,7 +54,7 @@ export function assertCanControl(member, player) {
     }
 }
 
-export async function ensurePlayer(client, interaction) {
+export async function ensurePlayer(client, interaction, { node = null } = {}) {
     assertRiffyAvailable(client);
     assertInVoice(interaction.member);
 
@@ -58,12 +63,16 @@ export async function ensurePlayer(client, interaction) {
     let player = getPlayer(client, guildId);
 
     if (!player) {
-        player = client.riffy.createConnection({
+        const options = {
             guildId,
             voiceChannel: interaction.member.voice.channel.id,
             textChannel: interaction.channel.id,
             deaf: true,
-        });
+        };
+        // A link is opened on a node that can play it, so the player lives there too.
+        player = node && typeof client.riffy.createPlayer === 'function'
+            ? client.riffy.createPlayer(node, options)
+            : client.riffy.createConnection(options);
         guildData.playerChannelId = interaction.channel.id;
     }
 
@@ -118,38 +127,90 @@ export async function joinVoiceChannel(client, interaction) {
     );
 }
 
-export async function playQuery(client, interaction, query) {
-    if (YOUTUBE_URL_PATTERN.test(query)) {
-        throw new CloudyError(
-            'YouTube URL blocked',
-            ErrorTypes.USER_INPUT,
-            'YouTube links are not supported. Try a song name instead.',
-        );
-    }
+function isPlayableResult(result) {
+    return Boolean(result) && PLAYABLE_LOAD_TYPES.has(result.loadType)
+        && Array.isArray(result.tracks) && result.tracks.length > 0;
+}
 
-    const { player } = await ensurePlayer(client, interaction);
+function withTimeout(promise, ms) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Music server timed out')), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
-    // Riffy throws a TypeError when the music node answers without a body
-    // (e.g. while Lavalink restarts); show a clear message instead of a crash.
+// Riffy throws a TypeError when the music node answers without a body
+// (e.g. while Lavalink restarts); show a clear message instead of a crash.
+async function resolveQuery(client, interaction, query, node = null) {
     let result;
     try {
-        result = await client.riffy.resolve({
+        result = await withTimeout(client.riffy.resolve({
             query,
             requester: interaction.user,
-        });
+            ...(node ? { node } : {}),
+        }), RESOLVE_TIMEOUT_MS);
     } catch (error) {
         throw new CloudyError(
             `Music search failed: ${error?.message || error}`,
             ErrorTypes.NETWORK,
-            'The music server is not responding right now. Please try again in a moment.',
+            MUSIC_SERVER_BUSY,
         );
     }
     if (!result) {
-        throw new CloudyError(
-            'Music search returned no response',
-            ErrorTypes.NETWORK,
-            'The music server is not responding right now. Please try again in a moment.',
-        );
+        throw new CloudyError('Music search returned no response', ErrorTypes.NETWORK, MUSIC_SERVER_BUSY);
+    }
+    return result;
+}
+
+// Links from YouTube, Spotify, Apple Music, Deezer, SoundCloud and others go to
+// the music server. A link is tried on every connected node, and a new player
+// is created on the node that opened it (no voice join for a link nobody can open).
+async function resolveLinkAndConnect(client, interaction, query) {
+    const existing = getPlayer(client, interaction.guild.id);
+    const nodes = existing
+        ? [existing.node].filter(Boolean)
+        : (Array.isArray(client.riffy.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : []);
+
+    if (!nodes.length) {
+        const { player } = await ensurePlayer(client, interaction);
+        return { player, result: await resolveQuery(client, interaction, query) };
+    }
+
+    let failure = null;
+    let last = null;
+    for (const node of nodes) {
+        try {
+            const result = await resolveQuery(client, interaction, query, node);
+            if (isPlayableResult(result)) {
+                const { player } = await ensurePlayer(client, interaction, { node });
+                return { player, result };
+            }
+            last = result;
+        } catch (error) {
+            failure ||= error;
+        }
+    }
+
+    if (!last && failure) {
+        throw failure;
+    }
+    logger.warn(`[MUSIC] Link could not be opened (${last?.loadType}): ${last?.exception?.message || last?.exception || 'no details'}`);
+    throw new CloudyError(`Link not playable (${last?.loadType})`, ErrorTypes.USER_INPUT, LINK_NOT_PLAYABLE);
+}
+
+export async function playQuery(client, interaction, rawQuery) {
+    assertRiffyAvailable(client);
+    assertInVoice(interaction.member);
+
+    const { query, isLink } = await prepareMusicQuery(rawQuery);
+    let player;
+    let result;
+    if (isLink) {
+        ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
+    } else {
+        ({ player } = await ensurePlayer(client, interaction));
+        result = await resolveQuery(client, interaction, query);
     }
 
     const { loadType, tracks, playlistInfo } = result;
@@ -217,7 +278,7 @@ export async function playQuery(client, interaction, query) {
         };
     }
 
-    throw new CloudyError('No results', ErrorTypes.USER_INPUT, `No results found. (loadType: ${loadType})`);
+    throw new CloudyError('No results', ErrorTypes.USER_INPUT, 'No results found for that query.');
 }
 
 export async function skipTrack(client, interaction) {
