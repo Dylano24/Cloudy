@@ -200,7 +200,7 @@ test('the dashboard adds, pauses and deletes a creator like /auto feed', async (
   const flow = await openDashboard(bot, ui);
   const [add, manage] = ui.log.root.components[0].toJSON().components;
   assert.deepEqual([add.label, manage.label, manage.disabled], ['Add creator', 'Manage creator', true]);
-  assert.equal(ui.log.root.embeds[0].toJSON().title, 'Creator notifications');
+  assert.equal(ui.log.root.embeds[0].toJSON().title, 'Creator feed');
 
   await flow.click('button', 'add');
   assert.equal(ui.log.updates.at(-1).components.length, 3, 'platform, channel and buttons');
