@@ -102,7 +102,7 @@ test('YouTube rejects unrelated sites and unsafe redirects without accessing the
   assert.equal(calls, 0);
   await assert.rejects(
     resolveCreatorAccount('youtube', 'https://youtube.com/@CreatorExample', { fetcher, env: {} }),
-    /valid link/,
+    /unsafe redirect/,
   );
   assert.equal(calls, 1);
 });
@@ -155,8 +155,10 @@ test('common pasted YouTube share links resolve the author from video metadata',
   for (const source of sources) {
     assert.equal(await resolveCreatorAccount('youtube', source, { fetcher, env: {} }), ID, source);
   }
-  assert.equal(urls.length, sources.length);
-  assert.ok(urls.every(url => url === 'https://www.youtube.com/watch?v=' + videoId));
+  // oEmbed is tried first; when it gives no author the watch page is used.
+  const pages = urls.filter(url => !url.includes('/oembed'));
+  assert.equal(pages.length, sources.length);
+  assert.ok(pages.every(url => url === 'https://www.youtube.com/watch?v=' + videoId));
 });
 
 test('YouTube share URLs still reject untrusted hosts before fetching', async () => {

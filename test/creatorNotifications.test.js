@@ -229,3 +229,69 @@ test('slash add accepts only a pasted YouTube link, without a selected platform'
   assert.equal(saved.platform, 'youtube');
   assert.equal(saved.account, CHANNEL_ID);
 });
+
+const html = id => '<html><script>{"channelMetadataRenderer":{"externalId":"' + id + '"}}</script></html>';
+const page = body => ({ status: 200, ok: true, headers: { get: () => null }, text: async () => body });
+const consent = url => ({ status: 303, ok: false, headers: { get: () => 'https://consent.youtube.com/m?continue=' + encodeURIComponent(url) } });
+
+test('a YouTube @handle link resolves to the UC channel and sends the consent cookie', async () => {
+  const { bot } = fakeBot();
+  const seen = [];
+  const fetcher = async (url, options) => { seen.push(options.headers); return page(html(CHANNEL_ID)); };
+  const entry = await addCreatorNotification(bot, GUILD, null, 'https://www.youtube.com/@MrBeast', null, { fetcher, env: {} });
+  assert.equal(entry.account, CHANNEL_ID);
+  assert.match(seen[0].Cookie, /SOCS=/);
+});
+
+test('a consent redirect is never reported as an invalid link; the mobile page is tried', async () => {
+  const { bot } = fakeBot();
+  const urls = [];
+  const fetcher = async url => { urls.push(url); return url.includes('//m.youtube.com/') ? page(html(CHANNEL_ID)) : consent(url); };
+  const entry = await addCreatorNotification(bot, GUILD, null, 'https://www.youtube.com/@MrBeast', null, { fetcher, env: {} });
+  assert.equal(entry.account, CHANNEL_ID);
+  assert.equal(urls.length, 2);
+  const blocked = async url => consent(url);
+  await assert.rejects(
+    addCreatorNotification(bot, GUILD, null, 'https://www.youtube.com/@Other', null, { fetcher: blocked, env: {} }),
+    error => !/valid link/i.test(error.message) && /YOUTUBE_API_KEY|channel/.test(error.message));
+});
+
+test('a video link registers its creator channel, not the video', async () => {
+  const { bot } = fakeBot();
+  const fetcher = async () => page('<script>"videoDetails":{"videoId":"abcdefghijk","channelId":"' + CHANNEL_ID + '"}</script>');
+  const entry = await addCreatorNotification(bot, GUILD, null, 'https://youtu.be/abcdefghijk', null, { fetcher, env: {} });
+  assert.equal(entry.id, 'youtube:' + CHANNEL_ID);
+});
+
+test('a video link resolves through the YouTube API when a key is configured', async () => {
+  const { bot } = fakeBot();
+  const fetcher = async url => url.includes('/videos?')
+    ? { ok: true, json: async () => ({ items: [{ snippet: { channelId: CHANNEL_ID } }] }) }
+    : consent(url);
+  const entry = await addCreatorNotification(bot, GUILD, null, 'https://www.youtube.com/watch?v=abcdefghijk', null, { fetcher, env: { YOUTUBE_API_KEY: 'k' } });
+  assert.equal(entry.account, CHANNEL_ID);
+});
+
+test('an off-site redirect is still refused', async () => {
+  const { bot } = fakeBot();
+  const fetcher = async () => ({ status: 302, ok: false, headers: { get: () => 'https://evil.example/x' } });
+  await assert.rejects(addCreatorNotification(bot, GUILD, null, 'https://www.youtube.com/@MrBeast', null, { fetcher, env: {} }), /unsafe redirect/);
+});
+
+test('Twitch and TikTok profile links register without a selected platform', async () => {
+  const { bot } = fakeBot();
+  const twitch = await addCreatorNotification(bot, GUILD, null, 'https://www.twitch.tv/SomeStreamer', null);
+  const tiktok = await addCreatorNotification(bot, GUILD, null, 'https://www.tiktok.com/@some.user?lang=en', null);
+  assert.deepEqual([twitch.id, tiktok.id], ['twitch:somestreamer', 'tiktok:some.user']);
+});
+
+test('a video link uses oEmbed to find the creator profile, even when the watch page is blocked', async () => {
+  const { bot } = fakeBot();
+  const fetcher = async url => {
+    if (url.includes('/oembed')) return { ok: true, json: async () => ({ author_url: 'https://www.youtube.com/@RickAstleyYT' }) };
+    if (url.includes('/@RickAstleyYT')) return page(html(CHANNEL_ID));
+    return { status: 302, ok: false, headers: { get: () => 'https://www.google.com/sorry/index?continue=x' } };
+  };
+  const entry = await addCreatorNotification(bot, GUILD, null, 'https://youtu.be/dQw4w9WgXcQ', null, { fetcher, env: {} });
+  assert.equal(entry.id, 'youtube:' + CHANNEL_ID);
+});
