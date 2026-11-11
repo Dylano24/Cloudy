@@ -131,6 +131,18 @@ async function startPlayback(client, interaction, player) {
     );
 }
 
+// After a crash or restart Discord can still show the bot in a voice channel.
+// Joining that channel again then sends no new voice details and playback waits
+// for nothing: the bot leaves first.
+async function releaseStaleVoice(client, interaction) {
+    const guildId = interaction.guild.id;
+    const channelId = interaction.guild.members?.me?.voice?.channelId;
+    if (!channelId || getPlayer(client, guildId) || typeof client.riffy?.send !== 'function') return;
+    logger.warn(`[MUSIC] Bot is still shown in voice channel ${channelId} in ${guildId}; leaving it before joining.`);
+    client.riffy.send({ op: 4, d: { guild_id: guildId, channel_id: null, self_mute: false, self_deaf: false } });
+    await new Promise(resolve => setTimeout(resolve, 800));
+}
+
 export function assertCanControl(member, player) {
     if (!canControlMusic(member, player)) {
         throw new CloudyError(
@@ -150,6 +162,7 @@ export async function ensurePlayer(client, interaction, { node = null } = {}) {
     let player = getPlayer(client, guildId);
 
     if (!player) {
+        await releaseStaleVoice(client, interaction);
         const options = {
             guildId,
             voiceChannel: interaction.member.voice.channel.id,
@@ -198,6 +211,7 @@ export async function joinVoiceChannel(client, interaction) {
     }
 
     if (!player) {
+        await releaseStaleVoice(client, interaction);
         player = client.riffy.createConnection({
             guildId,
             voiceChannel: channel.id,
