@@ -19,7 +19,15 @@ export default {
         }
 
         const targetUser = interaction.options.getUser('user');
-        const reason = interaction.options.getString('reason');
+        // The same rule as the "Cloudy report" form: a real reason of at least
+        // three characters. Checked before a report number is reserved.
+        const reason = String(interaction.options.getString('reason') || '').trim();
+        if (reason.length < 3) {
+            return await replyUserError(interaction, {
+                type: ErrorTypes.VALIDATION,
+                message: 'Please provide a valid report reason of at least three characters.',
+            });
+        }
         const messageLink = interaction.options.getString('message_link');
         const evidence = interaction.options.getAttachment('evidence');
         const guildId = interaction.guildId;
