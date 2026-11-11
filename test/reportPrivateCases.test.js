@@ -778,3 +778,16 @@ test('every report staff log ends with a Date section holding the exact time of 
     assert.deepEqual(fields.at(-1), { name: 'Date', value: tag(entry.deletedAt), inline: false });
   }
 });
+
+test('a reported photo or video is linked under Reported message in both notices, instead of "No text available."', async () => {
+  const f = fixture();
+  await registerReport(f.client, f.report, { guildId: f.guild.id, reporterId: f.reporter.id, targetId: f.target.id,
+    sourceChannelId: f.channels.get('original')?.id || 'original', sourceMessageId: 'original-message', reportedMessageText: '',
+    reportedAttachments: [{ name: 'clip.mp4', url: 'https://cloudy.test/deleted-media/abc' }, { name: 'photo.png', url: 'https://cloudy.test/cloudy-embed-media/x.png' }] });
+  const record = await f.submit();
+  for (const entry of Object.values(record.cases)) {
+    const text = json(f.channels.get(entry.channelId).messages.cache.get(entry.messageId).embeds[0]).description;
+    assert.match(text, /\*\*Reported message\*\*\n\[clip\.mp4\]\(https:\/\/cloudy\.test\/deleted-media\/abc\)\n\[photo\.png\]\(https:\/\/cloudy\.test\/cloudy-embed-media\/x\.png\)\n/);
+    assert.doesNotMatch(text, /No text available/);
+  }
+});

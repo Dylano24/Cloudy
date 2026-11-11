@@ -4,6 +4,7 @@ import { formatDuration } from '../utils/embeds.js';
 import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 import { REPORT_MODERATION_FOOTER } from '../utils/reportCasePrivacy.js';
 import { feedEmoji } from './feedEmojiService.js';
+import { reportAttachmentLines } from './reportAttachmentService.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
 import { CLOUDY_STANDARD_FOOTER, withReportCaseNoticeNumber, withReportStaffLogBranding } from '../utils/cloudyFooter.js';
@@ -366,7 +367,11 @@ function reportUpdateEmbed(record, audience, actions, messageText, channelName) 
   const mute = duration > 0 ? `Temporary mute (${formatDuration(duration)})` : 'Temporary mute';
   const measure = removed && timedOut ? `Message removed & ${mute.charAt(0).toLowerCase()}${mute.slice(1)}`
     : timedOut ? mute : 'Message removed';
-  const reportText = truncateMessageLogText(escapeMarkdown(messageText.trim()), 1022) || 'No text available.';
+  // Photos and videos open from a link, also after the message was deleted.
+  const attachmentLines = reportAttachmentLines(record.reportedAttachments);
+  const attachmentText = attachmentLines.join('\n').slice(0, 700);
+  const messageBody = truncateMessageLogText(escapeMarkdown(messageText.trim()), 1022 - (attachmentText ? attachmentText.length + 1 : 0));
+  const reportText = [messageBody, attachmentText].filter(Boolean).join('\n') || 'No text available.';
   const thanks = 'Thank you for bringing this to our attention. We appreciate your contribution to keeping our community fair and safe.';
   const outcome = reporter
     ? actionTaken
