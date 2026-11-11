@@ -236,10 +236,27 @@ test('a search that one node cannot answer is answered by the other node', async
   assert.equal(embed.toJSON().title, 'Now playing');
 });
 
-test('a music node that drops out is tried again for as long as it takes, never given up', () => {
+test('a music node retries with backoff rather than exhausting public WebSocket limits', () => {
   const client = Object.assign(new EventEmitter(), { channels: { cache: new Map() }, guilds: { cache: new Map() } });
   initializeMusic(client);
   assert.equal(client.riffy.options.reconnectTries, Infinity);
-  assert.equal(client.riffy.options.reconnectTimeout, 10_000);
+  assert.equal(client.riffy.options.reconnectTimeout, 60_000);
   client.riffy.removeAllListeners();
+});
+
+test('the music bot stays in voice after the queue finishes until Stop is pressed', async () => {
+  const { getGuildMusicData, deleteGuildMusicData } = await import('../src/services/music/playerStore.js');
+  const guildId = 'no-idle-disconnect-test';
+  const player = makePlayer(async () => false);
+  player.guildId = guildId;
+  const client = { channels: { cache: new Map() }, riffy: new EventEmitter() };
+  client.riffy.players = new Map([[guildId, player]]);
+  setupPlayerHandler(client);
+  client.riffy.emit('queueEnd', player);
+  await new Promise(resolve => setImmediate(resolve));
+  const data = getGuildMusicData(guildId);
+  assert.equal(data.twentyFourSeven, true);
+  assert.equal(data.idleTimeout, null);
+  assert.equal(player.destroyed, false);
+  deleteGuildMusicData(guildId);
 });
