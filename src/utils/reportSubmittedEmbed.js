@@ -20,8 +20,11 @@ export function buildReportSubmittedEmbed({ reportNumber, reportedMemberId, repo
   // The generic embed formatter sanitizes field text for unrelated message types.
   embed.data.fields = fields;
   embed.setColor(0xFFFFFF);
-  // The generic embed builder suppresses nonstandard footer text; set this
-  // explicitly so both paths retain the requested moderation-team signature.
-  embed.data.footer = { text: `${REPORT_MODERATION_FOOTER} • R${reportNumber}` };
-  return embed;
+  // Set the final wire payload explicitly: generic Cloudy embed formatting
+  // must not replace the report-specific footer with the standard branding.
+  // Both the message context menu and /report use this same confirmation.
+  return {
+    ...embed.toJSON(),
+    footer: { text: `${REPORT_MODERATION_FOOTER} • R${reportNumber}` },
+  };
 }
