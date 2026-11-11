@@ -20,6 +20,8 @@ export function buildReportSubmittedEmbed({ reportNumber, reportedMemberId, repo
   // The generic embed formatter sanitizes field text for unrelated message types.
   embed.data.fields = fields;
   embed.setColor(0xFFFFFF);
+  // No logo on this confirmation (owner's choice).
+  delete embed.data.thumbnail;
   // Keep a real EmbedBuilder for the interaction response pipeline.
   // Its ordinary setFooter() is intentionally filtered by Cloudy's generic
   // helper, so apply this report-specific value directly to the serialized data.

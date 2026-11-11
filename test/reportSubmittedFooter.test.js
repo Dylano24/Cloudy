@@ -164,3 +164,13 @@ test('report staff logs always have C logo and standard Cloudy footer at final R
   assert.equal(ensureOutgoingReportStaffLogBranding(original('Report update')).embeds[0].footer.text,
     'Cloudy Inc. • Moderation team • R103', 'outside report-log scope no other response is changed');
 });
+
+test('Report submitted confirmation has no logo, also when a branding layer added one', async () => {
+  const { ensureOutgoingReportConfirmationFooter, withReportSubmittedNumber } = await import('../src/utils/cloudyFooter.js');
+  const embed = buildReportSubmittedEmbed({ reportNumber: 129, reportedMemberId: '123456789012345678', reportedMessageText: 'x', reason: 'y' }).toJSON();
+  assert.equal(embed.thumbnail, undefined);
+  const branded = { embeds: [{ ...embed, thumbnail: { url: 'https://example.test/logo.gif' } }] };
+  const sent = withReportSubmittedNumber(129, () => ensureOutgoingReportConfirmationFooter(branded));
+  assert.equal(sent.embeds[0].thumbnail, undefined);
+  assert.equal(sent.embeds[0].footer.text, 'Cloudy Inc. • Moderation team • R129');
+});

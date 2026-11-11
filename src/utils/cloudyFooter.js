@@ -48,7 +48,10 @@ export function ensureOutgoingReportConfirmationFooter(payload) {
     const embed = source?.toJSON?.() || source;
     if (embed?.title !== 'Report submitted') return source;
     changed = true;
-    return { ...embed, footer: { text: `Cloudy Inc. • Moderation team • R${number}` } };
+    // The confirmation has no logo (owner's choice); removed last, after
+    // every branding or template layer that may have added one.
+    const { thumbnail: _logo, ...withoutLogo } = embed;
+    return { ...withoutLogo, footer: { text: `Cloudy Inc. • Moderation team • R${number}` } };
   });
   return changed ? { ...payload, embeds } : payload;
 }
