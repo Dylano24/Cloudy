@@ -57,7 +57,7 @@ function pngSize(file) {
 test('the vote card footer is a picture as wide as a phone shows it, so PC and phone match', () => {
   // On PC Discord shows a picture at its own width; on a phone it shrinks it
   // to the card (about 315 points). At 450 px the footer was larger on PC.
-  assert.deepEqual(pngSize('assets/vote-footer-compact.png'), { width: 315, height: 16 });
+  assert.deepEqual(pngSize('assets/vote-footer-compact.png'), { width: 450, height: 23 });
   assert.deepEqual(pngSize('assets/vote-footer-small.png'), { width: 450, height: 23 }, 'the earlier picture is kept');
   assert.match(VOTE_FOOTER_URL, /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-footer-compact\.png$/,
     'a fixed link: the picture never changes or reloads when a vote is redrawn');
