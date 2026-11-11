@@ -408,7 +408,7 @@ export async function publishReportOutcome(client, guild, report, record, action
     const channel = await fetchChannel(guild, entry.channelId);
     // Never fall back to an old case number for the private notice. Both
     // audiences must derive the R-number from the visible channel name.
-    const channelMatch = /^report-([1-9]\\d*)$/i.exec(String(channel?.name || ''));
+    const channelMatch = /^report-([1-9]\d*)$/i.exec(String(channel?.name || ''));
     if (!channelMatch) throw new Error('The report case channel has an invalid number.');
     const channelReportNumber = Number(channelMatch[1]);
     const existing = await fetchMessage(channel, entry.messageId);
