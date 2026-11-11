@@ -303,9 +303,9 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.deepEqual(previews, [['**Choices**\n1️⃣ **DZ West**\n2️⃣ **DZ East**\n3️⃣ **DZ South**', 'vote_media:all', 'Preview']]);
   assert.doesNotMatch(JSON.stringify(card), /vote-bars/, 'no bars');
   const footer = card.components.at(-1);
-  assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
-  assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@55bde3bff6463da0970409234c32f8430914bc55/assets/vote-footer-compact.png');
-  assert.equal(footer.items[0].description, undefined, 'no ALT label (it showed as a black line)');
+  assert.equal(footer.type, 10, 'compact native Discord subtext, not an image that expands on desktop');
+  assert.equal(footer.content, '-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
+  assert.doesNotMatch(JSON.stringify(card), /vote-footer-compact\.png/, 'old oversized image never appears');
   assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
   assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
