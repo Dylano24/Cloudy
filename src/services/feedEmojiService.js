@@ -102,12 +102,8 @@ for (const piece of ['lf', 'mf', 'rf', 'le', 'me', 're']) {
     fallback: filled ? '▰' : '▱',
   };
 }
-// The music player's progress bar is green (owner's choice): the original green
-// pieces of the vote bar for the part that has played; the grey open pieces
-// (bar_le/me/re above) stay for the rest.
-for (const piece of ['l', 'm', 'r']) {
-  BASE_EMOJIS[`music_bar_${piece}`] = { name: `mb_${piece}g`, file: `../../assets/vote-emojis/bar_${piece}f.png`, fallback: '▰' };
-}
+// The music player's progress bar uses these same pieces (owner's choice: white
+// for the part that has played, grey for the rest).
 BASE_EMOJIS.vote_icon = { name: 'vote_ballot', file: '../../assets/vote-emojis/vote_icon.gif', fallback: '🗳️' };
 // Ban log icons (owner's choice): the owner's own emojis (link, Rust gamertag,
 // reason; a green reason for an unban) and the server icon, all trimmed and

@@ -17,8 +17,10 @@ const track = { info: { title: 'Song', author: 'Artist', length: 180_000, artwor
 test('now playing: sentence-case title, Cloudy logo and footer, cover art as image, status as a field', () => {
   const embed = buildNowPlayingEmbed(track, { position: 60_000, paused: true, queue: [track] }, { volume: 80, loop: 'none' }).toJSON();
   assert.equal(embed.title, 'Now playing');
-  // The progress bar sits in the text on its own line (plain blocks until the green pieces are uploaded).
-  assert.equal(embed.description, '**Song**\n\n▰▰▰▰▱▱▱▱▱▱▱▱\n1:00 / 3:00');
+  // The progress bar sits in the text on its own line, ten pieces, and there is no "position / length" text
+  // (plain blocks until the white pieces are uploaded).
+  assert.equal(embed.description, '**Song**\n\n▰▰▰▱▱▱▱▱▱▱');
+  assert.equal(buildNowPlayingEmbed({ info: { ...track.info, length: 0 } }, { position: 0, queue: [] }, {}).toJSON().description, '**Song**');
   assert.match(embed.thumbnail.url, /cloudy-c-logo/);
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
