@@ -5,7 +5,7 @@ import { createEmbed } from '../src/utils/embeds.js';
 import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js';
 import { withCloudyFooter, withReportSubmittedNumber, ensureOutgoingReportConfirmationFooter, withReportCaseNoticeNumber, ensureOutgoingReportCaseNoticeFooter, withReportStaffLogBranding, ensureOutgoingReportStaffLogBranding, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
 import { normalizeCloudyEmbed } from '../src/services/cloudyBrandingService.js';
-import { CLOUDY_STANDARD_FOOTER, ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
+import { ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
 
 test('Report submitted confirmation restores the standard footer below its existing Cloudy logo', () => {
   const confirmation = createEmbed({
