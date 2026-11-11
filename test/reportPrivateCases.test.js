@@ -170,7 +170,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
       assert.ok(!embed.description.endsWith('\n\u200b'));
       assert.match(embed.description, /Action taken\n\*\*Moderation action\*\*\n/, 'outcome and moderation action have a compact gap');
       assert.match(embed.description, /Message removed\n\*\*Reason\*\*\n/, 'moderation action and reason have a compact gap');
-      assert.match(embed.description, /Private action reason\n\*\*Auto-close\*\*\n/, 'reason and auto-close have a compact gap');
+      assert.match(embed.description, /Private action reason\n\n\*\*Auto-close\*\*\n/, 'reason and auto-close retain one blank line');
     }
     assert.equal(embed.color, 0xFFFFFF);
   }
