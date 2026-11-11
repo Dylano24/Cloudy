@@ -759,3 +759,22 @@ test('orphaned #89 Report created staff logs are corrected in place without a ca
   await restoreReportCaseTimers(f.client);
   assert.equal(f.logs.messages.cache.size, messagesBefore);
 });
+
+test('every report staff log ends with a Date section holding the exact time of its own event', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  let record = await f.submit();
+  const tag = at => `<t:${Math.floor(at / 1000)}:F>`;
+  const createdAt = 1_800_000_000_000;
+  for (const entry of Object.values(record.cases)) {
+    const fields = json(f.logs.messages.cache.get(entry.createdLogId).embeds[0]).fields;
+    assert.deepEqual(fields.at(-1), { name: 'Date', value: tag(createdAt), inline: false });
+    assert.equal(entry.createdLogAt, createdAt);
+  }
+  t.mock.timers.tick(REPORT_CASE_MS); await settle(); await settle();
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  for (const entry of Object.values(record.cases)) {
+    const fields = json(f.logs.messages.cache.get(entry.deleteLogId).embeds[0]).fields;
+    assert.deepEqual(fields.at(-1), { name: 'Date', value: tag(entry.deletedAt), inline: false });
+  }
+});

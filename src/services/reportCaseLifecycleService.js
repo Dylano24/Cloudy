@@ -167,12 +167,20 @@ const REPORT_LOG_TITLES = {
   target: { created: 'Moderation update', close: 'Moderation update closed', delete: 'Report moderation deleted' },
 };
 
+// The moment the event happened, as Discord's own date and time (shown in each
+// viewer's time zone): the last section of every report staff log.
+function logEventTime(entry, event) {
+  const at = event === 'close' ? entry?.closedAt : event === 'delete' ? entry?.deletedAt : entry?.createdLogAt;
+  return Number.isFinite(Number(at)) && Number(at) > 0 ? Number(at) : Date.now();
+}
+
 function logEmbed(record, audience, event, actorId) {
   const title = REPORT_LOG_TITLES[audience][event === 'close' ? 'close' : event === 'delete' ? 'delete' : 'created'];
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : actorId === 'Unknown' ? 'Unknown' : `<@${actorId}>`, inline: true },
-    { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
+    { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true },
+    { name: 'Date', value: `<t:${Math.floor(logEventTime(record.cases?.[audience], event) / 1000)}:F>`, inline: false }];
   const embed = caseEmbed({ title, fields, footer: { text: CLOUDY_STANDARD_FOOTER } });
   embed.setThumbnail(CLOUDY_LOGO_URL);
   embed.data.footer = { text: CLOUDY_STANDARD_FOOTER };
@@ -184,6 +192,7 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.send) throw new Error('The report-logs channel is unavailable.');
   const entry = record.cases[audience];
+  if (event === 'created' && !entry.createdLogAt) entry.createdLogAt = Date.now();
   // A deletion title is reserved exclusively for unattended 24-hour expiry.
   // Manual Close/Delete actions are logged as closed, never as deleted.
   if (event === 'delete' && entry.deletedBy !== '24-hour expiry') {
