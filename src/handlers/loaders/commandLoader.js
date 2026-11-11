@@ -5,6 +5,7 @@ import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { isPlayerCommand } from '../../config/playerCommands.js';
 import { isGamblingGameCommand, isRetiredGamblingCommand } from '../../config/gamblingCommands.js';
+import { isRetiredCommunityCommand } from '../../config/retiredCommunityCommands.js';
 import { enforceDedicatedCommandChannel } from '../../services/dedicatedChannelService.js';
 import { Mutex } from '../../utils/mutex.js';
 
@@ -106,8 +107,8 @@ async function getAllFiles(directory, fileList = []) {
     const filePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       // Module files are implementation details, not top-level slash commands.
-      // Load every real command directory, including Leveling. The current
-      // production set is exactly Discord's 100 top-level command limit.
+      // Load all real command files; retired community commands are filtered
+      // by their names below, preserving source files and historical data.
       if (entry.name === 'modules') continue;
       await getAllFiles(filePath, fileList);
     } else if (entry.name.endsWith('.js')) {
@@ -136,6 +137,7 @@ export async function loadCommands(client) {
 
       const commandName = command.data.toJSON()?.name;
       if (isRetiredGamblingCommand(commandName)
+        || isRetiredCommunityCommand(commandName)
         || ['gcreate', 'gend', 'gdelete', 'greroll'].includes(commandName)
         || (commandName === 'gamble' && path.basename(filePath) === 'gamble.js')) {
         logger.info(`[COMMAND_LOAD] /${commandName} is retired and was skipped.`);
