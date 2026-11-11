@@ -89,27 +89,41 @@ export function formatAutomationDashboard(session) {
     ? `\n**Next run:** <t:${Math.floor(draft.nextRunAt / 1000)}:F>`
     : '';
   const invalidInformation = session.validationError || Boolean(session.scheduleInputs);
+  // Disabled Discord buttons cannot explain themselves. Show the exact
+  // prerequisite in the dashboard instead of leaving Start looking broken.
+  const startGuidance = invalidInformation
+    ? 'Correct the invalid information before saving or starting.'
+    : dirty
+      ? 'Save your changes before using Start.'
+      : !session.saved
+        ? 'Complete the setup and choose Save before using Start.'
+        : isFinished
+          ? 'This one-time giveaway has finished. Set a future date in Schedule.'
+          : isWipe && status === 'running'
+            ? 'Running — the giveaway starts automatically before the next detected Rust wipe, not immediately.'
+            : '';
   const embed = new EmbedBuilder()
     .setColor(invalidInformation ? 0xE53935 : isVote ? 0xFFFFFF : 0xDC2626)
     .setTitle(invalidInformation ? 'Wrong information' : label)
     .setThumbnail(CLOUDY_LOGO_URL)
     .setDescription(`${isVote ? 'Manage your selected vote.' : 'Manage automatic giveaways from one dashboard.'} All changes stay private until a scheduled post is published.\n\u200B\n${content}\n\n**Channel:** ${draft.channelId ? `<#${draft.channelId}>` : 'Select a channel'}\n**Schedule:** ${schedule}${starts}\n**Duration:** ${shortAutomationDuration(draft.durationMinutes)}${isVote ? `\n**Media:** ${draft.mediaLibrary?.length || 0} saved (up to 500)` : ''}${isWipe ? '' : `\n**Randomize:** ${draft.randomize
       ? (isVote ? 'On — shuffle voting options and media' : 'On — choose a random prize')
-      : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}` }\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
+      : 'Off'}${!isVote && draft.randomize && draft.prizes?.length > 1 ? '\n*Preview shows a sample prize; the actual prize is chosen when posting.*' : ''}` }\n**Status:** ${isFinished ? 'completed — choose a new date to run again' : status}${next}${dirty ? '\n\n*Unsaved changes — choose Save before Start.*' : ''}${startGuidance ? `\n\n**Start:** ${startGuidance}` : ''}${session.notice ? `\n\n**Notice:** ${session.notice}` : ''}`)
     .setFooter({ text: CLOUDY_BRANDING });
 
-  // Auto Giveaway stays within Discord's five-row limit:
-  // 1. Edit text / Edit claim / Duration & winners
-  // 2. Code / Schedule / Start / Pause
-  // 3. Save / Delete / Back
-  // 4. Posting channel, 5. Tag. Schedule mode is picked in the modal.
+  // Auto Giveaway uses exactly five Discord rows. Keep Duration & winners
+  // beside Schedule (two buttons only so Discord mobile does not wrap them):
+  // 1. Type / Edit text / Kit & role (or Edit claim)
+  // 2. Duration & winners / Schedule / (Code for Standard)
+  // 3. Start / Pause / Save / Delete / Back
+  // 4. Posting channel
+  // 5. Tag
   const startButton = button(id, 'start', status === 'paused' ? 'Resume' : 'Start',
     ButtonStyle.Success, status === 'running' || dirty || !session.saved || Boolean(isFinished)
       || Boolean(session.scheduleInputs) || Boolean(session.validationError));
   const pauseButton = button(id, 'pause', 'Pause', ButtonStyle.Secondary, status !== 'running');
   const saveButton = button(id, 'save', 'Save', ButtonStyle.Success,
-    Boolean(session.scheduleInputs) || Boolean(session.validationError)
-      );
+    Boolean(session.scheduleInputs) || Boolean(session.validationError));
   const deleteButton = button(id, 'delete', session.confirmDelete ? 'Confirm delete' : 'Delete',
     ButtonStyle.Danger, !session.selectedJobId);
   const actions = new ActionRowBuilder().addComponents(...(isVote ? [
@@ -120,16 +134,16 @@ export function formatAutomationDashboard(session) {
     button(id, 'type', 'Type'),
     button(id, 'text', 'Edit text', ButtonStyle.Primary),
     button(id, isWipe ? 'kit' : 'claim', isWipe ? 'Kit & role' : 'Edit claim'),
-    button(id, 'timing', 'Duration & winners'),
   ]));
   const controls = new ActionRowBuilder().addComponents(...(isVote
     ? [startButton, pauseButton, saveButton, deleteButton]
     : [
-      ...(isWipe ? [] : [button(id, 'code', 'Code')]),
-      button(id, 'schedule', 'Schedule'), startButton, pauseButton,
+      button(id, 'timing', 'Duration & winners'),
+      button(id, 'schedule', 'Schedule'),
+      ...(!isWipe ? [button(id, 'code', 'Code')] : []),
     ]));
   const saveRow = !isVote ? new ActionRowBuilder().addComponents(
-    saveButton, deleteButton, button(id, 'list', 'Back'),
+    startButton, pauseButton, saveButton, deleteButton, button(id, 'list', 'Back'),
   ) : null;
   const channelMenu = new ChannelSelectMenuBuilder()
     .setCustomId(`${AUTOMATION_BUILDER_PREFIX}channel:${id}`)
@@ -554,6 +568,18 @@ function applyModal(session, interaction, action) {
       if (session.draft.state === 'running') throw new RangeError('Pause this automation before changing its type.');
       session.draft.giveawayType = type;
       session.draft.schedule = type === 'wipe' ? 'wipe' : 'repeat';
+      // A standard giveaway defaults to a 1-day duration and a 2-hour
+      // before-wipe offset. That combination can never be saved as a wipe
+      // giveaway. Start with a valid interval instead; allow later edits.
+      if (type === 'wipe') {
+        session.draft.server = '';
+        if (session.draft.durationMinutes >= 10080) {
+          session.draft.durationMinutes = 1440;
+        }
+        if (session.draft.beforeMinutes <= session.draft.durationMinutes) {
+          session.draft.beforeMinutes = Math.min(10080, session.draft.durationMinutes + 1440);
+        }
+      }
       session.draft.startAt = null;
       session.draft.nextRunAt = null;
       session.draft.completedAt = null;

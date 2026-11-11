@@ -199,11 +199,11 @@ test('auto giveaway matches the normal giveaway preview, editing and posting flo
   assert.match(f.view.embeds[1].description, /Your prize/);
   assert.match(f.view.embeds[2].description, /Prize conditions/);
   assert.deepEqual(f.view.components[0].toJSON().components.map(b => b.label),
-    ['Type', 'Edit text', 'Edit claim', 'Duration & winners']);
+    ['Type', 'Edit text', 'Edit claim']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(b => b.label),
-    ['Code', 'Schedule', 'Start', 'Pause']);
+    ['Duration & winners', 'Schedule', 'Code']);
   assert.deepEqual(f.view.components[2].toJSON().components.map(b => b.label),
-    ['Save', 'Delete', 'Back']);
+    ['Start', 'Pause', 'Save', 'Delete', 'Back']);
   assert.equal(f.view.components[3].toJSON().components[0].type, 8,
     'posting channel stays in the fourth row');
   assert.equal(f.view.components[4].toJSON().components[0].type, 3,
@@ -342,9 +342,9 @@ test('historical Rust wipe auto giveaway opens with kit controls and no claim pr
   await f.action(id, 'select', ['legacy']);
   assert.equal(f.view.embeds.length, 2, 'no claim preview');
   assert.deepEqual(f.view.components[0].toJSON().components.map(x => x.label),
-    ['Type', 'Edit text', 'Kit & role', 'Duration & winners']);
+    ['Type', 'Edit text', 'Kit & role']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(x => x.label),
-    ['Schedule', 'Start', 'Pause']);
+    ['Duration & winners', 'Schedule']);
   await f.action(id, 'schedule');
   assert.deepEqual(f.modal.components.map(x => x.label),
     ['Connected Rust server name', 'Before wipe', 'Duration']);
@@ -362,10 +362,14 @@ test('Rust wipe auto giveaway saves as independent no-claim kit job and syncs te
     ['standard', 'wipe']);
   await f.submit(id, 'type', { giveawayType: ['wipe'] });
   assert.equal(f.view.embeds.length, 2, 'wipe has no claim preview');
+  assert.match(f.view.embeds[0].toJSON().description, /\*\*Schedule:\*\* 2d before/);
+  assert.match(f.view.embeds[0].toJSON().description, /Save your changes before using Start/);
+  assert.equal(f.view.components[2].toJSON().components[0].disabled, true,
+    'Start is disabled until the required settings are saved');
   assert.deepEqual(f.view.components[0].toJSON().components.map(x => x.label),
-    ['Type', 'Edit text', 'Kit & role', 'Duration & winners']);
+    ['Type', 'Edit text', 'Kit & role']);
   assert.deepEqual(f.view.components[1].toJSON().components.map(x => x.label),
-    ['Schedule', 'Start', 'Pause']);
+    ['Duration & winners', 'Schedule']);
   await f.action(id, 'kit');
   assert.deepEqual(f.modal.components.map(x => (x.component || x.components[0]).custom_id),
     ['kit', 'winnerRole']);
@@ -385,6 +389,8 @@ test('Rust wipe auto giveaway saves as independent no-claim kit job and syncs te
     ['Connected Rust server name', 'Before wipe', 'Duration']);
   await f.submit(id, 'schedule', { server: 'Cloudy Rust', before: '20m', duration: '5m' });
   await f.action(id, 'save');
+  assert.equal(f.view.components[2].toJSON().components[0].disabled, false,
+    'Start becomes clickable after a valid Save');
   const config = (await getWipeAutomationConfig(f.client, GUILD)).giveawayJobs[0];
   assert.equal(config.giveawayType, 'wipe');
   assert.equal(config.schedule, 'wipe');
@@ -438,15 +444,17 @@ test('Auto Giveaway uses the approved three button rows while vote stays unchang
         ['Start', 'Pause', 'Save', 'Delete']);
     } else {
       assert.deepEqual(rows[0].map(item => item.label),
-        ['Type', 'Edit text', 'Edit claim', 'Duration & winners']);
+        ['Type', 'Edit text', 'Edit claim']);
       assert.deepEqual(rows[1].map(item => item.label),
-        ['Code', 'Schedule', 'Start', 'Pause']);
+        ['Duration & winners', 'Schedule', 'Code']);
       assert.deepEqual(rows[2].map(item => item.label),
-        ['Save', 'Delete', 'Back']);
-      assert.equal(rows[1][2].disabled, true, 'Start disabled until saved');
-      assert.equal(rows[1][3].disabled, true, 'Pause disabled until running');
-      assert.equal(rows[2][0].disabled, false, 'Save available');
-      assert.equal(rows[2][1].disabled, true, 'Delete disabled until saved');
+        ['Start', 'Pause', 'Save', 'Delete', 'Back']);
+      assert.equal(rows[2][0].disabled, true, 'Start disabled until saved');
+      assert.equal(rows[2][1].disabled, true, 'Pause disabled until running');
+      assert.equal(rows[2][2].disabled, false, 'Save available');
+      assert.equal(rows[2][3].disabled, true, 'Delete disabled until saved');
+      assert.match(f.view.embeds[0].toJSON().description,
+        /Complete the setup and choose Save before using Start/);
     }
     await f.action(id, 'channel', [CHANNEL]);
     if (kind === 'vote') {
