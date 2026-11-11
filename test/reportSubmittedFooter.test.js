@@ -120,3 +120,25 @@ test('final REST branding cannot replace R113 with stale R103 and R106 across pr
     embeds: [{ title: 'Report update', footer: { text: 'R103' } }],
   }).embeds[0].footer.text, 'R103', 'outside scoped notice only original footer remains');
 });
+
+test('each independent report dynamically keeps its own channel number during concurrent updates', async () => {
+  const make = (number, title, staleNumber) => withReportCaseNoticeNumber(number, async () => {
+    await Promise.resolve();
+    return ensureOutgoingReportCaseNoticeFooter({ embeds: [{
+      title, footer: { text: `Cloudy Inc. • Moderation team • R${staleNumber}` },
+    }] });
+  });
+  const [report113, moderation113, report114, moderation114] = await Promise.all([
+    make(113, 'Report update', 106),
+    make(113, 'Moderation update', 103),
+    make(114, 'Report update', 113),
+    make(114, 'Moderation update', 103),
+  ]);
+  assert.deepEqual([report113, moderation113, report114, moderation114]
+    .map(response => response.embeds[0].footer.text), [
+    'Cloudy Inc. • Moderation team • R113',
+    'Cloudy Inc. • Moderation team • R113',
+    'Cloudy Inc. • Moderation team • R114',
+    'Cloudy Inc. • Moderation team • R114',
+  ]);
+});
