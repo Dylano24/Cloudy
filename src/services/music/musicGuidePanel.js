@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../../utils/logger.js';
-import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../cloudyChannelResolver.js';
+import { musicChannelFor, resolveOwnerMusicChannel } from './musicChannel.js';
 import { buildMusicGuideEmbed, MUSIC_GUIDE_DESCRIPTION } from './musicEmbeds.js';
 
 const MUSIC_GUIDE_KEY_PREFIX = 'cloudy:music:guide:';
@@ -70,16 +70,14 @@ export async function reconcileMusicGuideMessage(client, guildId = process.env.G
         return { ok: false, reason: 'unavailable' };
     }
 
-    // The static guide belongs to Cloudy Inc.'s configured home guild only.
-    // Do not create unsolicited messages when the bot is invited elsewhere.
-    const guild = client.guilds?.cache?.get?.(guildId);
+    // The static guide belongs to the owner's music channel, else Cloudy Inc.'s
+    // configured home guild only. Do not create unsolicited messages when the
+    // bot is invited elsewhere.
+    const owner = await resolveOwnerMusicChannel(client);
+    const guild = owner?.channel.guild || client.guilds?.cache?.get?.(guildId);
     if (!guild) return { ok: false, reason: 'guild_missing' };
 
-    const channel = findCloudyChannelByAlias(
-        guild,
-        getCloudyChannelDefinition('music')?.aliases || [],
-        { textOnly: true },
-    );
+    const channel = owner?.channel || musicChannelFor(guild);
     if (!channel?.isTextBased?.() || channel.isThread?.()) {
         return { ok: false, reason: 'channel_missing' };
     }
@@ -95,7 +93,7 @@ export async function reconcileMusicGuideMessage(client, guildId = process.env.G
         return { ok: false, reason: 'missing_permissions' };
     }
 
-    const key = MUSIC_GUIDE_KEY_PREFIX + guildId;
+    const key = MUSIC_GUIDE_KEY_PREFIX + guild.id;
     const saved = await client.db.get(key, null, { strict: true });
     if (saved?.messageId && saved.channelId === channel.id) {
         try {

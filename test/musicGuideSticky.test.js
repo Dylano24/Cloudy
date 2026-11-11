@@ -76,3 +76,37 @@ test('at startup the guide is placed in the home server\'s music channel when it
     if (previous === undefined) delete process.env.GUILD_ID; else process.env.GUILD_ID = previous;
   }
 });
+
+test('the owner\'s music channel works in any server, by channel id or by server id', async () => {
+  const { MUSIC_CHANNEL_ID, resolveOwnerMusicChannel, musicChannelFor } = await import('../src/services/music/musicChannel.js');
+  const textChannel = (id, name, guild) => ({ id, name, guild, type: ChannelType.GuildText, isTextBased: () => true, isThread: () => false, rawPosition: 0 });
+  const guild = { id: 'some-guild', channels: { cache: new Map() } };
+  const owned = textChannel(MUSIC_CHANNEL_ID, 'player-room', guild);
+  guild.channels.cache.set(MUSIC_CHANNEL_ID, owned);
+  guild.channels.cache.set('other', textChannel('other', 'music', guild));
+
+  assert.equal(musicChannelFor(guild).id, MUSIC_CHANNEL_ID, 'the owner\'s channel wins over a channel named music');
+  assert.equal((await resolveOwnerMusicChannel({ channels: { cache: new Map([[MUSIC_CHANNEL_ID, owned]]) } })).via, 'channel');
+
+  const serverGuild = { id: MUSIC_CHANNEL_ID, channels: { cache: new Map() } };
+  serverGuild.channels.cache.set('m', textChannel('m', 'music', serverGuild));
+  const viaServer = await resolveOwnerMusicChannel({ channels: { cache: new Map(), fetch: async () => { throw new Error('Unknown Channel'); } }, guilds: { cache: new Map([[MUSIC_CHANNEL_ID, serverGuild]]) } });
+  assert.deepEqual([viaServer.via, viaServer.channel.id], ['server', 'm']);
+  assert.equal(await resolveOwnerMusicChannel({ channels: { cache: new Map() }, guilds: { cache: new Map() } }), null);
+
+  // A member message in that channel moves the guide even when the server is not the home server.
+  const timers = [];
+  const previous = process.env.GUILD_ID;
+  process.env.GUILD_ID = 'a-different-home';
+  const original = globalThis.setTimeout;
+  globalThis.setTimeout = (...args) => { const timer = { unref() {} }; timers.push(args); return timer; };
+  try {
+    const bot = { user: { id: 'bot' } };
+    owned.client = bot;
+    const message = { guild: { ...guild, client: bot }, channel: owned, author: { bot: false }, client: bot };
+    assert.equal(scheduleMusicGuide(message), true);
+  } finally {
+    globalThis.setTimeout = original;
+    if (previous === undefined) delete process.env.GUILD_ID; else process.env.GUILD_ID = previous;
+  }
+});
