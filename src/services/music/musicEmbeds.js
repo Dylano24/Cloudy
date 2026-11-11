@@ -53,9 +53,11 @@ export function formatMusicProgress(positionMs, lengthMs, steps = 12) {
     return '▰'.repeat(filled) + '▱'.repeat(steps - filled);
 }
 
-// A green progress bar of rounded pieces (owner's choice): green for the part
-// that has played, grey for the rest. Plain blocks show until the pieces are uploaded.
-export function musicProgressBar(positionMs, lengthMs, steps = 12) {
+// A progress bar of rounded pieces (owner's choice): white for the part that has
+// played, grey for the rest, the same pieces as the vote bar. Ten pieces: twelve
+// wrapped to a second line in Discord on a PC. Plain blocks show until the pieces
+// are uploaded.
+export function musicProgressBar(positionMs, lengthMs, steps = 10) {
     const length = Number(lengthMs);
     if (!Number.isFinite(length) || length <= 0) return null;
     const position = Number(positionMs);
@@ -63,7 +65,7 @@ export function musicProgressBar(positionMs, lengthMs, steps = 12) {
     const filled = Math.round(fraction * steps);
     return Array.from({ length: steps }, (_, index) => {
         const end = index === 0 ? 'l' : index === steps - 1 ? 'r' : 'm';
-        return index < filled ? feedEmoji(`music_bar_${end}`) : feedEmoji(`bar_${end}e`);
+        return feedEmoji(`bar_${end}${index < filled ? 'f' : 'e'}`);
     }).join('');
 }
 
@@ -152,17 +154,15 @@ export function buildNowPlayingEmbed(track, player, guildData) {
         ? (requester.username || requester.tag || 'Unknown')
         : 'Unknown';
 
-    const position = formatDuration(player?.position || 0);
-    const duration = formatDuration(track?.info?.length || 0);
-
     const queued = player?.queue?.length || 0;
     const album = getAlbumName(track);
     const progressBar = musicProgressBar(player?.position || 0, track?.info?.length);
     // The track's cover is the image; the Cloudy logo stays the thumbnail. The
-    // green bar sits under the title on its own line, so it never wraps.
+    // white bar sits under the title on its own line and is the only progress
+    // indicator (owner's choice: no "position / length" text next to it).
     return createEmbed({
         title: 'Now playing',
-        description: `**${track?.info?.title || 'Unknown track'}**\n\n${progressBar ? `${progressBar}\n` : ''}${position} / ${duration}`,
+        description: `**${track?.info?.title || 'Unknown track'}**${progressBar ? `\n\n${progressBar}` : ''}`,
         color: 'primary',
         fields: [
             { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
