@@ -6,7 +6,7 @@ import { REPORT_MODERATION_FOOTER } from '../utils/reportCasePrivacy.js';
 import { feedEmoji } from './feedEmojiService.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
-import { CLOUDY_STANDARD_FOOTER, withReportCaseNoticeNumber } from '../utils/cloudyFooter.js';
+import { CLOUDY_STANDARD_FOOTER, withReportCaseNoticeNumber, withReportStaffLogBranding } from '../utils/cloudyFooter.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { TICKET_EVENT_STYLES } from '../utils/ticket/ticketLogging.js';
@@ -39,7 +39,7 @@ async function saveCasePresentationField(client, key, audience, field, value) {
     if (!latest?.cases?.[audience]) return latest;
     // A deleted channel still needs its essential close/delete log IDs. Never
     // restore a private notification after deletion.
-    if (latest.cases[audience].deletedAt && !field.endsWith('LogId') && !['logTitlesUpgraded', 'reportLogPresentationV3'].includes(field)) return latest;
+    if (latest.cases[audience].deletedAt && !field.endsWith('LogId') && !['logTitlesUpgraded', 'reportLogPresentationV3', 'reportLogPresentationV4'].includes(field)) return latest;
     latest.cases[audience][field] = value;
     return save(client, latest);
   });
@@ -173,6 +173,8 @@ function logEmbed(record, audience, event, actorId) {
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
     { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
   const embed = caseEmbed({ title, fields, footer: { text: CLOUDY_STANDARD_FOOTER } });
+  embed.setThumbnail(CLOUDY_LOGO_URL);
+  embed.data.footer = { text: CLOUDY_STANDARD_FOOTER };
   if (event === 'close' || event === 'delete') setPreservedEmbedColor(embed, TICKET_EVENT_STYLES[event].color);
   return embed;
 }
@@ -192,7 +194,8 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
     embeds: [logEmbed(record, audience, event, actorId)],
     components: [],
     allowedMentions: { parse: [] } };
-  const message = existing?.author?.id === client.user.id ? await existing.edit(payload) : await logs.send(payload);
+  const message = await withReportStaffLogBranding(() =>
+    existing?.author?.id === client.user.id ? existing.edit(payload) : logs.send(payload));
   entry[key] = message.id;
   if (persistField) {
     return saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, key, message.id);
@@ -208,7 +211,7 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
 // Report # field disagreed, leaving obsolete R-numbers visible in staff logs.
 async function upgradeExistingReportLogPresentation(client, guild, record, audience) {
   const entry = record.cases?.[audience];
-  if (!entry || entry.reportLogPresentationV3) return;
+  if (!entry || entry.reportLogPresentationV4) return;
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.messages?.fetch) return;
 
@@ -241,9 +244,9 @@ async function upgradeExistingReportLogPresentation(client, guild, record, audie
     delete updated.data.timestamp;
     updated.setThumbnail(CLOUDY_LOGO_URL);
     setPreservedEmbedColor(updated, desiredColor);
-    await message.edit({ embeds: [updated], components: [] });
+    await withReportStaffLogBranding(() => message.edit({ embeds: [updated], components: [] }));
   }
-  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'reportLogPresentationV3', true);
+  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'reportLogPresentationV4', true);
 }
 async function refreshLogControls(client, guild, record, audience) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
@@ -256,12 +259,12 @@ async function refreshLogControls(client, guild, record, audience) {
 
   const closed = await fetchMessage(logs, entry.closeLogId);
   if (closed?.author?.id === client.user.id) {
-    await closed.edit({
+    await withReportStaffLogBranding(() => closed.edit({
       content: null,
       embeds: [logEmbed(record, audience, 'close', entry.closedBy || 'Unknown')],
       components: [],
       allowedMentions: { parse: [] },
-    });
+    }));
   }
 
   const deleted = await fetchMessage(logs, entry.deleteLogId);
@@ -637,9 +640,9 @@ export async function restoreReportCaseTimers(client) {
         for (const audience of audiences) {
           const entry = record.cases[audience];
           if (!entry) continue;
-          if (!entry.reportLogPresentationV3) {
+          if (!entry.reportLogPresentationV4) {
             await upgradeExistingReportLogPresentation(client, guild, record, audience);
-            entry.reportLogPresentationV3 = true;
+            entry.reportLogPresentationV4 = true;
           }
           if (!entry.logControlsCleaned) {
             await refreshLogControls(client, guild, record, audience);
