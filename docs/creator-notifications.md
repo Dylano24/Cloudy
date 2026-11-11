@@ -6,7 +6,7 @@ Cloudy checks configured accounts every five minutes and posts a direct content 
 
 `/creator-notify` opens a private dashboard, built like `/auto feed` (it closes after 5 minutes of inactivity):
 
-- **Add creator** — choose the channel (or **Use platform channel** for the existing `#youtube`, `#twitch` or `#tiktok` channel), then paste the creator's profile link in the form. The platform is detected from the link (YouTube `/@handle`, `/channel/UC...`, `/c/` and `/user/`, video links such as `youtu.be`; Twitch and TikTok profile links). Choose a platform on the channel step only when entering a bare username.
+- **Add creator** — choose the channel, then paste the creator's profile link in the form. The platform is detected from the link (YouTube `/@handle`, `/channel/UC...`, `/c/` and `/user/`, video links such as `youtu.be`; Twitch and TikTok profile links). Choose a platform on the channel step only when entering a bare username.
 - **Manage creator** — pick a creator, then **Change channel**, **Pause creator** / **Resume creator** (a resumed creator skips anything posted while paused) or **Delete creator**. A server can monitor up to 25 creators.
 
 Errors are red and disappear after 10 seconds. The first successful check initializes a baseline without reposting older content. Only unseen content is announced; the recent IDs are stored in PostgreSQL between restarts.

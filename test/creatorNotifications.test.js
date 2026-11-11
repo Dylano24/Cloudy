@@ -179,10 +179,12 @@ async function openDashboard(bot, ui) {
   const sid = ui.log.root.components[0].toJSON().components[0].custom_id.split(':')[2];
   const click = (type, value) => handleCreatorControls(
     ui.make(SESSION_PREFIX + type + ':' + sid + (value ? ':' + value : ''), 'button'), bot);
+  const pick = channelId => handleCreatorControls(
+    ui.make(SESSION_PREFIX + 'channel:' + sid, 'channel', { values: [channelId] }), bot);
   const submit = link => handleCreatorControls(ui.make(SESSION_PREFIX + 'submit:' + sid, 'modal', {
     fields: { getTextInputValue: () => link },
   }), bot);
-  return { sid, click, submit };
+  return { sid, click, pick, submit };
 }
 
 test('creator-notify is one global command without options that opens a dashboard', () => {
@@ -202,13 +204,15 @@ test('the dashboard adds, pauses and deletes a creator like /auto feed', async (
 
   await flow.click('button', 'add');
   assert.equal(ui.log.updates.at(-1).components.length, 3, 'platform, channel and buttons');
-  await flow.click('button', 'default');
+  await flow.pick(CHANNEL);
   assert.equal(ui.log.modals[0].toJSON().title, 'Add creator');
+  assert.match(JSON.stringify(ui.log.modals[0].toJSON()), /"placeholder":"https:\/\/www\.youtube\.com\/@"/);
   await flow.submit('https://youtube.com/channel/' + CHANNEL_ID);
   const detail = ui.log.updates.at(-1).embeds[0].toJSON();
   assert.match(detail.fields[0].name, /^YouTube/);
+  assert.match(detail.fields[0].value, /\*\*Status:\*\*[^\n]*\n\nExisting posts/);
   const [saved] = await listCreatorNotifications(bot, GUILD);
-  assert.deepEqual([saved.id, saved.channelId, saved.enabled], ['youtube:' + CHANNEL_ID, null, true]);
+  assert.deepEqual([saved.id, saved.channelId, saved.enabled], ['youtube:' + CHANNEL_ID, CHANNEL, true]);
 
   await flow.click('button', 'pause');
   assert.equal((await listCreatorNotifications(bot, GUILD))[0].enabled, false);
@@ -227,13 +231,13 @@ test('a chosen channel is saved and can be changed from the manage screen', asyn
   const ui = fakeUi(bot);
   const flow = await openDashboard(bot, ui);
   await flow.click('button', 'add');
-  await handleCreatorControls(ui.make(SESSION_PREFIX + 'channel:' + flow.sid, 'channel', { values: [CHANNEL] }), bot);
+  await flow.pick(CHANNEL);
   assert.equal(ui.log.modals.length, 1);
   await flow.submit('twitch.tv/SomeStreamer');
   assert.equal((await listCreatorNotifications(bot, GUILD))[0].channelId, CHANNEL);
   await flow.click('button', 'channel');
-  await flow.click('button', 'default');
-  assert.equal((await listCreatorNotifications(bot, GUILD))[0].channelId, null);
+  await flow.pick('1540000000000000000');
+  assert.equal((await listCreatorNotifications(bot, GUILD))[0].channelId, '1540000000000000000');
 });
 
 test('dashboard errors are red and remove themselves after exactly ten seconds', async t => {
@@ -242,7 +246,7 @@ test('dashboard errors are red and remove themselves after exactly ten seconds',
   const flow = await openDashboard(bot, ui);
   t.mock.timers.enable({ apis: ['setTimeout'] });
   await flow.click('button', 'add');
-  await flow.click('button', 'default');
+  await flow.pick(CHANNEL);
   await flow.submit('not a link');
   const embed = ui.log.followUps[0].embeds[0].toJSON();
   assert.equal(embed.title, 'Creator notification error');
