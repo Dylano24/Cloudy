@@ -279,7 +279,9 @@ function compactHighlightedReportGaps(description) {
     .replace(/(\*\*Reported message\*\*\n[\s\S]*?)\n\n(?=\*\*Review outcome\*\*\n)/, '$1\n')
     // Only moderation notices contain these three adjoining sections.
     .replace(/(\*\*Review outcome\*\*\n[\s\S]*?)\n\n(?=\*\*Moderation action\*\*\n)/, '$1\n')
-    .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n');
+    .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n')
+    // Restore this gap on both new and previously compacted Discord messages.
+    .replace(/(\*\*Reason\*\*\n[^\n]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n');
 }
 
 function reportNoticeDescription(intro, fields) {
