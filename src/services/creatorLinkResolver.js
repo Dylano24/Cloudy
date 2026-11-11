@@ -39,7 +39,7 @@ function youtubeReference(raw) {
   let parts;
   try { parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); }
   catch { throw new Error(NO_ID); }
-  if (parts.length === 2 && parts[0] === 'channel' && CHANNEL_ID.test(parts[1])) {
+  if (parts.length >= 2 && parts[0] === 'channel' && CHANNEL_ID.test(parts[1])) {
     return { id: parts[1] };
   }
   const first = parts[0] || '';
@@ -131,7 +131,9 @@ export async function resolveCreatorAccount(platform, raw, { fetcher = fetch, en
   // Prefer the official API when configured; the public channel page works
   // without a key, so normal creator links need no extra service setup.
   try {
-    const id = await youtubeApiId(reference, env, fetcher);
+    // API credentials are optional. An API outage must not prevent the
+    // public YouTube page fallback from resolving the channel.
+    const id = await youtubeApiId(reference, env, fetcher).catch(() => null);
     if (id) return id;
     const pageId = await fetchYouTubePage(reference.page, fetcher);
     if (pageId) return pageId;
