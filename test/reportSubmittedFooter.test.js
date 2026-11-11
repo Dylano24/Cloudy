@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createEmbed } from '../src/utils/embeds.js';
 import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js';
-import { withCloudyFooter, withReportSubmittedNumber, ensureOutgoingReportConfirmationFooter, withReportCaseNoticeNumber, ensureOutgoingReportCaseNoticeFooter } from '../src/utils/cloudyFooter.js';
+import { withCloudyFooter, withReportSubmittedNumber, ensureOutgoingReportConfirmationFooter, withReportCaseNoticeNumber, ensureOutgoingReportCaseNoticeFooter, withReportStaffLogBranding, ensureOutgoingReportStaffLogBranding, CLOUDY_STANDARD_FOOTER } from '../src/utils/cloudyFooter.js';
 import { normalizeCloudyEmbed } from '../src/services/cloudyBrandingService.js';
-import { CLOUDY_STANDARD_FOOTER, ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
+import { ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
 
 test('Report submitted confirmation restores the standard footer below its existing Cloudy logo', () => {
   const confirmation = createEmbed({
@@ -141,4 +141,26 @@ test('each independent report dynamically keeps its own channel number during co
     'Cloudy Inc. • Moderation team • R114',
     'Cloudy Inc. • Moderation team • R114',
   ]);
+});
+
+test('report staff logs always have C logo and standard Cloudy footer at final REST boundary', async () => {
+  const titles = ['Report update', 'Moderation update', 'Report update closed',
+    'Moderation update closed', 'Report update deleted', 'Report moderation deleted'];
+  const original = title => ({
+    embeds: [{ title, fields: [{ name: 'Report', value: '#116' }],
+      footer: { text: 'Cloudy Inc. • Moderation team • R103' } }],
+  });
+  const outputs = await Promise.all(titles.map(title => withReportStaffLogBranding(async () => {
+    await Promise.resolve();
+    return ensureOutgoingReportStaffLogBranding(withCloudyFooter(original(title)));
+  })));
+  for (let i = 0; i < titles.length; i++) {
+    const embed = outputs[i].embeds[0];
+    assert.equal(embed.title, titles[i]);
+    assert.equal(embed.fields[0].value, '#116');
+    assert.equal(embed.footer?.text, CLOUDY_STANDARD_FOOTER);
+    assert.match(embed.thumbnail?.url || '', /cloudy-c-logo-auf-auf\.gif/);
+  }
+  assert.equal(ensureOutgoingReportStaffLogBranding(original('Report update')).embeds[0].footer.text,
+    'Cloudy Inc. • Moderation team • R103', 'outside report-log scope no other response is changed');
 });

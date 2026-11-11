@@ -159,6 +159,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     const createdLog = json(f.logs.messages.cache.get(entry.createdLogId).embeds[0]);
     assert.equal(createdLog.title, audience === 'reporter' ? 'Report update' : 'Moderation update');
     assert.equal(createdLog.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.ok(createdLog.thumbnail?.url, 'new report staff log includes Cloudy C logo');
     assert.equal(createdLog.fields.find(field => field.name === 'Report')?.value, '#1');
   }
   assert.equal(json(targetNotice.embeds[0]).title, 'Moderation update');
@@ -621,7 +622,7 @@ test('startup updates both existing #89 Report created staff logs in place', asy
   const latest = await f.client.db.get(key);
   for (const [audience, entry] of Object.entries(latest.cases)) {
     assert.equal(entry.createdLogId, priorIds[audience]);
-    assert.equal(entry.reportLogPresentationV3, true);
+    assert.equal(entry.reportLogPresentationV4, true);
     const message = f.logs.messages.cache.get(entry.createdLogId);
     assert.equal(json(message.embeds[0]).title, audience === 'reporter'
       ? 'Report update' : 'Moderation update');
@@ -637,7 +638,7 @@ test('previously migrated report logs repair stale R103 footer without changing 
   record.number = 110;
   const key = reportKey(f.guild.id, record.messageId);
   for (const [audience, entry] of Object.entries(record.cases)) {
-    entry.reportLogPresentationV2 = true; // prior deployment already ran
+    entry.reportLogPresentationV3 = true; // previous migration incorrectly marked this complete
     const prior = f.logs.messages.cache.get(entry.createdLogId);
     const original = json(prior.embeds[0]);
     prior.embeds = [{
@@ -660,7 +661,7 @@ test('previously migrated report logs repair stale R103 footer without changing 
     assert.equal(embed.title, audience === 'reporter' ? 'Report update' : 'Moderation update');
   }
   const latest = await f.client.db.get(key);
-  assert.ok(Object.values(latest.cases).every(entry => entry.reportLogPresentationV3));
+  assert.ok(Object.values(latest.cases).every(entry => entry.reportLogPresentationV4));
   assert.equal(f.logs.messages.cache.size, count, 'existing log messages are edited, not duplicated');
 });
 
