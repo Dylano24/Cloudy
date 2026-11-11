@@ -178,3 +178,10 @@ test('/music guide also shows the compact embed with its Commands button', async
   assert.equal(replies[0].embeds[0].toJSON().title, 'Cloudy music');
   assert.equal(replies[0].components[0].toJSON().components[0].custom_id, 'dedicated_commands:music');
 });
+
+test('the player has no volume buttons', async () => {
+  const { buildPlayerButtonRows } = await import('../src/services/music/musicEmbeds.js');
+  const ids = buildPlayerButtonRows({ paused: false }, { loop: 'none' })
+    .flatMap(row => row.toJSON().components.map(button => button.custom_id));
+  assert.deepEqual(ids, ['music_pause', 'music_resume', 'music_skip', 'music_stop', 'music_shuffle', 'music_loop', 'music_queue']);
+});
