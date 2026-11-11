@@ -7,7 +7,7 @@ import { identifyCreatorInput, resolveCreatorAccount } from './creatorLinkResolv
 
 const PREFIX = 'global:creator-notify:';
 const CHECK_INTERVAL_MS = 5 * 60_000;
-const MAX_CREATORS = 30;
+const MAX_CREATORS = 25; // one Discord select menu
 const MAX_ITEMS_PER_POLL = 3;
 const MAX_SEEN = 40;
 const queues = new Map();
@@ -47,12 +47,39 @@ export async function addCreatorNotification(client, guildId, selectedPlatform, 
     const config = await readConfig(client, guildId);
     const id = platform + ':' + account;
     if (config.subscriptions.some(item => item.id === id)) throw new Error('This creator is already being monitored.');
-    if (config.subscriptions.length >= MAX_CREATORS) throw new Error('Maximum 30 creators per server.');
+    if (config.subscriptions.length >= MAX_CREATORS) throw new Error('Maximum 25 creators per server.');
     const entry = { id, platform, account, source: String(rawAccount).trim().slice(0, 512),
       channelId: channelId || null, initialized: false, enabled: true, seen: [] };
     config.subscriptions.push(entry);
     await storeConfig(client, guildId, config);
     return structuredClone(entry);
+  });
+}
+// Dashboard actions: pause/resume and destination changes, by subscription id.
+export async function updateCreatorNotification(client, guildId, id, changes = {}) {
+  return lockGuild(guildId, async () => {
+    const config = await readConfig(client, guildId);
+    const sub = config.subscriptions.find(item => item.id === id);
+    if (!sub) return null;
+    if (Object.hasOwn(changes, 'channelId')) sub.channelId = changes.channelId || null;
+    if (Object.hasOwn(changes, 'enabled')) {
+      const enabled = Boolean(changes.enabled);
+      // Resuming starts from a fresh baseline: content published while paused is not announced.
+      if (enabled && sub.enabled === false) { sub.initialized = false; sub.seen = []; }
+      sub.enabled = enabled;
+    }
+    await storeConfig(client, guildId, config);
+    return structuredClone(sub);
+  });
+}
+export async function deleteCreatorNotification(client, guildId, id) {
+  return lockGuild(guildId, async () => {
+    const config = await readConfig(client, guildId);
+    const before = config.subscriptions.length;
+    config.subscriptions = config.subscriptions.filter(item => item.id !== id);
+    if (config.subscriptions.length === before) return false;
+    await storeConfig(client, guildId, config);
+    return true;
   });
 }
 export async function removeCreatorNotification(client, guildId, selectedPlatform, rawAccount, resolverOptions = {}) {

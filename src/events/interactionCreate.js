@@ -78,6 +78,8 @@ export default {
 
     // Cloudy feed interactions are handled by their own Owner-only event listener.
     if (interaction.customId?.startsWith('cloudyfeed:')) return;
+    // The /creator-notify dashboard has its own listener.
+    if (interaction.customId?.startsWith('creatornotify:')) return;
     // The automatic giveaway/vote dashboards have a dedicated interaction listener.
     if (interaction.customId?.startsWith('auto_builder:')) return;
     // The Giveaway Builder has its own listener as well.
