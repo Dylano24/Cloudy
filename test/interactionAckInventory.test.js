@@ -40,6 +40,8 @@ test('full repository interaction acknowledgement inventory and silent report Re
   const report = fs.readFileSync('src/services/reportCaseLifecycleService.js', 'utf8');
   assert.match(report, /const silentAck = typeof interaction\.deferUpdate/);
   assert.match(report, /interaction\.followUp\(\{ \.\.\.payload, flags: 64 \}\)/);
-  assert.match(report, /if \(!keepReply && !silentAck\)/);
+  // Close is one step since "Close private report channels in one step":
+  // only the legacy (non-silent) acknowledgement has a reply to remove.
+  assert.match(report, /if \(!silentAck\) await interaction\.deleteReply\(\)\.catch\(\(\) => \{\}\);/);
   console.log('[CLOUDY_ACK_INVENTORY] ' + JSON.stringify(stats));
 });

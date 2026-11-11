@@ -48,6 +48,8 @@ const deployedNames = [
   "greet",
   "help",
   "hexcolor",
+  // /honeypot got its own command after this list was written (9b9a490).
+  "honeypot",
   "inventory",
   "join",
   "jointocreate",
@@ -76,6 +78,8 @@ const deployedNames = [
   "report",
   "rob",
   "roulette",
+  // /rustcommunity was added with the optional Rust community tools (4e3ed48).
+  "rustcommunity",
   "say",
   "search",
   "serverinfo",
@@ -108,7 +112,7 @@ const deployedNames = [
   "work"
 ];
 
-test('all 99 deployed routes (incl. /now and /wipe) survive removal of the 12 retired implementation files', async () => {
+test('all 101 deployed routes (incl. /now, /wipe, /honeypot and /rustcommunity) survive removal of the 12 retired implementation files', async () => {
   const client = {};
   await loadCommands(client);
   assert.deepEqual([...client.commands.keys()].sort(), deployedNames);
