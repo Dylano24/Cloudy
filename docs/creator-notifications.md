@@ -19,7 +19,7 @@ When no channel is supplied, Cloudy resolves the server's existing `#youtube`, `
 ## Platform requirements
 
 **YouTube**: public Atom feed; no API key.
-Cloudy accepts YouTube `/@handle`, `/channel/UC...`, `/c/name` and `/user/name` channel links (also without `https://`). When given a handle or legacy link, Cloudy resolves the UC channel ID from YouTube's channel metadata, or uses the official YouTube Data API if `YOUTUBE_API_KEY` is configured. You can remove a subscription using the same original link. A URL that cannot be resolved produces a clear error; Cloudy never guesses an ID. Only official YouTube hosts are fetched.
+Cloudy accepts YouTube `/@handle`, `/channel/UC...`, `/c/name` and `/user/name` channel links (also without `https://`). When given a handle or legacy link, Cloudy resolves the UC channel ID from YouTube's channel metadata, or uses the official YouTube Data API if `YOUTUBE_API_KEY` is configured. You can remove a subscription using the same original link. Video links (`youtu.be`, `/watch`, `/shorts`, `/live`) are resolved to the video's creator through YouTube oEmbed; only the creator's channel is stored, never the video. Servers in the EU are often sent to YouTube's cookie-consent page: Cloudy sends a consent cookie, retries the mobile page, and if YouTube still blocks the lookup it says so (set `YOUTUBE_API_KEY` to avoid page lookups entirely). A URL that cannot be resolved produces a clear error; Cloudy never guesses an ID. Only official YouTube hosts are fetched.
 
 
 **Twitch**: set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in the Railway service environment. Twitch uses its OAuth app token plus the official Helix streams and videos endpoints. API credentials are not stored in Discord or the database.
