@@ -15,6 +15,7 @@ const manualBuilderSaveMessageIds = new Set();
 const manualBuilderPostScope = new AsyncLocalStorage();
 const submittedReportNumberScope = new AsyncLocalStorage();
 const reportNoticeNumberScope = new AsyncLocalStorage();
+const reportStaffLogScope = new AsyncLocalStorage();
 const APPEAL_TITLE_PATTERN = /^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i;
 
 // Scoped exceptions to the global automatic C-logo insertion. Footer branding
@@ -69,6 +70,35 @@ export function ensureOutgoingReportCaseNoticeFooter(payload) {
     if (!['Report update', 'Moderation update'].includes(embed?.title)) return source;
     changed = true;
     return { ...embed, footer: { text: `Cloudy Inc. • Moderation team • R${number}` } };
+  });
+  return changed ? { ...payload, embeds } : payload;
+}
+
+// Keep report staff logs distinct from the two private report notifications.
+// They use Cloudy's standard footer and its C thumbnail, not a case R-footer.
+export function withReportStaffLogBranding(callback) {
+  return reportStaffLogScope.run(true, callback);
+}
+
+export function ensureOutgoingReportStaffLogBranding(payload) {
+  if (!reportStaffLogScope.getStore() || !Array.isArray(payload?.embeds)) return payload;
+  let changed = false;
+  const titles = new Set([
+    'Report update', 'Moderation update',
+    'Report update closed', 'Moderation update closed',
+    'Report update deleted', 'Report moderation deleted',
+  ]);
+  const embeds = payload.embeds.map(source => {
+    const original = source?.toJSON?.() || source;
+    if (!titles.has(original?.title)
+      || !original.fields?.some(field => field.name === 'Report' && /^#\d+$/.test(field.value || ''))) return source;
+    if (original.footer?.text === CLOUDY_STANDARD_FOOTER
+      && original.thumbnail?.url === CLOUDY_C_LOGO_URL) return source;
+    changed = true;
+    return { ...original,
+      footer: { text: CLOUDY_STANDARD_FOOTER },
+      thumbnail: { url: CLOUDY_C_LOGO_URL },
+    };
   });
   return changed ? { ...payload, embeds } : payload;
 }
@@ -224,15 +254,17 @@ export function installCloudyFooterOutput() {
         },
       };
     }
-    // Last mutation before the Discord API request: this must run *after* all
-    // generic footer/logo formatting and both webhook or callback paths.
+    // Last mutation before the Discord API request: resolve the relevant
+    // scoped report footer policy only after general Cloudy branding.
     if (isMessage && ['POST', 'PATCH'].includes(options.method)) {
-      options = { ...options, body: ensureOutgoingReportCaseNoticeFooter(
-        ensureOutgoingReportConfirmationFooter(options.body)) };
+      options = { ...options, body: ensureOutgoingReportStaffLogBranding(
+        ensureOutgoingReportCaseNoticeFooter(
+          ensureOutgoingReportConfirmationFooter(options.body))) };
     } else if (isCallback && [4, 7].includes(options.body?.type)) {
       options = { ...options, body: { ...options.body,
-        data: ensureOutgoingReportCaseNoticeFooter(
-          ensureOutgoingReportConfirmationFooter(options.body.data)) } };
+        data: ensureOutgoingReportStaffLogBranding(
+          ensureOutgoingReportCaseNoticeFooter(
+            ensureOutgoingReportConfirmationFooter(options.body.data))) } };
     }
     return original.call(this, options);
   };
