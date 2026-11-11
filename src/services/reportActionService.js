@@ -183,6 +183,15 @@ export async function handleReportModeration(interaction, client, [action, userI
   if (!interaction.inGuild() || !actions.length) return;
   if (!await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral })) return;
 
+  // Authorization comes first: someone who may not manage reports is told
+  // exactly that, whatever they typed into the form.
+  const config = await getGuildConfig(client, interaction.guildId);
+  if (!reportActionAllowed(interaction, action, config)) {
+    return deny(interaction, actions.includes('ban')
+      ? 'Only owners can ban members from reports.'
+      : 'Only the staff team can manage reports.');
+  }
+
   // Reject malformed or out-of-range durations before any report mutation.
   // A clear ephemeral notice replaces the generic UNKNOWN_ERROR response.
   if (actions.includes('timeout')) {
@@ -200,13 +209,6 @@ export async function handleReportModeration(interaction, client, [action, userI
       expiry.unref?.();
       return;
     }
-  }
-
-  const config = await getGuildConfig(client, interaction.guildId);
-  if (!reportActionAllowed(interaction, action, config)) {
-    return deny(interaction, actions.includes('ban')
-      ? 'Only owners can ban members from reports.'
-      : 'Only the staff team can manage reports.');
   }
 
   const report = await interaction.channel.messages.fetch(messageId).catch(() => null);

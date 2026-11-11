@@ -135,3 +135,37 @@ test('expired historical rows cannot reset a live report counter while Cloudy is
   assert.equal(await nextReportNumber(client, '123'), 114);
   assert.deepEqual(floors, [112, 113]);
 });
+
+// Cloudy runs in more than one server with the same bot account. The two
+// archive channels belong to Cloudy's own server, which Cloudy can read, so in
+// every other server discord.js rejects the lookup with GuildChannelUnowned
+// (not Unknown Channel). That must never stop a report from being numbered.
+test('a second server gets its own report numbers when the archive channels belong to another server', async () => {
+  const { DiscordjsError, DiscordjsErrorCodes } = await import('discord.js');
+  let lookups = 0;
+  const otherServer = { id: '999', channels: { cache: new Map(), fetch: async () => {
+    lookups++;
+    throw new DiscordjsError(DiscordjsErrorCodes.GuildChannelUnowned);
+  } } };
+  const values = new Map();
+  const client = { user: { id: 'bot' }, guilds: { cache: new Map([['999', otherServer]]) }, db: {
+    isDegraded: () => false, isAvailable: () => true,
+    get: async key => values.get(key),
+    set: async (key, value) => { values.set(key, value); return true; },
+    list: async prefix => [...values.keys()].filter(key => key.startsWith(prefix)),
+  } };
+  assert.equal(await nextReportNumber(client, '999'), 1);
+  assert.equal(await nextReportNumber(client, '999'), 2);
+  assert.equal(lookups, 2, 'both archive channels are looked up once per bot process');
+});
+
+test('an unexpected Discord failure while reading the archive still stops numbering (never reuse a number)', async () => {
+  const guild = { id: '998', channels: { cache: new Map(), fetch: async () => {
+    throw Object.assign(new Error('Service Unavailable'), { status: 503 });
+  } } };
+  const client = { user: { id: 'bot' }, guilds: { cache: new Map([['998', guild]]) }, db: {
+    isDegraded: () => false, isAvailable: () => true,
+    get: async () => null, set: async () => true, list: async () => [],
+  } };
+  await assert.rejects(nextReportNumber(client, '998'), /Service Unavailable/);
+});

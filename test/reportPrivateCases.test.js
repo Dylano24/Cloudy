@@ -311,6 +311,24 @@ test('empty reason, invalid duration and unauthorized submissions cannot perform
   assert.deepEqual(f.removed, [], 'invalid duration cannot perform an action');
 });
 
+test('a member without report access is refused before their timeout duration is even looked at', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); await f.register();
+  for (const typed of ['0', 'abc', '10']) {
+    const outsider = f.interaction(f.target.user);
+    outsider.fields.getTextInputValue = field => field === 'minutes' ? typed : 'Reason';
+    const replies = [];
+    outsider.editReply = async payload => { replies.push(payload); };
+    outsider.reply = async payload => { replies.push(payload); };
+    outsider.followUp = async payload => { replies.push(payload); };
+    await handleReportModeration(outsider, f.client, ['timeout', 'target', 'report']);
+    const shown = JSON.stringify(replies);
+    assert.match(shown, /Only the staff team can manage reports\./, `refused for "${typed}"`);
+    assert.doesNotMatch(shown, /Invalid duration/, 'form validation is never shown to someone without access');
+  }
+  assert.deepEqual(f.removed, []); assert.equal(f.payloads.length, 0);
+});
+
 test('each participant can close their own report channel in one click, with one close log', async () => {
   const f = fixture(); await f.register();
   const record = await f.submit();
