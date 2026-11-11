@@ -281,7 +281,7 @@ function compactHighlightedReportGaps(description) {
     .replace(/(\*\*Review outcome\*\*\n[\s\S]*?)\n\n(?=\*\*Moderation action\*\*\n)/, '$1\n')
     .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n')
     // Restore this gap on both new and previously compacted Discord messages.
-    .replace(/(\*\*Reason\*\*\n[^\n]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n');
+    .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n');
 }
 
 function reportNoticeDescription(intro, fields) {
