@@ -2,7 +2,8 @@
 import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
-import { fetchCreatorItems, normalizeCreatorAccount } from './creatorNotificationProviders.js';
+import { fetchCreatorItems } from './creatorNotificationProviders.js';
+import { resolveCreatorAccount } from './creatorLinkResolver.js';
 
 const PREFIX = 'global:creator-notify:';
 const CHECK_INTERVAL_MS = 5 * 60_000;
@@ -39,23 +40,29 @@ async function storeConfig(client, guildId, config) {
 export async function listCreatorNotifications(client, guildId) {
   return structuredClone((await readConfig(client, guildId)).subscriptions);
 }
-export async function addCreatorNotification(client, guildId, platform, rawAccount, channelId) {
-  const account = normalizeCreatorAccount(platform, rawAccount);
+export async function addCreatorNotification(client, guildId, platform, rawAccount, channelId, resolverOptions = {}) {
+  const account = await resolveCreatorAccount(platform, rawAccount, resolverOptions);
   return lockGuild(guildId, async () => {
     const config = await readConfig(client, guildId);
     const id = platform + ':' + account;
     if (config.subscriptions.some(item => item.id === id)) throw new Error('This creator is already being monitored.');
     if (config.subscriptions.length >= MAX_CREATORS) throw new Error('Maximum 30 creators per server.');
-    const entry = { id, platform, account, channelId: channelId || null, initialized: false, enabled: true, seen: [] };
+    const entry = { id, platform, account, source: String(rawAccount).trim().slice(0, 512),
+      channelId: channelId || null, initialized: false, enabled: true, seen: [] };
     config.subscriptions.push(entry);
     await storeConfig(client, guildId, config);
     return structuredClone(entry);
   });
 }
-export async function removeCreatorNotification(client, guildId, platform, rawAccount) {
-  const account = normalizeCreatorAccount(platform, rawAccount);
+export async function removeCreatorNotification(client, guildId, platform, rawAccount, resolverOptions = {}) {
   return lockGuild(guildId, async () => {
     const config = await readConfig(client, guildId);
+    const original = String(rawAccount || '').trim();
+    // Allow the exact link used to add a creator to remove it even when
+    // YouTube is temporarily unreachable.
+    const existing = config.subscriptions.find(item => item.platform === platform
+      && (item.source === original || item.account === original));
+    const account = existing?.account || await resolveCreatorAccount(platform, original, resolverOptions);
     const oldLength = config.subscriptions.length;
     config.subscriptions = config.subscriptions.filter(item => item.id !== platform + ':' + account);
     if (oldLength === config.subscriptions.length) return false;
