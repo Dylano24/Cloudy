@@ -131,7 +131,7 @@ const MUSIC_COMMANDS_DESCRIPTION = [
     '🔀 Shuffle the queue',
     '🔁 Repeat song or queue',
     '📋 Show the queue',
-    '➕ Add or start playlists',
+    '🎵 Add or start playlists',
     '⏹️ Stop and leave',
 ].join('\n');
 
@@ -227,8 +227,9 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
     // Icons only, so the five controls stay in one row on a phone: Previous,
-    // Pause/Resume, Skip, Shuffle, Loop. The bottom row has Queue, Add (the saved
-    // playlists, owner's choice: was "Playlists") and, last, the red Stop button.
+    // Pause/Resume, Skip, Shuffle, Loop. The bottom row has Queue, 🎵 Add (the saved
+    // playlists, owner's choice: was "Playlists"; it opens the form at once) and,
+    // last, the red Stop button.
     // No volume buttons (owner's choice): /music volume still sets it, and the old
     // button ids stay registered so a player message from before still answers.
     const controls = new ActionRowBuilder().addComponents(
@@ -263,7 +264,7 @@ export function buildPlayerButtonRows(player, guildData) {
             .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
             .setLabel('Add')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('➕'),
+            .setEmoji('🎵'),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')

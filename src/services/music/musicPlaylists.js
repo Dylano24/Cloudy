@@ -1,6 +1,5 @@
-// Saved playlists of the music player: a private panel (Add button on the
-// player) to start a playlist, add one with its link (then Start or Delete it at
-// once) or remove one. A saved
+// Saved playlists of the music player: the player's Add button opens the form to
+// add one with its link at once; then a private list starts or deletes one. A saved
 // playlist is its link, so starting it always loads the current songs. They are
 // stored per server in PostgreSQL (guild:<id>:music-playlists), never in memory.
 import {
@@ -18,7 +17,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { CLOUDY_LOGO_URL } from '../cloudyLogoService.js';
 import { CLOUDY_BRANDING } from '../cloudyBrandingService.js';
-import { errorEmbed, successEmbed } from '../../utils/embeds.js';
+import { errorEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
@@ -100,7 +99,7 @@ export async function removePlaylist(client, guildId, id, { userId, canManage = 
 function closeSession(session, removeMessage = true) {
   clearTimeout(session.timer);
   sessions.delete(session.id);
-  if (removeMessage) void Promise.resolve().then(() => session.root.deleteReply()).catch(() => {});
+  if (removeMessage && session.root) void Promise.resolve().then(() => session.root.deleteReply()).catch(() => {});
 }
 
 function keepSessionAlive(session, modalOpen = false) {
@@ -116,63 +115,49 @@ function baseEmbed(description) {
 
 const songs = count => `${count} ${count === 1 ? 'song' : 'songs'}`;
 
-function playlistMenu(session, items, action, placeholder) {
-  return new StringSelectMenuBuilder()
-    .setCustomId(PREFIX + action + ':' + session.id)
-    .setPlaceholder(placeholder)
-    .addOptions(items.slice(0, MAX_PLAYLISTS).map(item => ({
-      label: String(item.name).slice(0, 100),
-      description: (songs(item.count || 0) + ' • ' + (item.ownerName || 'Unknown')).slice(0, 100),
-      value: item.id,
-      emoji: { name: '🎵' },
-    })));
-}
-
+// Owner's choice: the player's Add button opens the form at once (no panel
+// first); after it the saved playlists are shown as a list with Start and Delete.
 export function buildPlaylistPanel(session, items) {
-  // Right after Add (owner's choice): the new playlist with Start and Delete.
-  const focused = session.view === 'saved' ? items.find(item => item.id === session.focusId) : null;
-  if (focused) {
+  const note = session.note ? `${session.note}\n\n` : '';
+  if (!items.length) {
     return {
-      embeds: [baseEmbed(`**${String(focused.name).slice(0, 200)}**\n${songs(focused.count || 0)} · added by ${focused.ownerName || 'Unknown'}`)],
+      embeds: [baseEmbed(`${note}No playlists yet. Press Add and paste the link of a playlist or album.`)],
       components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(PREFIX + 'play:' + session.id).setLabel('Start').setStyle(ButtonStyle.Success).setEmoji('▶️'),
-        new ButtonBuilder().setCustomId(PREFIX + 'delete:' + session.id).setLabel('Delete').setStyle(ButtonStyle.Danger).setEmoji('🗑️'),
-        new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id).setLabel('Back').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(PREFIX + 'add:' + session.id).setLabel('Add').setStyle(ButtonStyle.Success).setEmoji('🎵'),
       )],
       allowedMentions: { parse: [] },
     };
   }
-  if (session.view === 'remove' && items.length) {
-    return {
-      embeds: [baseEmbed('Choose the playlist you want to remove.')],
-      components: [
-        new ActionRowBuilder().addComponents(playlistMenu(session, items, 'removepick', 'Remove a playlist')),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id).setLabel('Back').setStyle(ButtonStyle.Secondary),
-        ),
-      ],
-      allowedMentions: { parse: [] },
-    };
-  }
-  const rows = [];
-  if (items.length) rows.push(new ActionRowBuilder().addComponents(playlistMenu(session, items, 'start', 'Start a playlist')));
-  rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(PREFIX + 'add:' + session.id).setLabel('Add playlist').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(PREFIX + 'remove:' + session.id).setLabel('Remove').setStyle(ButtonStyle.Secondary).setDisabled(!items.length),
-  ));
+  const focus = items.find(item => item.id === session.focusId) || items[0];
+  session.focusId = focus.id;
   return {
-    embeds: [baseEmbed(items.length
-      ? 'Pick a playlist to start it, or add a new one with its link.'
-      : 'No playlists yet. Add one with the link of a playlist or album.')],
-    components: rows,
+    embeds: [baseEmbed(`${note}Choose a playlist, then Start or Delete it.`)],
+    components: [
+      new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+        .setCustomId(PREFIX + 'pick:' + session.id)
+        .setPlaceholder('Choose a playlist')
+        .addOptions(items.slice(0, MAX_PLAYLISTS).map(item => ({
+          label: String(item.name).slice(0, 100),
+          description: (songs(item.count || 0) + ' • ' + (item.ownerName || 'Unknown')).slice(0, 100),
+          value: item.id,
+          emoji: { name: '🎵' },
+          default: item.id === focus.id,
+        })))),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(PREFIX + 'play:' + session.id).setLabel('Start').setStyle(ButtonStyle.Success).setEmoji('▶️'),
+        new ButtonBuilder().setCustomId(PREFIX + 'delete:' + session.id).setLabel('Delete').setStyle(ButtonStyle.Danger).setEmoji('🗑️'),
+        new ButtonBuilder().setCustomId(PREFIX + 'add:' + session.id).setLabel('Add').setStyle(ButtonStyle.Secondary).setEmoji('🎵'),
+      ),
+    ],
     allowedMentions: { parse: [] },
   };
 }
 
 function addModal(session) {
+  // Empty link: just show the saved playlists (to start or delete one).
   const link = new TextInputBuilder().setCustomId('link').setLabel('Playlist link')
-    .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500)
-    .setPlaceholder('Spotify, Apple Music, YouTube, Deezer ...');
+    .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(500)
+    .setPlaceholder('Spotify, Apple Music, YouTube ... or empty: your list');
   const name = new TextInputBuilder().setCustomId('name').setLabel('Name (optional)')
     .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)
     .setPlaceholder('Leave empty to use the playlist name');
@@ -191,12 +176,16 @@ async function notice(interaction, embed) {
   if (message) removeLater(() => interaction.webhook.deleteMessage(message.id));
 }
 
-async function errorNotice(interaction, error) {
+function playlistErrorEmbed(error) {
   const known = error?.name === 'CloudyError' && (error.userMessage || error.message);
   if (!known) logger.warn('[MUSIC_PLAYLISTS] ' + (error?.message || error));
   const embed = errorEmbed('Playlist error', known || 'Something went wrong. Please try again.', { showDetails: false });
   embed.data.color = CLOUDY_RED_COLOR;
-  await notice(interaction, embed);
+  return embed;
+}
+
+async function errorNotice(interaction, error) {
+  await notice(interaction, playlistErrorEmbed(error));
 }
 
 async function silentAck(interaction) {
@@ -205,19 +194,19 @@ async function silentAck(interaction) {
   }
 }
 
+// The player's Add button: the form opens at once.
 export async function openPlaylistPanel(interaction, client) {
   for (const session of sessions.values()) {
     if (session.guildId === interaction.guildId && session.userId === interaction.user.id) closeSession(session);
   }
   const session = {
     id: makeId(), guildId: interaction.guildId, userId: interaction.user.id,
-    root: interaction, timer: null, view: 'main',
+    root: null, timer: null, focusId: null, note: '',
   };
   sessions.set(session.id, session);
   try {
-    const items = await listPlaylists(client, session.guildId);
-    await interaction.reply({ ...buildPlaylistPanel(session, items), flags: MessageFlags.Ephemeral });
-    keepSessionAlive(session);
+    await interaction.showModal(addModal(session));
+    keepSessionAlive(session, true);
   } catch (error) {
     closeSession(session, false);
     throw error;
@@ -226,11 +215,11 @@ export async function openPlaylistPanel(interaction, client) {
 
 async function showPanel(interaction, client, session, method = 'update') {
   const items = await listPlaylists(client, session.guildId);
-  if (!items.length || (session.view === 'saved' && !items.some(item => item.id === session.focusId))) session.view = 'main';
   await interaction[method](buildPlaylistPanel(session, items));
+  session.note = '';
 }
 
-// Starts a saved playlist; the confirmation replaces the panel and removes itself after 10 seconds.
+// Starts a saved playlist. The list goes away: the player panel shows the songs.
 async function startSavedPlaylist(interaction, client, session, playlistId) {
   await interaction.deferUpdate();
   const items = await listPlaylists(client, session.guildId);
@@ -238,13 +227,12 @@ async function startSavedPlaylist(interaction, client, session, playlistId) {
   if (!item) throw new CloudyError('Missing playlist', ErrorTypes.USER_INPUT, 'That playlist no longer exists.');
   const player = getPlayer(client, session.guildId);
   if (player) assertCanControl(interaction.member, player);
-  const { embed } = await playQuery(client, interaction, item.url);
+  await playQuery(client, interaction, item.url);
   closeSession(session, false);
-  await interaction.editReply({ embeds: [embed], components: [] });
-  removeLater(() => interaction.deleteReply());
+  await interaction.deleteReply().catch(() => {});
 }
 
-async function deletePlaylist(interaction, client, session, playlistId, method) {
+async function deletePlaylist(interaction, client, session, playlistId) {
   const result = await removePlaylist(client, session.guildId, playlistId, {
     userId: interaction.user.id,
     canManage: Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild)),
@@ -252,9 +240,30 @@ async function deletePlaylist(interaction, client, session, playlistId, method) 
   if (result.reason === 'forbidden') {
     throw new CloudyError('Not allowed', ErrorTypes.PERMISSION, 'Only the person who added this playlist or a moderator can remove it.');
   }
-  session.view = 'main';
-  await showPanel(interaction, client, session, method);
-  if (result.removed) await notice(interaction, successEmbed('Playlist removed', `**${result.entry.name}** was removed.`));
+  session.focusId = null;
+  if (result.removed) session.note = `**${String(result.entry.name).slice(0, 200)}** was deleted.`;
+  await showPanel(interaction, client, session, 'editReply');
+}
+
+async function addFromForm(interaction, client, session) {
+  const raw = interaction.fields.getTextInputValue('link').trim();
+  if (!raw) return;
+  const { query, isLink } = await prepareMusicQuery(raw);
+  if (!isLink) throw new CloudyError('Not a link', ErrorTypes.USER_INPUT, 'Paste the link of a playlist or album.');
+  const result = await inspectMusicLink(client, query, interaction.user);
+  if (!['playlist', 'PLAYLIST_LOADED'].includes(result.loadType)) {
+    throw new CloudyError('Not a playlist', ErrorTypes.USER_INPUT, 'That link is a single song. Paste the link of a playlist or album.');
+  }
+  const typed = interaction.fields.getTextInputValue('name').trim();
+  const entry = await addPlaylist(client, session.guildId, {
+    url: query,
+    name: (typed || result.playlistInfo?.name || 'Playlist').slice(0, 80),
+    count: result.tracks.length,
+    ownerId: interaction.user.id,
+    ownerName: String(interaction.user.username || 'Unknown').slice(0, 40),
+  });
+  session.focusId = entry.id;
+  session.note = `**${entry.name}** was added · ${songs(entry.count)}`;
 }
 
 export async function handleMusicPlaylistControls(interaction, client) {
@@ -266,6 +275,8 @@ export async function handleMusicPlaylistControls(interaction, client) {
     return true;
   }
   keepSessionAlive(session);
+  // The form sent from the player's Add button has no private list yet.
+  const firstAnswer = type === 'modal' && interaction.isModalSubmit() && !session.root;
 
   try {
     if (type === 'add' && interaction.isButton()) {
@@ -274,14 +285,9 @@ export async function handleMusicPlaylistControls(interaction, client) {
       return true;
     }
 
-    if ((type === 'remove' || type === 'back') && interaction.isButton()) {
-      session.view = type === 'remove' ? 'remove' : 'main';
+    if (type === 'pick' && interaction.isStringSelectMenu()) {
+      session.focusId = interaction.values[0];
       await showPanel(interaction, client, session);
-      return true;
-    }
-
-    if (type === 'start' && interaction.isStringSelectMenu()) {
-      await startSavedPlaylist(interaction, client, session, interaction.values[0]);
       return true;
     }
 
@@ -292,44 +298,34 @@ export async function handleMusicPlaylistControls(interaction, client) {
 
     if (type === 'delete' && interaction.isButton()) {
       await interaction.deferUpdate();
-      await deletePlaylist(interaction, client, session, session.focusId, 'editReply');
-      return true;
-    }
-
-    if (type === 'removepick' && interaction.isStringSelectMenu()) {
-      await interaction.deferUpdate();
-      await deletePlaylist(interaction, client, session, interaction.values[0], 'editReply');
+      await deletePlaylist(interaction, client, session, session.focusId);
       return true;
     }
 
     if (type === 'modal' && interaction.isModalSubmit()) {
-      // Checking a link can take a few seconds: acknowledge first.
-      await interaction.deferUpdate();
-      keepSessionAlive(session);
-      const { query, isLink } = await prepareMusicQuery(interaction.fields.getTextInputValue('link'));
-      if (!isLink) throw new CloudyError('Not a link', ErrorTypes.USER_INPUT, 'Paste the link of a playlist or album.');
-      const result = await inspectMusicLink(client, query, interaction.user);
-      if (!['playlist', 'PLAYLIST_LOADED'].includes(result.loadType)) {
-        throw new CloudyError('Not a playlist', ErrorTypes.USER_INPUT, 'That link is a single song. Paste the link of a playlist or album.');
+      // Checking a link can take a few seconds: acknowledge first. From the player
+      // the answer is a new private message; from the list it updates the list.
+      if (firstAnswer) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        session.root = interaction;
+      } else {
+        await interaction.deferUpdate();
       }
-      const typed = interaction.fields.getTextInputValue('name').trim();
-      const entry = await addPlaylist(client, session.guildId, {
-        url: query,
-        name: (typed || result.playlistInfo?.name || 'Playlist').slice(0, 80),
-        count: result.tracks.length,
-        ownerId: interaction.user.id,
-        ownerName: String(interaction.user.username || 'Unknown').slice(0, 40),
-      });
-      // The new playlist is shown with Start and Delete (owner's choice).
-      session.view = 'saved';
-      session.focusId = entry.id;
+      keepSessionAlive(session);
+      await addFromForm(interaction, client, session);
       await showPanel(interaction, client, session, 'editReply');
-      await notice(interaction, successEmbed('Playlist added', `**${entry.name}** · ${songs(entry.count)}`));
       return true;
     }
 
     await silentAck(interaction);
   } catch (error) {
+    if (firstAnswer && interaction.deferred) {
+      // Nothing to go back to: the error is the private answer, gone after 10 seconds.
+      closeSession(session, false);
+      await interaction.editReply({ embeds: [playlistErrorEmbed(error)], components: [] }).catch(() => {});
+      removeLater(() => interaction.deleteReply());
+      return true;
+    }
     if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate().catch(() => {});
     await errorNotice(interaction, error);
     keepSessionAlive(session);

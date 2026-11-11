@@ -86,7 +86,7 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.equal(commands.title, 'Music commands');
   // The buttons of the player in their order, one short line each with one emoji, so the lines stay neatly under each other.
   const lines = commands.description.split('\n').filter(line => /^\p{Extended_Pictographic}/u.test(line));
-  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['⏮️', '⏸️', '⏭️', '🔀', '🔁', '📋', '➕', '⏹️']);
+  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['⏮️', '⏸️', '⏭️', '🔀', '🔁', '📋', '🎵', '⏹️']);
   for (const line of lines) {
     assert.ok(line.length <= 26, `Explanation must stay short: ${line}`);
     assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the emoji and a few words: ${line}`);
@@ -213,6 +213,7 @@ test('the player has one row of icon controls with Previous; Queue, Add and Stop
   assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
   assert.equal(rows[0][0].emoji.name, '⏮️');
   assert.deepEqual(rows[1].map(button => button.label || button.emoji.name), ['📋', 'Add', 'Stop'], 'the saved playlists button says Add');
+  assert.equal(rows[1][1].emoji.name, '🎵', 'with the music emoji');
   const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
   assert.equal(paused[0][1].custom_id, 'music_resume');
   assert.equal(paused[0][4].emoji.name, '🔂');
