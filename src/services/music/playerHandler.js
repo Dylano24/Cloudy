@@ -146,6 +146,21 @@ export function setupPlayerHandler(client) {
         logger.warn(`Lavalink node "${node.name}" disconnected.`);
     });
 
+    // Riffy rejects play() when the voice connection never comes. Where nobody
+    // awaits it (the next song starting by itself) that must never end up as an
+    // unhandled rejection: it is logged, and play() answers false.
+    client.riffy.on('playerCreate', (player) => {
+        const play = player.play.bind(player);
+        player.play = async (...args) => {
+            try {
+                return await play(...args);
+            } catch (error) {
+                logger.warn(`[MUSIC] Playback could not start in ${player.guildId}: ${error?.message || error}`);
+                return false;
+            }
+        };
+    });
+
     client.riffy.on('trackStart', async (player, _track) => {
         try {
             const guildData = getGuildMusicData(player.guildId);
