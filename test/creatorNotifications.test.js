@@ -203,3 +203,29 @@ test('all creator-notify success and error notices auto-delete after exactly ten
   assert.equal(error.deletions(), 1);
   t.mock.timers.reset();
 });
+
+test('slash add accepts only a pasted YouTube link, without a selected platform', async () => {
+  const add = creatorNotify.data.toJSON().options.find(option => option.name === 'add');
+  const creator = add.options.find(option => option.name === 'creator');
+  const platform = add.options.find(option => option.name === 'platform');
+  assert.equal(creator.required, true);
+  assert.equal(platform.required, false);
+  const client = fakeBot().bot;
+  const interaction = {
+    guildId: GUILD,
+    memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
+    options: {
+      getSubcommand: () => 'add',
+      getString: name => name === 'creator' ? 'https://youtube.com/channel/' + CHANNEL_ID : null,
+      getChannel: () => null,
+    },
+    deferReply: async () => { interaction.deferred = true; },
+    editReply: async payload => { interaction.answer = payload; },
+  };
+  await creatorNotify.execute(interaction, {}, client);
+  assert.equal(interaction.answer.embeds[0].toJSON().title, 'Creator added');
+  assert.match(interaction.answer.embeds[0].toJSON().description, /youtube: UC/);
+  const [saved] = await listCreatorNotifications(client, GUILD);
+  assert.equal(saved.platform, 'youtube');
+  assert.equal(saved.account, CHANNEL_ID);
+});
