@@ -181,6 +181,11 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.send) throw new Error('The report-logs channel is unavailable.');
   const entry = record.cases[audience];
+  // A deletion title is reserved exclusively for unattended 24-hour expiry.
+  // Manual Close/Delete actions are logged as closed, never as deleted.
+  if (event === 'delete' && entry.deletedBy !== '24-hour expiry') {
+    throw new Error('Report deleted logs are reserved for 24-hour automatic expiry.');
+  }
   const key = event === 'close' ? 'closeLogId' : event === 'delete' ? 'deleteLogId' : 'createdLogId';
   const existing = await fetchMessage(logs, entry[key]);
   const payload = { content: null,
