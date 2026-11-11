@@ -74,3 +74,43 @@ test('play() answers false instead of rejecting where nobody awaits it', async (
   client.riffy.emit('playerCreate', player);
   assert.equal(await player.play(), false);
 });
+
+test('when Discord sent the voice details but the node cannot use them, the other node is tried', async () => {
+  const nodeA = { name: 'A' };
+  const nodeB = { name: 'B' };
+  const first = makePlayer(async () => false);
+  first.node = nodeA;
+  first.connection = { voice: { sessionId: 's', endpoint: 'rotterdam123.discord.media', token: 't' } };
+  const second = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('voice-failover', first);
+  client.riffy.leastUsedNodes = [nodeA, nodeB];
+  const created = [];
+  client.riffy.createPlayer = node => { created.push(node.name); second.node = node; return second; };
+  const { embed } = await playQuery(client, interaction, 'some song');
+  assert.deepEqual(created, ['B']);
+  assert.equal(first.destroyed, true, 'the failed connection is dropped');
+  assert.equal(second.queue.length, 1, 'the song moved to the new connection');
+  assert.equal(embed.toJSON().title, 'Now playing');
+});
+
+test('no second try when Discord never sent the voice details', async () => {
+  const first = makePlayer(async () => false);
+  first.node = { name: 'A' };
+  first.connection = { voice: {} };
+  const { client, interaction } = setup('voice-no-details', first);
+  client.riffy.leastUsedNodes = [first.node, { name: 'B' }];
+  let created = 0;
+  client.riffy.createPlayer = () => { created += 1; return makePlayer(async () => true); };
+  await assert.rejects(playQuery(client, interaction, 'some song'), error => /could not connect to your voice channel/.test(error.userMessage));
+  assert.equal(created, 0);
+  assert.equal(first.destroyed, true);
+});
+
+test('the bot\'s own member is fetched when it is not cached, so the permission check always runs', async () => {
+  const player = makePlayer(async () => player);
+  const permissions = { has: flags => ![].concat(flags).includes(PermissionFlagsBits.Connect) };
+  const { client, interaction, created } = setup('voice-fetchme', player, { permissionsFor: () => permissions }, null);
+  interaction.guild.members = { me: null, fetchMe: async () => ({}) };
+  await assert.rejects(playQuery(client, interaction, 'some song'), error => error.type === 'permission');
+  assert.equal(created.length, 0);
+});
