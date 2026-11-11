@@ -200,6 +200,28 @@ async function resolveLinkAndConnect(client, interaction, query) {
     throw new CloudyError(`Link not playable (${last?.loadType})`, ErrorTypes.USER_INPUT, LINK_NOT_PLAYABLE);
 }
 
+// Opens a link on any connected node without joining voice (used to check a
+// playlist link before it is saved).
+export async function inspectMusicLink(client, query, requester) {
+    assertRiffyAvailable(client);
+    const nodes = Array.isArray(client.riffy.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : [];
+    let failure = null;
+    let answered = false;
+    for (const node of nodes.length ? nodes : [null]) {
+        try {
+            const result = await withTimeout(client.riffy.resolve({ query, requester, ...(node ? { node } : {}) }), RESOLVE_TIMEOUT_MS);
+            if (isPlayableResult(result)) return result;
+            answered = true;
+        } catch (error) {
+            failure ||= error;
+        }
+    }
+    if (failure && !answered) {
+        throw new CloudyError(`Music search failed: ${failure?.message || failure}`, ErrorTypes.NETWORK, MUSIC_SERVER_BUSY);
+    }
+    throw new CloudyError('Link not playable', ErrorTypes.USER_INPUT, LINK_NOT_PLAYABLE);
+}
+
 export async function playQuery(client, interaction, rawQuery) {
     assertRiffyAvailable(client);
     assertInVoice(interaction.member);

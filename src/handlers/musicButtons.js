@@ -11,6 +11,7 @@ import {
 } from '../services/music/musicActions.js';
 import { canControlMusic, VOICE_CHANNEL_DENIAL } from '../services/music/permissions.js';
 import { refreshPlayerMessage } from '../services/music/playerHandler.js';
+import { openPlaylistPanel } from '../services/music/musicPlaylists.js';
 import { MUSIC_BUTTON_IDS } from '../services/music/musicEmbeds.js';
 import { replyUserError, ErrorTypes } from '../utils/errorHandler.js';
 
@@ -18,6 +19,12 @@ async function handleMusicButton(interaction, client) {
     const player = getPlayer(client, interaction.guild.id);
     const guildData = getGuildMusicData(interaction.guild.id);
     const customId = interaction.customId;
+
+    // Saved playlists can be opened and added to by everyone; starting one
+    // checks the voice channel itself.
+    if (customId === MUSIC_BUTTON_IDS.PLAYLISTS) {
+        return openPlaylistPanel(interaction, client);
+    }
 
     if (customId === MUSIC_BUTTON_IDS.QUEUE) {
         if (!player?.current) {
