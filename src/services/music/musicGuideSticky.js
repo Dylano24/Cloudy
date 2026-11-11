@@ -2,9 +2,9 @@
 // of a member (owner's choice, like the Content Creators guides). The guide keeps
 // whatever the owner made of it: its text, buttons and pictures are copied.
 import { createStickyGuideManager } from '../stickyGuideService.js';
-import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../cloudyChannelResolver.js';
+import { MUSIC_CHANNEL_ID, musicChannelFor, resolveOwnerMusicChannel } from './musicChannel.js';
 import { isBuilderUiMessage } from '../../utils/builderSessionCleanup.js';
-import { logger } from '../../utils/logger.js';
+import { logger, startupLog } from '../../utils/logger.js';
 import { buildMusicGuideEmbed } from './musicEmbeds.js';
 import { buildMusicGuideComponents } from './musicGuidePanel.js';
 
@@ -65,26 +65,34 @@ export function createMusicGuideManager() {
 
 const manager = createMusicGuideManager();
 
-// Only the home server's music channel.
-function homeMusicChannel(guild, client) {
+// The owner's music channel in whatever server it is in; otherwise only the
+// home server's #music channel.
+function guideChannelFor(guild, client) {
+  if (!guild || (client || guild.client)?.config?.features?.music === false) return null;
+  const channel = musicChannelFor(guild);
   const homeGuildId = String(process.env.GUILD_ID || '').trim();
-  if (!guild || !homeGuildId || String(guild.id) !== homeGuildId) return null;
-  if ((client || guild.client)?.config?.features?.music === false) return null;
-  return findCloudyChannelByAlias(guild, getCloudyChannelDefinition('music')?.aliases || [], { textOnly: true });
+  if (!channel) return null;
+  return channel.id === MUSIC_CHANNEL_ID || (homeGuildId && String(guild.id) === homeGuildId) ? channel : null;
 }
 
 // Bots never move the guide, members do.
 export function scheduleMusicGuide(message) {
   if (!message?.guild || !message.channel || message.author?.bot) return false;
-  const channel = homeMusicChannel(message.guild, message.client);
+  const channel = guideChannelFor(message.guild, message.client);
   if (!channel || channel.id !== message.channel.id) return false;
   return manager.schedule(message);
 }
 
-// At startup: make sure the guide is there (placed again when it is gone).
+// At startup: make sure the guide is there (placed again when it is gone), and
+// say in the log which channel was found.
 export async function ensureMusicGuide(client) {
-  const guild = client?.guilds?.cache?.get?.(String(process.env.GUILD_ID || '').trim());
-  const channel = homeMusicChannel(guild, client);
-  if (!channel) return false;
+  const owner = await resolveOwnerMusicChannel(client);
+  const home = client?.guilds?.cache?.get?.(String(process.env.GUILD_ID || '').trim());
+  const channel = owner?.channel || guideChannelFor(home, client);
+  if (!channel) {
+    startupLog(`Music guide: no music channel found (${MUSIC_CHANNEL_ID} is not a channel or server Cloudy can see)`);
+    return false;
+  }
+  startupLog(`Music guide: ${owner ? `owner's ${owner.via}` : 'home server'} #${channel.name} (${channel.id}) in ${channel.guild?.name} (${channel.guild?.id})`);
   return manager.refresh(channel);
 }
