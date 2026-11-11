@@ -31,6 +31,7 @@ const deployedNames = [
   "commands",
   "configwizard",
   "countdown",
+  "creator-notify",
   "crime",
   "daily",
   "deposit",
@@ -112,7 +113,7 @@ const deployedNames = [
   "work"
 ];
 
-test('all 101 deployed routes (incl. /now, /wipe, /honeypot and /rustcommunity) survive removal of the 12 retired implementation files', async () => {
+test('all 102 deployed routes (incl. /now, /wipe, /honeypot and /rustcommunity) survive removal of the 12 retired implementation files', async () => {
   const client = {};
   await loadCommands(client);
   assert.deepEqual([...client.commands.keys()].sort(), deployedNames);
