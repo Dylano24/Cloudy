@@ -137,7 +137,8 @@ export async function nextReportNumber(client, guildId) {
     // Increment atomically from the higher of the old counter or saved report numbers.
     const statement = `WITH previous AS (
       SELECT GREATEST($3::bigint, COALESCE(MAX(CASE
-        WHEN value ->> 'number' ~ '^[0-9]+
+        WHEN value ->> 'number' ~ '^[0-9]+$' THEN (value ->> 'number')::bigint
+        ELSE 0 END), 0)) AS max_number
       FROM ${table} WHERE key LIKE $2
     )
     INSERT INTO ${table} (key, value, expires_at, created_at)
@@ -166,38 +167,6 @@ export async function nextReportNumber(client, guildId) {
       throw new Error('The report counter could not be saved.');
     }
     issued.set(String(guildId), Math.max(next, issued.get(String(guildId)) || 0));
-    return next;
-  });
-}
-export { deleteReportCase, scheduleReportCaseExpiry, publishReportOutcome, handleReportCaseControl, restoreReportCaseTimers, validateReportDestinations, REPORT_LOG_CHANNEL_ID } from './reportCaseLifecycleService.js';
- THEN (value ->> 'number')::bigint
-        ELSE 0 END), 0)) AS max_number
-      FROM ${table} WHERE key LIKE $2
-    )
-    INSERT INTO ${table} (key, value, expires_at, created_at)
-      SELECT $1, to_jsonb(previous.max_number + 1), NULL, CURRENT_TIMESTAMP FROM previous
-    ON CONFLICT (key) DO UPDATE SET value = to_jsonb(GREATEST(
-      COALESCE(CASE WHEN ${table}.value::text ~ '^[0-9]+$'
-        THEN (${table}.value::text)::bigint END, 0),
-      (SELECT max_number FROM previous)
-    ) + 1)
-    RETURNING value`;
-    const result = await pool.query(statement, [key, `global:report:${guildId}:%`]);
-    const number = Number(result.rows[0]?.value);
-    if (!Number.isSafeInteger(number) || number < 1) throw new Error('The report counter returned an invalid number.');
-    return number;
-  }
-  return withReportLock(key, async () => {
-    let highest = Number(await client.db.get(key)) || 0;
-    for (const caseKey of await client.db.list(`global:report:${guildId}:`)) {
-      const stored = await client.db.get(caseKey);
-      const number = Number(stored?.number);
-      if (Number.isSafeInteger(number) && number > highest) highest = number;
-    }
-    const next = highest + 1;
-    if (!Number.isSafeInteger(next) || await client.db.set(key, next) === false) {
-      throw new Error('The report counter could not be saved.');
-    }
     return next;
   });
 }
