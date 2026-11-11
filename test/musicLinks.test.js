@@ -127,11 +127,8 @@ test('a Spotify track rejected by Lavalink searches the actual title and retains
   const { client, interaction } = setup('spotify-link-oembed', {
     leastUsedNodes: [{ name: 'Cloudy Private' }],
     createPlayer: node => makePlayer(node),
-    resolve: async ({ query }) => {
-      calls.push(query);
-      if (query.startsWith('https://open.spotify.com/')) {
-        return { loadType: 'error', tracks: [], exception: { message: 'Spotify source missing' } };
-      }
+    resolve: async ({ query, source }) => {
+      calls.push({ query, source });
       return { loadType: 'search', tracks: [track('Matching audio')] };
     },
   });
@@ -140,7 +137,7 @@ test('a Spotify track rejected by Lavalink searches the actual title and retains
     return { ok: true, json: async () => ({ title: 'Exact song', thumbnail_url: 'https://i.scdn.co/image/real-cover' }) };
   });
   const { embed } = await playQuery(client, interaction, link);
-  assert.deepEqual(calls, [link, 'Exact song official audio']);
+  assert.deepEqual(calls, [{ query: 'Exact song', source: 'scsearch' }]);
   assert.equal(embed.toJSON().image.url, 'https://i.scdn.co/image/real-cover');
   assert.equal(embed.toJSON().title, 'Now playing');
 });
@@ -155,4 +152,28 @@ test('Spotify metadata unavailable retains the genuine music-server error withou
   await assert.rejects(playQuery(client, interaction,
     'https://open.spotify.com/track/1ApUYfDejOBvrTnar2Wyf3'),
   error => /link could not be opened/i.test(error.userMessage));
+});
+
+
+test('Spotify chooses SoundCloud first and falls back to music search if unavailable', async t => {
+  const tried = [];
+  const { client, interaction } = setup('spotify-soundcloud-fallback', {
+    leastUsedNodes: [{ name: 'Cloudy Private' }],
+    createPlayer: node => makePlayer(node),
+    resolve: async ({ query, source }) => {
+      tried.push({ query, source });
+      if (source === 'scsearch') return { loadType: 'empty', tracks: [] };
+      return { loadType: 'search', tracks: [track('Fallback audio')] };
+    },
+  });
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true, json: async () => ({ title: 'Exact song', thumbnail_url: 'https://i.scdn.co/image/real-cover' }),
+  }));
+  const { embed } = await playQuery(client, interaction,
+    'https://open.spotify.com/track/1ApUYfDejOBvrTnar2Wyf3');
+  assert.deepEqual(tried, [
+    { query: 'Exact song', source: 'scsearch' },
+    { query: 'Exact song official audio', source: undefined },
+  ]);
+  assert.equal(embed.toJSON().image.url, 'https://i.scdn.co/image/real-cover');
 });

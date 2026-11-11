@@ -184,6 +184,7 @@ function getLoopLabel(loop) {
 // trackStart event when some nodes keep reporting a stale zero position.
 // The clock freezes on Pause and is reset on each new track.
 export function estimatedMusicPosition(player, guildData, now = Date.now()) {
+    if (guildData?.playbackFailed) return 0;
     const reported = Math.max(0, Number(player?.position) || 0);
     const clock = guildData?.progressClock;
     let position = reported;
