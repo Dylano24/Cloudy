@@ -21,10 +21,10 @@ export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performanc
 // link like the logo, so every edit keeps the same picture and nothing loads
 // again. Discord sizes a picture by the card, not by a font: on PC it is shown
 // at its own width, on a phone it is shrunk to the card (about 315 points).
-// The picture is therefore 315 px wide (assets/vote-footer-compact.png), so
+// The picture is therefore 450 px wide, pure white (assets/vote-footer-compact.png), so
 // the footer has the same size on PC as on a phone; at 450 px it was about a
 // third larger on PC. The 450 px picture is still in assets/vote-footer-small.png.
-export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@dc790e668e7c39ae53da6d4244834d4976f6aa5b/assets/vote-footer-compact.png';
+export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@55bde3bff6463da0970409234c32f8430914bc55/assets/vote-footer-compact.png';
 // The card's progress bar is a thin picture (owner's choice: white, rounded),
 // like the footer: Discord's app loads custom emoji again every time it
 // redraws the vote (each vote and each button press), which made emoji bars
