@@ -4,6 +4,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { isPlayerCommand } from '../src/config/playerCommands.js';
 import { isRetiredGamblingCommand } from '../src/config/gamblingCommands.js';
+import { isRetiredCommunityCommand } from '../src/config/retiredCommunityCommands.js';
 
 const token = String(
   process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN || process.env.DISCORD_BOT_TOKEN || ''
@@ -89,6 +90,7 @@ async function loadPayloads() {
 
       const payload = JSON.parse(JSON.stringify(command.data.toJSON()));
       if (isRetiredGamblingCommand(payload?.name)
+        || isRetiredCommunityCommand(payload?.name)
         || ['gcreate', 'gend', 'gdelete', 'greroll'].includes(payload?.name)
         || (payload?.name === 'gamble' && path.basename(file) === 'gamble.js')) continue;
       if (!payload?.name || seen.has(payload.name)) continue;
