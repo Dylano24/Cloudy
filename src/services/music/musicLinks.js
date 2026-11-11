@@ -54,3 +54,40 @@ export async function prepareMusicQuery(raw, { fetcher = fetch } = {}) {
   if (!link) return { query: String(raw ?? '').trim(), isLink: false };
   return { query: await expandShortLink(link, fetcher), isLink: true };
 }
+
+
+// Lavalink's YouTube source cannot decode a Spotify track URL on its own.
+// Spotify's public oEmbed endpoint provides the *real track title and cover*
+// without an account, tokens or scraping. Search the playable audio by title.
+export async function getSpotifyTrackMetadata(link, { fetcher = fetch } = {}) {
+  let trackUrl;
+  try {
+    const url = new URL(link);
+    if (url.protocol !== 'https:' || url.hostname !== 'open.spotify.com') return null;
+    const match = /^\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})\/?$/.exec(url.pathname);
+    if (!match) return null;
+    trackUrl = `https://open.spotify.com/track/${match[1]}`;
+  } catch {
+    return null;
+  }
+
+  try {
+    const response = await fetcher(
+      `https://open.spotify.com/oembed?url=${encodeURIComponent(trackUrl)}`,
+      { signal: AbortSignal.timeout(3500), headers: { Accept: 'application/json' } },
+    );
+    if (!response?.ok) return null;
+    const data = await response.json();
+    const title = typeof data?.title === 'string' ? data.title.trim().slice(0, 200) : '';
+    if (!title) return null;
+    const cover = data?.thumbnail_url;
+    return {
+      title,
+      artworkUrl: typeof cover === 'string' && /^https:\/\//i.test(cover) ? cover : null,
+    };
+  } catch {
+    // Spotify may reject a private or deleted track. Preserve the original
+    // music-server error instead of falsely claiming another title is a match.
+    return null;
+  }
+}

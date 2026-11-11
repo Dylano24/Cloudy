@@ -12,7 +12,7 @@ import {
     getQueuePageSize,
 } from './musicEmbeds.js';
 import { refreshPlayerMessage } from './playerHandler.js';
-import { prepareMusicQuery } from './musicLinks.js';
+import { prepareMusicQuery, getSpotifyTrackMetadata } from './musicLinks.js';
 import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
 
@@ -418,14 +418,29 @@ export async function playQuery(client, interaction, rawQuery) {
     const { query, isLink } = await prepareMusicQuery(rawQuery);
     let player;
     let result;
+    let spotifyMetadata = null;
     if (isLink) {
-        ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
+        try {
+            ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
+        } catch (originalError) {
+            // Private Lavalink can play YouTube but doesn't necessarily have a
+            // Spotify source plugin. Resolve the real Spotify track title via
+            // Spotify oEmbed, then search for playable audio on the same node.
+            spotifyMetadata = await getSpotifyTrackMetadata(query);
+            if (!spotifyMetadata) throw originalError;
+            ({ player, result } = await resolveLinkAndConnect(client, interaction, spotifyMetadata.title + ' official audio'));
+        }
     } else {
         ({ player } = await ensurePlayer(client, interaction));
         result = await searchAcrossNodes(client, interaction, query, player.node);
     }
 
     const { loadType, tracks, playlistInfo } = result;
+    // Preserve Spotify's actual album cover even when the playback source has
+    // a different video thumbnail (or none).
+    if (spotifyMetadata?.artworkUrl && tracks?.[0]?.info) {
+        tracks[0].info.artworkUrl = spotifyMetadata.artworkUrl;
+    }
 
     if (loadType === 'playlist' || loadType === 'PLAYLIST_LOADED') {
         // Every song is added, also one that is already in the queue (owner's choice).

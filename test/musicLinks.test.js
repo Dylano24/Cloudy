@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractMusicLink, expandShortLink, prepareMusicQuery } from '../src/services/music/musicLinks.js';
+import { extractMusicLink, expandShortLink, prepareMusicQuery, getSpotifyTrackMetadata } from '../src/services/music/musicLinks.js';
 import { playQuery } from '../src/services/music/musicActions.js';
 
 test('pasted links are cleaned: share text, Spotify URIs and old iTunes links', () => {
@@ -102,4 +102,57 @@ test('when every node is unreachable the music-server message is shown', async (
     assert.match(error.userMessage, /music server is not responding/);
     return true;
   });
+});
+
+
+test('Spotify track metadata is fetched from the official oEmbed endpoint without sharing tokens', async () => {
+  let requested;
+  const metadata = await getSpotifyTrackMetadata(
+    'https://open.spotify.com/track/1ApUYfDejOBvrTnar2Wyf3?si=abc&context=playlist',
+    { fetcher: async (url, options) => {
+      requested = url;
+      assert.ok(options.signal);
+      return { ok: true, json: async () => ({ title: 'Real track title', thumbnail_url: 'https://i.scdn.co/image/cover' }) };
+    } },
+  );
+  assert.equal(requested, 'https://open.spotify.com/oembed?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F1ApUYfDejOBvrTnar2Wyf3');
+  assert.deepEqual(metadata, { title: 'Real track title', artworkUrl: 'https://i.scdn.co/image/cover' });
+  assert.equal(await getSpotifyTrackMetadata('https://evil.example/track/1ApUYfDejOBvrTnar2Wyf3'), null);
+  assert.equal(await getSpotifyTrackMetadata('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'), null);
+});
+
+test('a Spotify track rejected by Lavalink searches the actual title and retains its album cover', async t => {
+  const link = 'https://open.spotify.com/track/1ApUYfDejOBvrTnar2Wyf3?si=abc';
+  const calls = [];
+  const { client, interaction } = setup('spotify-link-oembed', {
+    leastUsedNodes: [{ name: 'Cloudy Private' }],
+    createPlayer: node => makePlayer(node),
+    resolve: async ({ query }) => {
+      calls.push(query);
+      if (query.startsWith('https://open.spotify.com/')) {
+        return { loadType: 'error', tracks: [], exception: { message: 'Spotify source missing' } };
+      }
+      return { loadType: 'search', tracks: [track('Matching audio')] };
+    },
+  });
+  t.mock.method(globalThis, 'fetch', async url => {
+    assert.match(String(url), /^https:\/\/open\.spotify\.com\/oembed\?/);
+    return { ok: true, json: async () => ({ title: 'Exact song', thumbnail_url: 'https://i.scdn.co/image/real-cover' }) };
+  });
+  const { embed } = await playQuery(client, interaction, link);
+  assert.deepEqual(calls, [link, 'Exact song official audio']);
+  assert.equal(embed.toJSON().image.url, 'https://i.scdn.co/image/real-cover');
+  assert.equal(embed.toJSON().title, 'Now playing');
+});
+
+test('Spotify metadata unavailable retains the genuine music-server error without playing random songs', async t => {
+  const { client, interaction } = setup('spotify-no-metadata', {
+    leastUsedNodes: [{ name: 'Cloudy Private' }],
+    createPlayer: () => { throw new Error('should not join voice'); },
+    resolve: async () => ({ loadType: 'error', tracks: [], exception: { message: 'No Spotify source' } }),
+  });
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: false }));
+  await assert.rejects(playQuery(client, interaction,
+    'https://open.spotify.com/track/1ApUYfDejOBvrTnar2Wyf3'),
+  error => /link could not be opened/i.test(error.userMessage));
 });
