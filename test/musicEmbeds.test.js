@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelType, Collection } from 'discord.js';
+import { ChannelType, Collection, MessageFlags } from 'discord.js';
 import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
@@ -104,7 +104,7 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.ok(now.options.some(o => o.name === 'playing'));
 });
 
-test('play slash reply is public and includes song cover instead of hiding it', async t => {
+test('play slash confirmation is private while the shared music panel stays public', async t => {
   let deferOptions = 'not-called';
   let publicReply = null;
   t.mock.method(InteractionHelper, 'safeDefer', async (targetInteraction, options) => {
@@ -137,7 +137,7 @@ test('play slash reply is public and includes song cover instead of hiding it', 
     options: { getString: () => 'Song' },
   };
   await playCommand.execute(interaction, {}, client);
-  assert.equal(deferOptions, undefined, 'slash response is visible to everyone');
+  assert.equal(deferOptions.flags, MessageFlags.Ephemeral, 'avoid a duplicate public now-playing embed');
   assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
   assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
   assert.deepEqual(publicReply.allowedMentions, { parse: [] });

@@ -18,8 +18,8 @@ import { logger } from '../../utils/logger.js';
 
 const MUSIC_SERVER_BUSY = 'The music server is not responding right now. Please try again in a moment.';
 const LINK_NOT_PLAYABLE = 'That link could not be opened. It may be private, region-locked or not available right now. Try another link or a song name.';
-const RESOLVE_TIMEOUT_MS = 12_000;
-const MUSIC_READY_WAIT_MS = 20_000;
+const RESOLVE_TIMEOUT_MS = 8_000;
+const MUSIC_READY_WAIT_MS = 6_000;
 const VOICE_MOVE_TIMEOUT_MS = 12_000;
 const BAD_NODE_MS = 10 * 60 * 1000;
 const PLAYABLE_LOAD_TYPES = new Set(['track', 'playlist', 'search', 'TRACK_LOADED', 'PLAYLIST_LOADED', 'SEARCH_RESULT']);
@@ -256,7 +256,7 @@ export async function ensurePlayer(client, interaction, { node = null } = {}) {
         guildData.playerChannelId = interaction.channel.id;
     }
 
-    player.setVolume(guildData.volume);
+    if (player.volume !== guildData.volume) player.setVolume(guildData.volume);
     return { player, guildData };
 }
 
@@ -290,7 +290,7 @@ export async function joinVoiceChannel(client, interaction) {
         guildData.playerChannelId = interaction.channel.id;
     }
 
-    player.setVolume(guildData.volume);
+    if (player.volume !== guildData.volume) player.setVolume(guildData.volume);
 
     return successEmbed(
         'Joined voice channel',
