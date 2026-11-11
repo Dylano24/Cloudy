@@ -137,11 +137,11 @@ export function setupPlayerHandler(client) {
         logger.warn(`Lavalink node "${node.name}" error: ${error?.message || error}`);
     });
 
-    client.riffy.on('nodeDisconnect', (node) => {
+    client.riffy.on('nodeDisconnect', (node, info) => {
         if (!shouldLogNodeEvent(node.name)) {
             return;
         }
-        logger.warn(`Lavalink node "${node.name}" disconnected.`);
+        logger.warn(`Lavalink node "${node.name}" disconnected (code ${info?.event ?? '?'}${info?.reason ? `, ${info.reason}` : ''}).`);
     });
 
     // Riffy rejects play() when the voice connection never comes. Where nobody
