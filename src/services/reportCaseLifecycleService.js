@@ -271,10 +271,18 @@ function reportSectionText(value) {
   return String(value || '').replace(/^\u200b\n+/, '').replace(/(?:\n\u200b|\n)+$/, '');
 }
 
+// Only compact the gaps highlighted in the report notification.
+// Preserve the gap after the intro and every other section.
+function compactHighlightedReportGaps(description) {
+  return String(description || '')
+    .replace(/(\*\*Reported member\*\*\n[\s\S]*?)\n\n(?=\*\*Reported message\*\*\n)/, '$1\n')
+    .replace(/(\*\*Reported message\*\*\n[\s\S]*?)\n\n(?=\*\*Review outcome\*\*\n)/, '$1\n');
+}
+
 function reportNoticeDescription(intro, fields) {
   const normalizedIntro = reportSectionText(intro).replace(/Reviewed\n(?=Your report has)/, 'Reviewed\n\n');
-  return [normalizedIntro, ...fields.map(({ name, value }) =>
-    `**${name}**\n${reportSectionText(value)}`)].join('\n\n');
+  return compactHighlightedReportGaps([normalizedIntro, ...fields.map(({ name, value }) =>
+    `**${name}**\n${reportSectionText(value)}`)].join('\n\n'));
 }
 
 function spacedReportOutcome(value) {
@@ -293,7 +301,7 @@ function refreshedReportNoticeEmbed(embed, record, channelName) {
       ...field,
       value: field.name === 'Review outcome' ? spacedReportOutcome(field.value) : field.value,
     })))
-    : source.description;
+    : compactHighlightedReportGaps(source.description);
   const footerText = reportFooterText(record, channelName);
   if (source.description === description
       && source.footer?.text === footerText
