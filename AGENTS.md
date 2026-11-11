@@ -139,6 +139,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - The report moderation form checks permission first and only then validates the timeout duration (`1m`, `1h`, `1d`, `1w`, a bare number is minutes, at most 28 days). `/report file` needs a reason of at least three characters, like the "Cloudy report" form, and refuses before a number is reserved.
 
 - Every report staff log (created, closed, deleted) ends with a `Date` section: Discord date and time (`<t:X:F>`) of that log's own event (`logEventTime`; `createdLogAt`, `closedAt`, `deletedAt`). Keep this for every new log type.
+- The private "Report submitted" confirmation has no logo (owner's choice); `ensureOutgoingReportConfirmationFooter` removes any thumbnail at the final send.
 - A reported photo or video is copied at report time (`preserveReportAttachments`: pictures as a Cloudy media link, videos on the `/deleted-media` page, else the original link) and stored as `reportedAttachments`; both private notices link it under "Reported message" (`reportAttachmentLines`), so it still opens after the message was deleted.
 - A report case channel that is already gone at the 24-hour mark was removed by hand in Discord: it is logged as closed ("Closed by: Unknown"), never as the automatic deletion. `expiryStartedAt` is saved before Cloudy removes a channel itself, so an automatic deletion interrupted by a restart is still logged as "24-hour expiry".
 
