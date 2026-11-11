@@ -83,10 +83,12 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.ok(!guide.description.includes('/now playing'), 'the public panel must remain short');
   const commands = buildMusicCommandsEmbed().toJSON();
   assert.equal(commands.title, 'Music commands');
-  // The buttons of the player, each with its own emoji and a short explanation.
-  for (const [emoji, name] of [['⏸️', 'Pause / Resume'], ['▶️', 'Pause / Resume'], ['⏭️', 'Skip'], ['🔀', 'Shuffle'], ['🔁', 'Loop'], ['🔂', 'Loop'], ['📋', 'Queue'], ['🎵', 'Playlists'], ['⏹️', 'Stop']]) {
-    assert.ok(commands.description.includes(emoji), `${emoji} is explained`);
-    assert.ok(commands.description.includes(`**${name}**`), `${name} is explained`);
+  // The buttons of the player in their order, one short line each with one emoji, so the lines stay neatly under each other.
+  const lines = commands.description.split('\n').filter(line => /^\p{Extended_Pictographic}/u.test(line));
+  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['⏸️', '⏭️', '🔀', '🔁', '📋', '🎵', '⏹️']);
+  for (const line of lines) {
+    assert.ok(line.length <= 26, `Explanation must stay short: ${line}`);
+    assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the emoji and a few words: ${line}`);
   }
   // /play is the only slash command: the player covers the rest, other commands (such as a future Guess the song) get their own line.
   assert.deepEqual(commands.description.match(/`\/[a-z ]+`/g), ['`/play`']);
