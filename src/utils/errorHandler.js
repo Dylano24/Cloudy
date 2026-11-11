@@ -352,6 +352,12 @@ async function sendErrorResponse(interaction, embed, context = {}) {
                 ...(gamblingPolicy?.ephemeral === false ? {} : { flags: MessageFlags.Ephemeral }),
             });
             followUp = true;
+        } else if (interaction.deferred && interaction.__cloudyPrivateErrors && interaction.ephemeral !== true) {
+            // The deferred reply is public. A failure replaces it with a private
+            // notice, so only the person who used the command sees the problem.
+            await interaction.deleteReply().catch(() => {});
+            responseMessage = await interaction.followUp({ ...errorMessage, flags: MessageFlags.Ephemeral });
+            followUp = true;
         } else if (interaction.deferred) {
             responseMessage = await interaction.editReply(errorMessage);
         } else {
