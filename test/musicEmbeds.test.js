@@ -179,9 +179,15 @@ test('/music guide also shows the compact embed with its Commands button', async
   assert.equal(replies[0].components[0].toJSON().components[0].custom_id, 'dedicated_commands:music');
 });
 
-test('the player has no volume buttons', async () => {
+test('the player has one row of icon controls and Stop alone on the bottom row', async () => {
   const { buildPlayerButtonRows } = await import('../src/services/music/musicEmbeds.js');
-  const ids = buildPlayerButtonRows({ paused: false }, { loop: 'none' })
-    .flatMap(row => row.toJSON().components.map(button => button.custom_id));
-  assert.deepEqual(ids, ['music_pause', 'music_resume', 'music_skip', 'music_stop', 'music_shuffle', 'music_loop', 'music_queue']);
+  const rows = buildPlayerButtonRows({ paused: false }, { loop: 'none' }).map(row => row.toJSON().components);
+  assert.deepEqual(rows.map(row => row.map(button => button.custom_id)), [
+    ['music_pause', 'music_skip', 'music_shuffle', 'music_loop', 'music_queue'],
+    ['music_stop'],
+  ]);
+  assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
+  const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
+  assert.equal(paused[0][0].custom_id, 'music_resume');
+  assert.equal(paused[0][3].emoji.name, '🔂');
 });
