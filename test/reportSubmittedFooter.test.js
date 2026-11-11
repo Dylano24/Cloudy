@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createEmbed } from '../src/utils/embeds.js';
 import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js';
-import { withCloudyFooter, withReportSubmittedNumber, ensureOutgoingReportConfirmationFooter } from '../src/utils/cloudyFooter.js';
+import { withCloudyFooter, withReportSubmittedNumber, ensureOutgoingReportConfirmationFooter, withReportCaseNoticeNumber, ensureOutgoingReportCaseNoticeFooter } from '../src/utils/cloudyFooter.js';
 import { normalizeCloudyEmbed } from '../src/services/cloudyBrandingService.js';
 import { CLOUDY_STANDARD_FOOTER, ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
 
@@ -97,4 +97,48 @@ test('final Discord REST payload repairs incorrect Report submitted footer using
   assert.deepEqual(await withReportSubmittedNumber(112, async () =>
     ensureOutgoingReportConfirmationFooter({ embeds: [{ title: 'Moderation update' }] })),
     { embeds: [{ title: 'Moderation update' }] }, 'private moderation updates remain untouched');
+});
+
+test('final REST branding cannot replace R113 with stale R103 and R106 across private reports', async () => {
+  const make = async (title, oldNumber) =>
+    withReportCaseNoticeNumber(113, async () => {
+      await Promise.resolve();
+      return ensureOutgoingReportCaseNoticeFooter(withCloudyFooter({
+        embeds: [{ title, description: 'Existing body', footer: {
+          text: `Cloudy Inc. • Moderation team • R${oldNumber}`,
+        } }],
+      }));
+    });
+  const [reporter, target] = await Promise.all([
+    make('Report update', 106), make('Moderation update', 103),
+  ]);
+  for (const result of [reporter, target]) {
+    assert.equal(result.embeds[0].footer.text, 'Cloudy Inc. • Moderation team • R113');
+    assert.equal(result.embeds[0].description, 'Existing body');
+  }
+  assert.equal(ensureOutgoingReportCaseNoticeFooter({
+    embeds: [{ title: 'Report update', footer: { text: 'R103' } }],
+  }).embeds[0].footer.text, 'R103', 'outside scoped notice only original footer remains');
+});
+
+test('each independent report dynamically keeps its own channel number during concurrent updates', async () => {
+  const make = (number, title, staleNumber) => withReportCaseNoticeNumber(number, async () => {
+    await Promise.resolve();
+    return ensureOutgoingReportCaseNoticeFooter({ embeds: [{
+      title, footer: { text: `Cloudy Inc. • Moderation team • R${staleNumber}` },
+    }] });
+  });
+  const [report113, moderation113, report114, moderation114] = await Promise.all([
+    make(113, 'Report update', 106),
+    make(113, 'Moderation update', 103),
+    make(114, 'Report update', 113),
+    make(114, 'Moderation update', 103),
+  ]);
+  assert.deepEqual([report113, moderation113, report114, moderation114]
+    .map(response => response.embeds[0].footer.text), [
+    'Cloudy Inc. • Moderation team • R113',
+    'Cloudy Inc. • Moderation team • R113',
+    'Cloudy Inc. • Moderation team • R114',
+    'Cloudy Inc. • Moderation team • R114',
+  ]);
 });

@@ -6,7 +6,7 @@ import { REPORT_MODERATION_FOOTER } from '../utils/reportCasePrivacy.js';
 import { feedEmoji } from './feedEmojiService.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { buildStandardLogEmbed } from '../utils/logging/logEmbeds.js';
-import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
+import { CLOUDY_STANDARD_FOOTER, withReportCaseNoticeNumber } from '../utils/cloudyFooter.js';
 import { CLOUDY_LOGO_URL } from './cloudyLogoService.js';
 import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../utils/embedColorPolicy.js';
 import { TICKET_EVENT_STYLES } from '../utils/ticket/ticketLogging.js';
@@ -406,6 +406,11 @@ export async function publishReportOutcome(client, guild, report, record, action
     if (entry.deletedAt) continue;
 
     const channel = await fetchChannel(guild, entry.channelId);
+    // Never fall back to an old case number for the private notice. Both
+    // audiences must derive the R-number from the visible channel name.
+    const channelMatch = /^report-([1-9]\d*)$/i.exec(String(channel?.name || ''));
+    if (!channelMatch) throw new Error('The report case channel has an invalid number.');
+    const channelReportNumber = Number(channelMatch[1]);
     const existing = await fetchMessage(channel, entry.messageId);
     const participant = participantId(record, audience);
     const payload = {
@@ -415,7 +420,10 @@ export async function publishReportOutcome(client, guild, report, record, action
       allowedMentions: { parse: [], users: [participant], roles: [] },
     };
 
-    const notice = existing?.author?.id === client.user.id ? await existing.edit(payload) : await channel.send(payload);
+    // Guard the final REST payload as well as the embed constructor, so
+    // a global footer/template hook cannot overwrite R113 with R103/R106.
+    const notice = await withReportCaseNoticeNumber(channelReportNumber, () =>
+      existing?.author?.id === client.user.id ? existing.edit(payload) : channel.send(payload));
     entry.messageId = notice.id;
     entry.closeNoticeReady = true;
     await save(client, syncAliases(record));
