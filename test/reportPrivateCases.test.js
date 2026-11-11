@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, ChannelType, OverwriteType, PermissionOverwrites, PermissionsBitField } from 'discord.js';
 import { db } from '../src/utils/database.js';
-import { buildReportActions, handleReportAction, handleReportModeration, reportActionAllowed } from '../src/services/reportActionService.js';
+import { buildReportActions, handleReportAction, handleReportModeration, reportActionAllowed, timeoutDuration } from '../src/services/reportActionService.js';
 import { ModerationService } from '../src/services/moderation/moderationService.js';
 import { registerReport, reportKey, REPORT_CATEGORY_ID, REPORT_CASE_MS, REPORT_LOG_CHANNEL_ID, restoreReportCaseTimers, handleReportCaseControl, publishReportOutcome, deleteReportCase } from '../src/services/reportCaseService.js';
 import { TICKET_EVENT_STYLES } from '../src/utils/ticket/ticketLogging.js';
@@ -107,6 +107,24 @@ function fixture() {
   async function register() { await registerReport(client, report, { guildId: guild.id, reporterId: reporter.id, targetId: target.id, sourceChannelId: originalChannel.id, sourceMessageId: 'original-message', reportedMessageText: 'Original message text' }); }
   return { values, client, guild, staff, reporter, target, owner, roleOwner, reports, logs, channels, report, interaction, payloads, removed, dms, positions, replyDeletes, submit, register };
 }
+
+test('report timeout accepts 1m 1h 1d 1w, and existing minutes input', () => {
+  for (const [input, minutes] of [['1m',1],['1h',60],['1d',1440],['1w',10080],['10',10],['2W',20160],[' 4h ',240],['28d',40320]]) {
+    assert.equal(timeoutDuration(input), minutes * 60_000);
+  }
+  for (const invalid of ['0', '0m', '29d', '5w', '40321', '1x', 'abc', '1h5m', '1.5h', '', '-1h']) {
+    assert.throws(() => timeoutDuration(invalid), /Invalid duration|Timeout duration/);
+  }
+});
+
+test('timeout modal shows units in label and placeholder', async () => {
+  const f = fixture(); await f.register();
+  const click = f.interaction();
+  await handleReportAction(click, f.client, ['timeout', 'target']);
+  const durationField = click.modal.components[0].components[0];
+  assert.equal(durationField.label, 'Duration (1m, 1h, 1w)');
+  assert.equal(durationField.placeholder, '1m, 1h, 1d, 1w');
+});
 
 test('Delete asks for a required reason before acting; two adjacent private cases keep the New report intact', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
@@ -264,7 +282,10 @@ test('empty reason, invalid duration and unauthorized submissions cannot perform
   await handleReportModeration(outsider, f.client, ['delete', 'target', 'report']);
   assert.deepEqual(f.removed, []); assert.equal(f.payloads.length, 0);
   const timeout = f.interaction(); timeout.fields.getTextInputValue = field => field === 'minutes' ? '0' : 'Reason';
-  await assert.rejects(handleReportModeration(timeout, f.client, ['timeout', 'target', 'report']), /Timeout must/);
+  await handleReportModeration(timeout, f.client, ['timeout', 'target', 'report']);
+  assert.equal(json(timeout.error.embeds[0]).title, 'Invalid duration');
+  assert.match(json(timeout.error.embeds[0]).description, /between 1 minute and 4 weeks/);
+  assert.deepEqual(f.removed, [], 'invalid duration cannot perform an action');
 });
 
 test('each participant can close their own report channel in one click, with one close log', async () => {
