@@ -22,7 +22,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   // (plain blocks until the white pieces are uploaded).
   assert.equal(embed.description, '**Song**\n\n▰▰▰▱▱▱▱▱▱▱');
   assert.equal(buildNowPlayingEmbed({ info: { ...track.info, length: 0 } }, { position: 0, queue: [] }, {}).toJSON().description, '**Song**');
-  assert.match(embed.thumbnail.url, /cloudy-music-icon\.png/);
+  assert.match(embed.thumbnail.url, /cloudy-c-logo-auf-auf\.gif/);
   assert.equal(embed.color, 0xFFFFFF);
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
@@ -240,8 +240,8 @@ test('music embeds preserve original Lavalink artwork even though Riffy drops ar
   assert.equal(request.image.url, 'https://cdn.example.com/real-cover.jpg');
   assert.equal(panel.color, 0xFFFFFF);
   assert.equal(request.color, 0xFFFFFF);
-  assert.match(panel.thumbnail.url, /cloudy-music-icon\.png/);
-  assert.match(request.thumbnail.url, /cloudy-music-icon\.png/);
+  assert.match(panel.thumbnail.url, /cloudy-c-logo-auf-auf\.gif/);
+  assert.match(request.thumbnail.url, /cloudy-c-logo-auf-auf\.gif/);
   assert.ok(panel.fields.every(field => field.inline === false));
   assert.ok(request.fields.every(field => field.inline === false));
 });
@@ -262,4 +262,17 @@ test('final Discord output forces white only on music request and player embeds'
     { ...playing, color: 0x00C49D }, { ...request, color: 0x00C49D }, warning,
   ] });
   assert.deepEqual(result.embeds.map(e => e.color), [0xFFFFFF, 0xFFFFFF, 0x00C49D]);
+});
+
+
+test('both live player and /play request use the original Dylano Cloudy C without altering the cover', () => {
+  const current = buildNowPlayingEmbed(track, { position: 0, paused: false, queue: [] }, {}).toJSON();
+  const announcement = buildMusicRequestEmbed(track, { playNow: true }).toJSON();
+  const expected = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
+  assert.equal(current.thumbnail.url, expected);
+  assert.equal(announcement.thumbnail.url, expected);
+  assert.equal(current.color, 0xFFFFFF);
+  assert.equal(announcement.color, 0xFFFFFF);
+  assert.equal(current.image.url, track.info.artworkUrl);
+  assert.equal(announcement.image.url, track.info.artworkUrl);
 });

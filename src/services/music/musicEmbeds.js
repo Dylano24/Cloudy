@@ -10,9 +10,9 @@ export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 const QUEUE_PAGE_SIZE = 10;
 // Cloudy's logo and footer on every music embed (owner's choice).
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
-// A static C avoids the animated GIF's dark frames on Discord's dark theme.
-// The file is an exact copy of Cloudy's existing C logo, not a new design.
-export const MUSIC_PLAYER_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-music-icon.png';
+// Preserve the exact animated Cloudy C approved on the original Dylano
+// player. The replacement PNG is a different graphic: never use it.
+export const MUSIC_PLAYER_C_LOGO_URL = CLOUDY_C_LOGO_URL;
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 export function formatDuration(ms) {
