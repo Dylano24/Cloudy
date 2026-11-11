@@ -7,6 +7,7 @@ import { canControlMusic, requireVoiceChannel, VOICE_CHANNEL_DENIAL } from './pe
 import {
     buildNowPlayingEmbed,
     buildMusicRequestEmbed,
+    livePlayerPosition,
     buildQueueEmbed,
     buildQueuePaginationRow,
     getQueuePageSize,
@@ -127,14 +128,22 @@ function markNodeBad(node) {
     if (node?.name) badNodes.set(node.name, Date.now() + BAD_NODE_MS);
 }
 
+// The node that last really started a song goes first: Riffy's own order (fewest
+// requests) otherwise sends the next player to a node that just failed.
+let lastGoodNodeName = null;
+
 function markNodeGood(node) {
-    if (node?.name) badNodes.delete(node.name);
+    if (!node?.name) return;
+    badNodes.delete(node.name);
+    lastGoodNodeName = node.name;
 }
 
-// The connected nodes, those that recently failed last.
+// The connected nodes: the last one that worked first, those that recently failed last.
 function orderedNodes(client) {
     const nodes = Array.isArray(client.riffy?.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : [];
-    return [...nodes.filter(node => !isBadNode(node)), ...nodes.filter(isBadNode)];
+    const good = nodes.filter(node => !isBadNode(node));
+    const preferred = good.filter(node => node?.name && node.name === lastGoodNodeName);
+    return [...preferred, ...good.filter(node => !preferred.includes(node)), ...nodes.filter(isBadNode)];
 }
 
 function createVoicePlayer(client, options, node = null) {
@@ -410,7 +419,26 @@ export async function inspectMusicLink(client, query, requester) {
     throw new CloudyError('Link not playable', ErrorTypes.USER_INPUT, LINK_NOT_PLAYABLE);
 }
 
-export async function playQuery(client, interaction, rawQuery) {
+// Two /play's in one server at the same moment would each create a player or
+// each start a song (the second replacing the first). They run one after another.
+const playLocks = new Map();
+
+function withPlayLock(guildId, task) {
+    const previous = playLocks.get(guildId) || Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.then(() => {}, () => {});
+    playLocks.set(guildId, tail);
+    tail.then(() => {
+        if (playLocks.get(guildId) === tail) playLocks.delete(guildId);
+    });
+    return run;
+}
+
+export function playQuery(client, interaction, rawQuery) {
+    return withPlayLock(interaction?.guild?.id, () => runPlayQuery(client, interaction, rawQuery));
+}
+
+async function runPlayQuery(client, interaction, rawQuery) {
     await waitForMusicReady(client);
     assertInVoice(interaction.member);
     if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
@@ -480,6 +508,32 @@ export async function playQuery(client, interaction, rawQuery) {
     throw new CloudyError('No results', ErrorTypes.USER_INPUT, 'No results found for that query.');
 }
 
+const SKIP_REPEAT_MS = 3_000;
+
+// Skips the song that plays now, once: a second click on the same song within
+// 3 seconds does nothing, so a double click never skips two songs.
+export function skipCurrentTrack(player, guildData) {
+    const now = Date.now();
+    if (guildData.lastSkip?.track === player.current && now - guildData.lastSkip.at < SKIP_REPEAT_MS) {
+        return false;
+    }
+    guildData.lastSkip = { track: player.current, at: now };
+    // Under track-loop, stop() would replay the same track. Clear it so the skip
+    // advances; trackStart re-applies the stored loop mode to the next track.
+    if (player.loop === 'track') {
+        player.setLoop('none');
+    }
+    player.stop();
+    // Lavalink keeps a paused player paused for the next song, while the panel
+    // would say Playing: a skip always continues with sound.
+    if (player.paused) {
+        player.pause(false);
+        player.playing = true;
+        guildData.autoPaused = false;
+    }
+    return true;
+}
+
 export async function skipTrack(client, interaction) {
     const player = getPlayer(client, interaction.guild.id);
     if (!player?.current) {
@@ -487,12 +541,7 @@ export async function skipTrack(client, interaction) {
     }
     assertCanControl(interaction.member, player);
     const title = player.current.info?.title || 'Unknown';
-    // Under track-loop, stop() would replay the same track. Clear it so the skip
-    // advances; trackStart re-applies the stored loop mode to the next track.
-    if (player.loop === 'track') {
-        player.setLoop('none');
-    }
-    player.stop();
+    skipCurrentTrack(player, getGuildMusicData(interaction.guild.id));
     return successEmbed('Skipped', `Skipped **${title}**.`);
 }
 
@@ -530,6 +579,9 @@ export async function applyPause(client, guildId) {
         return false;
     }
 
+    // The bar stops exactly where the song was paused.
+    player.position = livePlayerPosition(player);
+    player.cloudyPositionAt = Date.now();
     player.pause(true);
     await refreshPlayerMessage(client, guildId);
     return true;
@@ -542,6 +594,10 @@ export async function applyResume(client, guildId) {
     }
 
     player.pause(false);
+    // Riffy's pause(false) leaves playing false, after which a new /play replaced
+    // the song that was playing instead of queueing behind it.
+    player.playing = true;
+    player.cloudyPositionAt = Date.now();
     await refreshPlayerMessage(client, guildId);
     return true;
 }
@@ -655,6 +711,7 @@ export async function seekTrack(client, interaction, seconds) {
     }
 
     player.seek(position);
+    player.cloudyPositionAt = Date.now();
     await refreshPlayerMessage(client, interaction.guild.id);
     return successEmbed('Seeked', `Seeked to **${seconds}s**.`);
 }

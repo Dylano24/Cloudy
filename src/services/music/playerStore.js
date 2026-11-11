@@ -15,6 +15,10 @@ export class GuildMusicData {
         this.idleTimeout = null;
         this.autoPaused = false;
         this.stopConfirmPending = null;
+        // The track a Skip was last sent for, so a double click skips one song.
+        this.lastSkip = null;
+        // What the player panel last showed, so an unchanged refresh is not sent again.
+        this.lastPanel = null;
     }
 }
 
