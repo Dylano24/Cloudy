@@ -138,6 +138,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Report numbers come from `nextReportNumber`: one atomic PostgreSQL statement per guild, never reused and never lower than a saved report or an archived staff report. The two archive channels used to recover that high-water mark exist only in Cloudy's own server; in every other server discord.js answers `GuildChannelUnowned` for them and they are skipped. Any other Discord failure still stops numbering.
 - The report moderation form checks permission first and only then validates the timeout duration (`1m`, `1h`, `1d`, `1w`, a bare number is minutes, at most 28 days). `/report file` needs a reason of at least three characters, like the "Cloudy report" form, and refuses before a number is reserved.
 
+- Every report staff log (created, closed, deleted) ends with a `Date` section: Discord date and time (`<t:X:F>`) of that log's own event (`logEventTime`; `createdLogAt`, `closedAt`, `deletedAt`). Keep this for every new log type.
 - A report case channel that is already gone at the 24-hour mark was removed by hand in Discord: it is logged as closed ("Closed by: Unknown"), never as the automatic deletion. `expiryStartedAt` is saved before Cloudy removes a channel itself, so an automatic deletion interrupted by a restart is still logged as "24-hour expiry".
 
 ## Web server
