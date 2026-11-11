@@ -1,6 +1,7 @@
 export const MUSIC_BUTTON_IDS = {
     PAUSE: 'music_pause',
     RESUME: 'music_resume',
+    PREVIOUS: 'music_previous',
     SKIP: 'music_skip',
     STOP: 'music_stop',
     SHUFFLE: 'music_shuffle',

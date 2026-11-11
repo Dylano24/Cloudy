@@ -9,6 +9,7 @@ import {
     applyPause,
     applyResume,
     skipCurrentTrack,
+    playPreviousTrack,
 } from '../services/music/musicActions.js';
 import { canControlMusic, VOICE_CHANNEL_DENIAL } from '../services/music/permissions.js';
 import { refreshPlayerMessage } from '../services/music/playerHandler.js';
@@ -105,6 +106,9 @@ async function handleMusicButton(interaction, client) {
                 break;
             case MUSIC_BUTTON_IDS.RESUME:
                 await applyResume(client, interaction.guild.id);
+                break;
+            case MUSIC_BUTTON_IDS.PREVIOUS:
+                playPreviousTrack(player, guildData);
                 break;
             case MUSIC_BUTTON_IDS.SKIP:
                 if (player.current) skipCurrentTrack(player, guildData);

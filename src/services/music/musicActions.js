@@ -465,6 +465,8 @@ async function runPlayQuery(client, interaction, rawQuery) {
         if (!player.playing && !player.paused) {
             await startPlayback(client, interaction, player);
         }
+        // The panel shows the new queue at once, not only at the next 15-second refresh.
+        await refreshPlayerMessage(client, interaction.guild.id);
 
         return {
             embed: successEmbed(
@@ -494,6 +496,7 @@ async function runPlayQuery(client, interaction, rawQuery) {
         if (willPlayNow) {
             await startPlayback(client, interaction, player);
         }
+        await refreshPlayerMessage(client, interaction.guild.id);
 
         return {
             embed: buildMusicRequestEmbed(track, {
@@ -528,6 +531,41 @@ export function skipCurrentTrack(player, guildData) {
     player.stop();
     // Lavalink keeps a paused player paused for the next song, while the panel
     // would say Playing: a skip always continues with sound.
+    if (player.paused) {
+        player.pause(false);
+        player.playing = true;
+        guildData.autoPaused = false;
+    }
+    return true;
+}
+
+// Previous (⏮️): the song that played before this one starts again, and this
+// song waits right after it, so Skip comes back to it. With nothing earlier,
+// the song starts again from the beginning. Like Skip, a double click counts once.
+export function playPreviousTrack(player, guildData) {
+    if (!player?.current) return false;
+    const now = Date.now();
+    if (guildData.lastBack?.track === player.current && now - guildData.lastBack.at < SKIP_REPEAT_MS) {
+        return false;
+    }
+    guildData.lastBack = { track: player.current, at: now };
+    const previous = guildData.previousTracks.pop();
+    if (!previous) {
+        if (player.current.info?.isSeekable !== false && !player.current.info?.isStream) {
+            player.seek?.(0);
+            player.cloudyPositionAt = Date.now();
+        }
+        return true;
+    }
+    // Under queue-loop Riffy itself puts the song back at the end of the queue.
+    if (player.loop !== 'queue') player.queue.unshift(player.current);
+    player.queue.unshift(previous);
+    guildData.goingBack = true;
+    markTrackEnding(guildData, player.current, 'skipped');
+    if (player.loop === 'track') {
+        player.setLoop('none');
+    }
+    player.stop();
     if (player.paused) {
         player.pause(false);
         player.playing = true;

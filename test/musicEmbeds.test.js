@@ -86,7 +86,7 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.equal(commands.title, 'Music commands');
   // The buttons of the player in their order, one short line each with one emoji, so the lines stay neatly under each other.
   const lines = commands.description.split('\n').filter(line => /^\p{Extended_Pictographic}/u.test(line));
-  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['⏸️', '⏭️', '🔀', '🔁', '📋', '🎵', '⏹️']);
+  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['⏮️', '⏸️', '⏭️', '🔀', '🔁', '📋', '➕', '⏹️']);
   for (const line of lines) {
     assert.ok(line.length <= 26, `Explanation must stay short: ${line}`);
     assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the emoji and a few words: ${line}`);
@@ -203,15 +203,17 @@ test('/music guide also shows the compact embed with its Commands button', async
   assert.equal(replies[0].components[0].toJSON().components[0].custom_id, 'dedicated_commands:music');
 });
 
-test('the player has one row of icon controls; Playlists and Stop share the bottom row', async () => {
+test('the player has one row of icon controls with Previous; Queue, Add and Stop share the bottom row', async () => {
   const { buildPlayerButtonRows } = await import('../src/services/music/musicEmbeds.js');
   const rows = buildPlayerButtonRows({ paused: false }, { loop: 'none' }).map(row => row.toJSON().components);
   assert.deepEqual(rows.map(row => row.map(button => button.custom_id)), [
-    ['music_pause', 'music_skip', 'music_shuffle', 'music_loop', 'music_queue'],
-    ['music_playlists', 'music_stop'],
+    ['music_previous', 'music_pause', 'music_skip', 'music_shuffle', 'music_loop'],
+    ['music_queue', 'music_playlists', 'music_stop'],
   ]);
   assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
+  assert.equal(rows[0][0].emoji.name, '⏮️');
+  assert.deepEqual(rows[1].map(button => button.label || button.emoji.name), ['📋', 'Add', 'Stop'], 'the saved playlists button says Add');
   const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
-  assert.equal(paused[0][0].custom_id, 'music_resume');
-  assert.equal(paused[0][3].emoji.name, '🔂');
+  assert.equal(paused[0][1].custom_id, 'music_resume');
+  assert.equal(paused[0][4].emoji.name, '🔂');
 });

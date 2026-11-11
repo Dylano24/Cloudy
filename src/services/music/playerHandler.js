@@ -287,7 +287,11 @@ export function setupPlayerHandler(client) {
                 player.setLoop(guildData.loop);
             }
 
-            if (player.previous) {
+            // Previous (⏮️) goes back through this list; going back itself and a
+            // song on repeat add nothing to it.
+            if (guildData.goingBack) {
+                guildData.goingBack = false;
+            } else if (player.previous && player.previous !== player.current) {
                 guildData.previousTracks.push(player.previous);
                 if (guildData.previousTracks.length > 20) {
                     guildData.previousTracks.shift();

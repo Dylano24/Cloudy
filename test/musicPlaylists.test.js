@@ -76,10 +76,12 @@ test('the panel adds a playlist by link and starts it without searching again', 
   const [saved] = await listPlaylists(client, 'g-flow');
   assert.deepEqual([saved.name, saved.count, saved.ownerId], ['Road trip', 2, 'owner']);
   assert.equal(ui.log.followUps[0].embeds[0].toJSON().title, 'Playlist added');
-  assert.equal(ui.log.edits.at(-1).components[0].toJSON().components[0].placeholder, 'Start a playlist');
+  // Right after Add the new playlist is shown with Start and Delete.
+  assert.deepEqual(ui.log.edits.at(-1).components[0].toJSON().components.map(button => button.label), ['Start', 'Delete', 'Back']);
+  assert.match(ui.log.edits.at(-1).embeds[0].toJSON().description, /Road trip/);
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  await panel.press('start', 'string', { values: [saved.id] });
+  await panel.press('play', 'button');
   assert.equal(player.queue.length, 2);
   assert.equal(ui.log.edits.at(-1).embeds[0].toJSON().title, 'Playlist added');
   assert.deepEqual(ui.log.edits.at(-1).components, []);
@@ -116,4 +118,16 @@ test('a playlist is removed in two steps and only its panel opener can use the c
   await panel.press('removepick', 'string', { values: [item.id] });
   assert.deepEqual(await listPlaylists(client, 'g-remove'), []);
   assert.equal(ui.log.followUps.at(-1).embeds[0].toJSON().title, 'Playlist removed');
+});
+
+test('a playlist just added can be deleted at once from its Start/Delete view', async () => {
+  const { client } = fakeBot();
+  const ui = fakeUi('g-saved-delete');
+  const panel = await open(client, ui, 'g-saved-delete');
+  await panel.press('modal', 'modal', modal('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'));
+  assert.equal((await listPlaylists(client, 'g-saved-delete')).length, 1);
+  await panel.press('delete', 'button');
+  assert.deepEqual(await listPlaylists(client, 'g-saved-delete'), []);
+  assert.equal(ui.log.followUps.at(-1).embeds[0].toJSON().title, 'Playlist removed');
+  assert.deepEqual(ui.log.edits.at(-1).components.map(row => row.toJSON().components.map(item => item.label || item.placeholder)), [['Add playlist', 'Remove']], 'back on the main panel');
 });

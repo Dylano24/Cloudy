@@ -125,12 +125,13 @@ const MUSIC_COMMANDS_DESCRIPTION = [
     '`/play` — Play a song or link.',
     '',
     '**Player buttons**',
+    '⏮️ Previous song',
     '⏸️ Pause or continue',
     '⏭️ Next song',
     '🔀 Shuffle the queue',
     '🔁 Repeat song or queue',
     '📋 Show the queue',
-    '🎵 Saved playlists',
+    '➕ Add or start playlists',
     '⏹️ Stop and leave',
 ].join('\n');
 
@@ -225,11 +226,16 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
-    // Icons only, so the five controls stay in one row on a phone; the bottom row
-    // has Playlists and, last, the red Stop button. No volume buttons (owner's choice):
-    // /music volume still sets it, and the old button ids stay registered so a
-    // player message from before still answers.
+    // Icons only, so the five controls stay in one row on a phone: Previous,
+    // Pause/Resume, Skip, Shuffle, Loop. The bottom row has Queue, Add (the saved
+    // playlists, owner's choice: was "Playlists") and, last, the red Stop button.
+    // No volume buttons (owner's choice): /music volume still sets it, and the old
+    // button ids stay registered so a player message from before still answers.
     const controls = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.PREVIOUS)
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('⏮️'),
         new ButtonBuilder()
             .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
             .setStyle(paused ? ButtonStyle.Success : ButtonStyle.Primary)
@@ -246,18 +252,18 @@ export function buildPlayerButtonRows(player, guildData) {
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
             .setStyle(guildData?.loop && guildData.loop !== 'none' ? ButtonStyle.Success : ButtonStyle.Secondary)
             .setEmoji(guildData?.loop === 'track' ? '🔂' : '🔁'),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📋'),
     );
 
     const stop = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
-            .setLabel('Playlists')
+            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🎵'),
+            .setEmoji('📋'),
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
+            .setLabel('Add')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('➕'),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')

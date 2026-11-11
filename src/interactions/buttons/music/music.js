@@ -4,6 +4,7 @@ import { MUSIC_BUTTON_IDS } from '../../../services/music/musicEmbeds.js';
 const buttonIds = [
     MUSIC_BUTTON_IDS.PAUSE,
     MUSIC_BUTTON_IDS.RESUME,
+    MUSIC_BUTTON_IDS.PREVIOUS,
     MUSIC_BUTTON_IDS.SKIP,
     MUSIC_BUTTON_IDS.STOP,
     MUSIC_BUTTON_IDS.SHUFFLE,
