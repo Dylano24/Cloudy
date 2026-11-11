@@ -107,9 +107,9 @@ test('twenty concurrent player refreshes coalesce into two edits and keep latest
   await Promise.all(requests);
   assert.equal(payloads.length, 2);
   assert.equal(peak, 1);
-  // The first control is one button that switches: Pause while playing, Resume once paused.
-  assert.equal(payloads[0].components[0].toJSON().components[0].custom_id, 'music_pause');
-  assert.equal(payloads.at(-1).components[0].toJSON().components[0].custom_id, 'music_resume');
+  // After Previous, one button switches: Pause while playing, Resume once paused.
+  assert.equal(payloads[0].components[0].toJSON().components[1].custom_id, 'music_pause');
+  assert.equal(payloads.at(-1).components[0].toJSON().components[1].custom_id, 'music_resume');
   deleteGuildMusicData(f.guildId);
 });
 

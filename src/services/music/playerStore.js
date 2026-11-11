@@ -22,6 +22,9 @@ export class GuildMusicData {
         // The song the player panel shows, and how a song is ending (Skip/Stop).
         this.panelTrack = null;
         this.endingTrack = null;
+        // Previous (⏮️): its last click, and whether the next song start is the way back.
+        this.lastBack = null;
+        this.goingBack = false;
     }
 }
 
