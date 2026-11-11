@@ -50,7 +50,7 @@ test('Cloudy report confirmation always sends the case-specific R-numbered moder
       reportedMemberId: '123456789012345678',
       reportedMessageText: 'Reported text',
       reason: 'Offensive content',
-    });
+    }).toJSON();
     const footer = `Cloudy Inc. • Moderation team • R${number}`;
     assert.equal(embed.title, 'Report submitted');
     assert.equal(embed.footer?.text, footer);

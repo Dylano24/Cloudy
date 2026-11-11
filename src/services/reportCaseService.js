@@ -40,7 +40,12 @@ export async function loadReport(client, guild, report, targetId) {
   if (!reporterId) throw new Error('This older report has no identifiable reporter. Please submit it again.');
   const original = text.match(/https?:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)/);
   if (original && original[1] !== guild.id) throw new Error('The reported message belongs to another server.');
+  // An older logged report already has a report number. Do not assign it a
+  // second, newer number when staff first handle that historical message.
+  const originalNumber = Number(report.embeds?.[0]?.title?.match(/\bNew report #(\d+)\b/i)?.[1]
+    || fields.find(field => /^Report$/i.test(field.name))?.value?.match(/#(\d+)/)?.[1]);
   return registerReport(client, report, { guildId: guild.id, reporterId, targetId,
+    ...(Number.isSafeInteger(originalNumber) && originalNumber > 0 ? { number: originalNumber } : {}),
     sourceChannelId: original?.[2], sourceMessageId: original?.[3] });
 }
 
@@ -67,17 +72,39 @@ export async function nextReportNumber(client, guildId) {
   const pool = client.db.db?.pool;
   if (pool?.query) {
     const { pgConfig } = await import('../config/database/postgres.js');
-    const result = await pool.query(`INSERT INTO ${pgConfig.tables.temp_data} (key, value, expires_at, created_at)
-      VALUES ($1, '1'::jsonb, NULL, CURRENT_TIMESTAMP)
-      ON CONFLICT (key) DO UPDATE SET value = to_jsonb(((${pgConfig.tables.temp_data}.value #>> '{}')::bigint) + 1)
-      RETURNING value`, [key]);
-    return Number(result.rows[0].value);
+    const table = pgConfig.tables.temp_data;
+    // Increment atomically from the higher of the old counter or saved report numbers.
+    const statement = `WITH previous AS (
+      SELECT COALESCE(MAX(CASE
+        WHEN value ->> 'number' ~ '^[0-9]+$' THEN (value ->> 'number')::bigint
+        ELSE 0 END), 0) AS max_number
+      FROM ${table} WHERE key LIKE $2
+    )
+    INSERT INTO ${table} (key, value, expires_at, created_at)
+      SELECT $1, to_jsonb(previous.max_number + 1), NULL, CURRENT_TIMESTAMP FROM previous
+    ON CONFLICT (key) DO UPDATE SET value = to_jsonb(GREATEST(
+      COALESCE(CASE WHEN ${table}.value::text ~ '^[0-9]+$'
+        THEN (${table}.value::text)::bigint END, 0),
+      (SELECT max_number FROM previous)
+    ) + 1)
+    RETURNING value`;
+    const result = await pool.query(statement, [key, `global:report:${guildId}:%`]);
+    const number = Number(result.rows[0]?.value);
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('The report counter returned an invalid number.');
+    return number;
   }
   return withReportLock(key, async () => {
-    const next = (Number(await client.db.get(key)) || 0) + 1;
-    if (await client.db.set(key, next) === false) throw new Error('The report counter could not be saved.');
+    let highest = Number(await client.db.get(key)) || 0;
+    for (const caseKey of await client.db.list(`global:report:${guildId}:`)) {
+      const stored = await client.db.get(caseKey);
+      const number = Number(stored?.number);
+      if (Number.isSafeInteger(number) && number > highest) highest = number;
+    }
+    const next = highest + 1;
+    if (!Number.isSafeInteger(next) || await client.db.set(key, next) === false) {
+      throw new Error('The report counter could not be saved.');
+    }
     return next;
   });
 }
-
 export { deleteReportCase, scheduleReportCaseExpiry, publishReportOutcome, handleReportCaseControl, restoreReportCaseTimers, validateReportDestinations, REPORT_LOG_CHANNEL_ID } from './reportCaseLifecycleService.js';
