@@ -37,7 +37,10 @@ async function highestHistoricalReportNumber(client, guildId) {
       for (const channelId of [REPORT_SUBMISSION_CHANNEL_ID, REPORT_HISTORY_LOG_CHANNEL_ID]) {
         const channel = guild.channels.cache?.get?.(channelId)
           || await guild.channels.fetch(channelId).catch(error => {
-            if (error.code === 10003 || error.code === 50001) return null;
+            // These archive channels exist in Cloudy's own server only. In
+            // every other server Cloudy can still read them, so discord.js
+            // answers "GuildChannelUnowned" rather than Unknown Channel.
+            if (error.code === 10003 || error.code === 50001 || error.code === 'GuildChannelUnowned') return null;
             throw error;
           });
         if (!channel?.messages?.fetch) continue;

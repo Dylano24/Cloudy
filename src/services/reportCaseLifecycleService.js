@@ -47,7 +47,8 @@ async function saveCasePresentationField(client, key, audience, field, value) {
 
 async function fetchChannel(guild, id) {
   if (!id) return null;
-  return guild.channels.fetch(id).catch(error => { if (error.code === 10003) return null; throw error; });
+  // A channel of another server (discord.js: GuildChannelUnowned) is unavailable here, like a deleted one.
+  return guild.channels.fetch(id).catch(error => { if (error.code === 10003 || error.code === 'GuildChannelUnowned') return null; throw error; });
 }
 
 async function fetchMessage(channel, id) {
