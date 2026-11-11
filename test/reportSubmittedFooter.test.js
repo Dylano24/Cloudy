@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { createEmbed } from '../src/utils/embeds.js';
 import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js';
 import { withCloudyFooter } from '../src/utils/cloudyFooter.js';
+import { normalizeCloudyEmbed } from '../src/services/cloudyBrandingService.js';
 import { CLOUDY_STANDARD_FOOTER, ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
 
 test('Report submitted confirmation restores the standard footer below its existing Cloudy logo', () => {
@@ -61,4 +62,18 @@ test('Cloudy report confirmation always sends the case-specific R-numbered moder
     const actual = outgoing.embeds[0]?.toJSON?.() || outgoing.embeds[0];
     assert.equal(actual.footer?.text, footer, 'Cloudy outgoing branding must preserve the numbered footer');
   }
+});
+
+test('numbered report confirmation cannot be overwritten by global Cloudy normalization', () => {
+  const embed = buildReportSubmittedEmbed({
+    reportNumber: 110,
+    reportedMemberId: '123456789012345678',
+    reportedMessageText: 'X',
+    reason: 'Tyt',
+  });
+  const normalized = normalizeCloudyEmbed(embed, { ensureFooter: true });
+  assert.equal(normalized.changed, false);
+  assert.equal(normalized.embed.toJSON().footer.text, 'Cloudy Inc. • Moderation team • R110');
+  const outgoing = withCloudyFooter({ embeds: [normalized.embed] });
+  assert.equal(outgoing.embeds[0].toJSON().footer.text, 'Cloudy Inc. • Moderation team • R110');
 });
