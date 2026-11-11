@@ -5,9 +5,10 @@ import { createStickyGuideManager } from '../stickyGuideService.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../cloudyChannelResolver.js';
 import { isBuilderUiMessage } from '../../utils/builderSessionCleanup.js';
 import { logger } from '../../utils/logger.js';
+import { buildMusicGuideEmbed } from './musicEmbeds.js';
+import { buildMusicGuideComponents } from './musicGuidePanel.js';
 
 const GUIDE_TITLE = 'Cloudy music';
-const NO_GUIDE = 'MUSIC_GUIDE_MISSING';
 
 // The Builder's own preview of the guide carries the same embed: it is not the guide.
 export function isMusicGuide(message) {
@@ -15,8 +16,15 @@ export function isMusicGuide(message) {
 }
 
 export function buildMusicGuideCopy(existing) {
-  // Never bring back a guide the owner removed: only an existing one is moved.
-  if (!existing?.embeds?.length) throw new Error(NO_GUIDE);
+  // The guide is always there (owner's choice): when it is gone, the standard
+  // one is placed again. An existing guide is moved with everything the owner made of it.
+  if (!existing?.embeds?.length) {
+    return {
+      embeds: [buildMusicGuideEmbed().toJSON()],
+      components: buildMusicGuideComponents().map(row => row.toJSON()),
+      allowedMentions: { parse: [] },
+    };
+  }
   return {
     content: existing.content || undefined,
     embeds: existing.embeds.map(embed => (embed.toJSON ? embed.toJSON() : structuredClone(embed))),
@@ -51,21 +59,32 @@ export function createMusicGuideManager() {
     onPublished: rememberPublishedGuide,
     everyNMessages: 1,
     moveDelayMs: 2000,
-    onError: error => {
-      if (error?.message !== NO_GUIDE) logger.warn(`Music guide refresh failed: ${error?.message || error}`);
-    },
+    onError: error => logger.warn(`Music guide refresh failed: ${error?.message || error}`),
   });
 }
 
 const manager = createMusicGuideManager();
 
-// Only in the home server's music channel; bots never move it, members do.
+// Only the home server's music channel.
+function homeMusicChannel(guild, client) {
+  const homeGuildId = String(process.env.GUILD_ID || '').trim();
+  if (!guild || !homeGuildId || String(guild.id) !== homeGuildId) return null;
+  if ((client || guild.client)?.config?.features?.music === false) return null;
+  return findCloudyChannelByAlias(guild, getCloudyChannelDefinition('music')?.aliases || [], { textOnly: true });
+}
+
+// Bots never move the guide, members do.
 export function scheduleMusicGuide(message) {
   if (!message?.guild || !message.channel || message.author?.bot) return false;
-  const homeGuildId = String(process.env.GUILD_ID || '').trim();
-  if (!homeGuildId || String(message.guild.id) !== homeGuildId) return false;
-  if (message.client?.config?.features?.music === false) return false;
-  const channel = findCloudyChannelByAlias(message.guild, getCloudyChannelDefinition('music')?.aliases || [], { textOnly: true });
+  const channel = homeMusicChannel(message.guild, message.client);
   if (!channel || channel.id !== message.channel.id) return false;
   return manager.schedule(message);
+}
+
+// At startup: make sure the guide is there (placed again when it is gone).
+export async function ensureMusicGuide(client) {
+  const guild = client?.guilds?.cache?.get?.(String(process.env.GUILD_ID || '').trim());
+  const channel = homeMusicChannel(guild, client);
+  if (!channel) return false;
+  return manager.refresh(channel);
 }
