@@ -7,6 +7,7 @@ import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRo
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { reconcileMusicGuideMessage } from "../services/music/musicGuidePanel.js";
+import { ensureMusicGuide } from "../services/music/musicGuideSticky.js";
 import { startRustPatchNotes } from "../services/rustPatchNotesService.js";
 import { scanProtectedIdentities } from "../services/protectedIdentityService.js";
 import { initializeInviteTracking } from "../services/inviteTrackingService.js";
@@ -107,7 +108,11 @@ export default {
       await runReadyStep('music/Riffy initialization', async () => initRiffyAfterReady(client));
       // Non-blocking, idempotent guide: keep one existing bot-authored
       // information embed in #music and never overwrite owner edits.
-      void runReadyStep('music guide', async () => reconcileMusicGuideMessage(client));
+      void runReadyStep('music guide', async () => {
+        await reconcileMusicGuideMessage(client);
+        // The guide always stays at the bottom of #music and is placed again when it is gone.
+        await ensureMusicGuide(client);
+      });
     }
 
     const reconciliationSummary = await runReadyStep(
