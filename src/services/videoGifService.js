@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import axios from 'axios';
+import { withoutCredentials } from '../utils/childProcessEnvironment.js';
 
 const MIN_VIDEO_SECONDS = 1;
 const MAX_VIDEO_SECONDS = 6;
@@ -12,7 +13,7 @@ const MAX_GIF_BYTES = 9 * 1024 * 1024;
 
 function runProcess(command, args) {
     return new Promise((resolve, reject) => {
-        const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env: withoutCredentials() });
         let stdout = '';
         let stderr = '';
 

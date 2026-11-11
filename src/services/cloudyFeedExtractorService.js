@@ -3,6 +3,7 @@ import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import net, { isIP } from 'node:net';
 import { validateSourceUrl, publicIp } from './cloudyFeedParser.js';
+import { withoutCredentials } from '../utils/childProcessEnvironment.js';
 
 const MAX_ENTRIES = 20;
 const MAX_OUTPUT_BYTES = 6 * 1024 * 1024;
@@ -97,7 +98,7 @@ function executeWithLimit(command, args, {
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
-        ...process.env,
+        ...withoutCredentials(),
         // Do not inherit credentials or user-configured proxies into extractors.
         HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', NO_PROXY: '',
         http_proxy: '', https_proxy: '', all_proxy: '', no_proxy: '',

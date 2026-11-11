@@ -163,6 +163,48 @@ test('a wipe kit giveaway is entered without claims/rerolls, ends once and syncs
   assert.equal((await syncWipePrize(f.client,f.member)).status,'not-winner','prize cannot sync after next wipe');
 });
 
+test('a temporary wipe role is kept for a retry when Discord cannot be asked, and dropped only when the member really left', async () => {
+  const f=fixture();
+  await configureWipeAutomation(f.client,GUILD,'giveaway',kitCfg);
+  await setWipeAutomationState(f.client,GUILD,'giveaway','running');
+  await observeWipeEvent(f.client,f.guild,{type:'status',server:SERVER,nextWipe:futureWipe});
+  const id=wipeSessionId(GUILD,SERVER,futureWipe);
+  const key=`guild:${GUILD}:wipe-automation:giveaway:${id}`;
+  await changeAutoWipeEntry(f.client,GUILD,id,USER,true);
+  await runWipeAutomationTick(f.client,Date.now()+6*MINUTE);
+  assert.equal((await syncWipePrize(f.client,f.member)).status,'synced');
+  const nextWipe=futureWipe+8*24*60*MINUTE;
+  const found=f.guild.members.fetch;
+
+  // Discord is unavailable at the next wipe: the role is not forgotten.
+  f.guild.members.fetch=async()=>{ throw Object.assign(new Error('Service Unavailable'),{status:503}); };
+  await expirePreviousWipeRoles(f.client,f.guild,SERVER,nextWipe);
+  let session=await f.db.get(key);
+  assert.equal(session.status,'ended','still waiting for its role to be removed');
+  assert.deepEqual(session.roleGranted,[USER]);
+  assert.equal(f.roles.has(ROLE),true);
+
+  // The following wipe removes it.
+  f.guild.members.fetch=found;
+  await expirePreviousWipeRoles(f.client,f.guild,SERVER,nextWipe+7*24*60*MINUTE);
+  session=await f.db.get(key);
+  assert.equal(session.status,'expired');
+  assert.deepEqual(session.roleGranted,[]);
+  assert.equal(f.roles.has(ROLE),false);
+
+  // A winner who left the server has no role to remove: the session expires.
+  const gone=fixture();
+  await configureWipeAutomation(gone.client,GUILD,'giveaway',kitCfg);
+  await setWipeAutomationState(gone.client,GUILD,'giveaway','running');
+  await observeWipeEvent(gone.client,gone.guild,{type:'status',server:SERVER,nextWipe:futureWipe});
+  await changeAutoWipeEntry(gone.client,GUILD,id,USER,true);
+  await runWipeAutomationTick(gone.client,Date.now()+6*MINUTE);
+  assert.equal((await syncWipePrize(gone.client,gone.member)).status,'synced');
+  gone.guild.members.fetch=async()=>{ throw Object.assign(new Error('Unknown Member'),{code:10007,status:404}); };
+  await expirePreviousWipeRoles(gone.client,gone.guild,SERVER,nextWipe);
+  assert.equal((await gone.db.get(key)).status,'expired');
+});
+
 test('participant clicks refresh only the current giveaway message, not a duplicate or stale count', async () => {
   const f=fixture();
   await configureWipeAutomation(f.client,GUILD,'giveaway',kitCfg);
