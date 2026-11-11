@@ -37,7 +37,7 @@ async function highestHistoricalReportNumber(client, guildId) {
       for (const channelId of [REPORT_SUBMISSION_CHANNEL_ID, REPORT_HISTORY_LOG_CHANNEL_ID]) {
         const channel = guild.channels.cache?.get?.(channelId)
           || await guild.channels.fetch(channelId).catch(error => {
-            if (error.code === 10003) return null;
+            if (error.code === 10003 || error.code === 50001) return null;
             throw error;
           });
         if (!channel?.messages?.fetch) continue;
