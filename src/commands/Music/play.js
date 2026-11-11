@@ -1,6 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { playQuery, replyMusicSuccess } from '../../services/music/musicActions.js';
-import { deferMusicCommand } from '../../services/music/prefixSupport.js';
+import { deferMusicPublic } from '../../services/music/prefixSupport.js';
 
 export default {
     slashOnly: true,
@@ -13,9 +13,9 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        // Only the persistent music player is public; a private acknowledgement
-        // prevents the second "Now playing" embed from cluttering #music.
-        await deferMusicCommand(interaction);
+        // /play is public in both Cloudy Inc. and Dylano. Never defer with
+        // Ephemeral: its response must display to the whole channel.
+        await deferMusicPublic(interaction);
         const result = await playQuery(client, interaction, interaction.options.getString('query'));
         await replyMusicSuccess(interaction, result.embed);
 

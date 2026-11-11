@@ -211,6 +211,27 @@ export function ensureReportSubmittedFooter(embed) {
   return embed;
 }
 
+// Final transport guard: older system templates and presentation middleware
+// must not recolor music replies or the live music panel green. Only Cloudy's
+// own music message shapes are touched; all other embeds retain their style.
+export function ensureWhiteMusicEmbeds(payload) {
+  if (!Array.isArray(payload?.embeds)) return payload;
+  let changed = false;
+  const embeds = payload.embeds.map(source => {
+    const data = source?.toJSON?.() || source;
+    const names = new Set((data?.fields || []).map(field => field.name));
+    const panel = data?.title === 'Now playing'
+      && names.has('Artist') && names.has('Status') && names.has('Loop') && names.has('Queue');
+    const request = ['Now playing', 'Added to queue'].includes(data?.title)
+      && names.has('Requested by') && names.has('Duration');
+    if (!panel && !request) return source;
+    if (data.color === 0xFFFFFF) return source;
+    changed = true;
+    return { ...data, color: 0xFFFFFF };
+  });
+  return changed ? { ...payload, embeds } : payload;
+}
+
 export function installCloudyFooterOutput() {
   const prototype = REST.prototype;
   if (prototype[MARKER]) return;
@@ -287,6 +308,14 @@ export function installCloudyFooterOutput() {
         data: ensureCreatorErrorColor(ensureOutgoingReportStaffLogBranding(
           ensureOutgoingReportCaseNoticeFooter(
             ensureOutgoingReportConfirmationFooter(options.body.data)))) } };
+    }
+    // Perform this after all generic Cloudy formatting, at the actual REST
+    // boundary, including both slash-command replies and message edits.
+    if (isMessage && ['POST', 'PATCH'].includes(options.method)) {
+      options = { ...options, body: ensureWhiteMusicEmbeds(options.body) };
+    } else if (isCallback && [4, 7].includes(options.body?.type)) {
+      options = { ...options, body: { ...options.body,
+        data: ensureWhiteMusicEmbeds(options.body.data) } };
     }
     return original.call(this, options);
   };

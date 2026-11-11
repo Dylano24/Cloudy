@@ -10,6 +10,9 @@ export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 const QUEUE_PAGE_SIZE = 10;
 // Cloudy's logo and footer on every music embed (owner's choice).
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
+// A static C avoids the animated GIF's dark frames on Discord's dark theme.
+// The file is an exact copy of Cloudy's existing C logo, not a new design.
+export const MUSIC_PLAYER_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@main/assets/cloudy-music-icon.png';
 const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
 export function formatDuration(ms) {
@@ -26,22 +29,46 @@ export function formatDuration(ms) {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function getTrackArtwork(track) {
-    // Lavalink/Riffy may expose artwork in different metadata fields.
-    // Never invent an album cover when the source provides none.
-    return [
-        track?.info?.artworkUrl,
-        track?.info?.thumbnail,
-        track?.info?.albumArt,
-        track?.pluginInfo?.artworkUrl,
-    ].find(url => typeof url === 'string' && /^https?:\/\//i.test(url))
-        || (track?.info?.sourceName === 'youtube' && /^[\w-]{11}$/.test(track?.info?.identifier || '')
-            ? `https://i.ytimg.com/vi/${track.info.identifier}/hqdefault.jpg` : null);
+export function getTrackArtwork(track) {
+    // Riffy's Track copies title/author from Lavalink but NOT artworkUrl.
+    // Reading info.thumbnail invokes an async getter, so never use it when
+    // constructing a synchronous Discord embed.
+    const info = track?.info || {};
+    const raw = track?.rawData?.info || {};
+    const candidates = [
+        info.artworkUrl, raw.artworkUrl, raw.thumbnail,
+        info._cachedThumbnail, info.albumArt,
+        track?.pluginInfo?.artworkUrl, track?.rawData?.pluginInfo?.artworkUrl,
+    ];
+    const artwork = candidates.find(url => typeof url === 'string' && /^https:\/\//i.test(url));
+    if (artwork) return artwork;
+
+    // When Lavalink omits artwork, a real YouTube ID still produces a
+    // deterministic thumbnail. Other providers must not get fake covers.
+    let youtubeId = String(info.identifier || raw.identifier || '');
+    const uri = String(info.uri || raw.uri || '');
+    if (!/^[\w-]{11}$/.test(youtubeId)) {
+        try {
+            const url = new URL(uri);
+            if (url.hostname === 'youtu.be') youtubeId = url.pathname.slice(1);
+            if (/^(?:www\.|m\.|music\.)?youtube\.com$/.test(url.hostname)) {
+                youtubeId = url.searchParams.get('v') || '';
+            }
+        } catch { /* Not a YouTube link. */ }
+    }
+    if ((info.sourceName === 'youtube' || raw.sourceName === 'youtube'
+        || /^https:\/\/(?:www\.|m\.|music\.)?youtube\.com\//.test(uri)
+        || /^https:\/\/youtu\.be\//.test(uri))
+        && /^[\w-]{11}$/.test(youtubeId)) {
+        return `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+    }
+    return null;
 }
 
 function getAlbumName(track) {
     const album = track?.info?.album;
     return track?.info?.albumName
+        || track?.rawData?.info?.albumName
         || track?.pluginInfo?.albumName
         || (typeof album === 'string' ? album : album?.name)
         || null;
@@ -77,20 +104,22 @@ export function buildMusicRequestEmbed(track, { playNow = false, queuePosition =
     const requester = info.requester;
     const requesterLabel = requester?.username || requester?.tag || 'Unknown';
     const album = getAlbumName(track);
-    return createEmbed({
+    const artwork = getTrackArtwork(track);
+    const embed = new EmbedBuilder({
         title: playNow ? 'Now playing' : 'Added to queue',
         description: `**${String(info.title || 'Unknown track').slice(0, 220)}**\n${String(info.author || 'Unknown artist').slice(0, 300)}`,
-        color: 'primary',
+        color: 0xFFFFFF,
         fields: [
-            { name: 'Requested by', value: requesterLabel, inline: true },
-            ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
-            { name: 'Duration', value: formatDuration(info.length), inline: true },
-            ...(!playNow ? [{ name: 'Queue position', value: `#${queuePosition}`, inline: true }] : []),
+            { name: 'Requested by', value: requesterLabel, inline: false },
+            ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: false }] : []),
+            { name: 'Duration', value: formatDuration(info.length), inline: false },
+            ...(!playNow ? [{ name: 'Queue position', value: `#${queuePosition}`, inline: false }] : []),
         ],
-        thumbnail: CLOUDY_C_LOGO_URL,
-        image: getTrackArtwork(track),
-        footer: CLOUDY_FOOTER,
+        thumbnail: { url: MUSIC_PLAYER_C_LOGO_URL },
+        ...(artwork ? { image: { url: artwork } } : {}),
+        footer: { text: CLOUDY_FOOTER },
     });
+    return setPreservedEmbedColor(embed, 0xFFFFFF);
 }
 
 export const MUSIC_GUIDE_DESCRIPTION =
@@ -180,7 +209,7 @@ export function buildNowPlayingEmbed(track, player, guildData) {
         description: `**${String(track?.info?.title || 'Unknown track').slice(0, 220)}**${progressBar ? `\n\n${progressBar}` : ''}`,
         color: 0xFFFFFF,
         fields,
-        thumbnail: { url: CLOUDY_C_LOGO_URL },
+        thumbnail: { url: MUSIC_PLAYER_C_LOGO_URL },
         ...(artwork ? { image: { url: artwork } } : {}),
         footer: { text: CLOUDY_FOOTER },
     });
