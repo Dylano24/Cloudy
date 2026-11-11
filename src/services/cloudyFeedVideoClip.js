@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { withoutCredentials } from '../utils/childProcessEnvironment.js';
 
 // Every Cloudy Feed video is posted as a 10-second clip from the middle.
 export const CLIP_SECONDS = 10;
@@ -29,7 +30,7 @@ export async function withConversionSlot(task) {
 
 export function runLocalCommand(binary, args, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: withoutCredentials() });
     let output = '';
     let completed = false;
     const finish = (error) => {

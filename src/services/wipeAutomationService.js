@@ -919,7 +919,13 @@ export async function expirePreviousWipeRoles(client, guild, server, currentWipe
       const remaining = [];
       for (const userId of session.roleGranted || []) {
         try {
-          const member = await guild.members?.fetch?.(userId).catch(() => null);
+          const member = await guild.members?.fetch?.(userId).catch(error => {
+            // Unknown Member / Unknown User: they left, so nothing is left to
+            // remove. Any other failure is retried at the next wipe instead of
+            // leaving the temporary role in place for good.
+            if (error?.code === 10007 || error?.code === 10013) return null;
+            throw error;
+          });
           if (member?.roles?.cache?.has?.(session.roleId)) {
             await member.roles.remove(session.roleId, 'Previous Rust wipe ended');
           }
