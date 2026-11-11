@@ -32,6 +32,7 @@ import { registerDeletedMediaRoutes } from './services/deletedMediaService.js';
 import { sweepTimestampBuckets } from './utils/runtimeStoreCleanup.js';
 import { getBuiltInSystemCatalogCoverage } from './services/systemEmbedCatalogService.js';
 import { flushPendingDeletes } from './utils/pendingTransientDeletes.js';
+import { isHealthCheck, requestLimitFor, trustProxySetting } from './utils/requestRateLimit.js';
 
 function runtimeBuildInfo() {
   const commit = String(
@@ -158,6 +159,8 @@ class CloudyBot extends Client {
     const maxPortRetryAttempts = Number(process.env.PORT_RETRY_ATTEMPTS || 5);
     const host = process.env.WEB_HOST || '0.0.0.0';
     const corsOrigin = this.config.api?.cors?.origin || '*';
+    // Behind Railway's proxy req.ip is the visitor's own address, not the proxy's.
+    app.set('trust proxy', trustProxySetting());
     
     app.use((req, res, next) => {
       const allowedOrigins = Array.isArray(corsOrigin) ? corsOrigin : [corsOrigin];
@@ -181,27 +184,28 @@ class CloudyBot extends Client {
     let nextRequestSweepAt = 0;
     
     app.use((req, res, next) => {
-      const ip = req.ip;
+      // Railway's deploy check and the monitor must always get an answer.
+      if (isHealthCheck(req.method, req.path)) return next();
+      // Each visitor has their own budget per kind of request (requestRateLimit.js).
+      const limit = requestLimitFor(req.path, { windowMs, max: maxRequests });
+      const key = `${limit.name}:${req.ip}`;
       const now = Date.now();
-      const windowStart = now - windowMs;
+      const windowStart = now - limit.windowMs;
 
       if (now >= nextRequestSweepAt) {
-        sweepTimestampBuckets(requestCounts, windowStart);
+        // The general window is the longest, so nothing still counted is dropped.
+        sweepTimestampBuckets(requestCounts, now - windowMs);
         nextRequestSweepAt = now + windowMs;
       }
       
-      if (!requestCounts.has(ip)) {
-        requestCounts.set(ip, []);
-      }
+      const times = (requestCounts.get(key) || []).filter(t => t > windowStart);
       
-      const times = requestCounts.get(ip).filter(t => t > windowStart);
-      
-      if (times.length >= maxRequests) {
+      if (times.length >= limit.max) {
         return res.status(429).json({ error: 'Too many requests' });
       }
       
       times.push(now);
-      requestCounts.set(ip, times);
+      requestCounts.set(key, times);
       next();
     });
 
