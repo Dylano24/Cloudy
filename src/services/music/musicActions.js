@@ -19,6 +19,9 @@ import { logger } from '../../utils/logger.js';
 const MUSIC_SERVER_BUSY = 'The music server is not responding right now. Please try again in a moment.';
 const LINK_NOT_PLAYABLE = 'That link could not be opened. It may be private, region-locked or not available right now. Try another link or a song name.';
 const RESOLVE_TIMEOUT_MS = 12_000;
+const MUSIC_READY_WAIT_MS = 20_000;
+const VOICE_MOVE_TIMEOUT_MS = 12_000;
+const BAD_NODE_MS = 10 * 60 * 1000;
 const PLAYABLE_LOAD_TYPES = new Set(['track', 'playlist', 'search', 'TRACK_LOADED', 'PLAYLIST_LOADED', 'SEARCH_RESULT']);
 
 export function getPlayer(client, guildId) {
@@ -93,37 +96,115 @@ function dropPlayer(player) {
     }
 }
 
+// Right after a restart Riffy is not initialised yet and its nodes are still
+// connecting. A /play in that window waits for them instead of failing.
+function musicIsReady(client) {
+    const riffy = client.riffy;
+    if (riffy.initiated === false) return false;
+    return !Array.isArray(riffy.leastUsedNodes) || riffy.leastUsedNodes.length > 0;
+}
+
+export async function waitForMusicReady(client, timeoutMs = MUSIC_READY_WAIT_MS) {
+    assertRiffyAvailable(client);
+    const deadline = Date.now() + timeoutMs;
+    while (!musicIsReady(client) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    if (!musicIsReady(client)) {
+        throw new CloudyError('Music nodes unavailable', ErrorTypes.NETWORK, MUSIC_SERVER_BUSY);
+    }
+}
+
+// A node that could not hold a voice connection is tried last for a while, so the
+// next /play does not wait for it again.
+const badNodes = new Map();
+
+function isBadNode(node) {
+    return (badNodes.get(node?.name) || 0) > Date.now();
+}
+
+function markNodeBad(node) {
+    if (node?.name) badNodes.set(node.name, Date.now() + BAD_NODE_MS);
+}
+
+function markNodeGood(node) {
+    if (node?.name) badNodes.delete(node.name);
+}
+
+// The connected nodes, those that recently failed last.
+function orderedNodes(client) {
+    const nodes = Array.isArray(client.riffy?.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : [];
+    return [...nodes.filter(node => !isBadNode(node)), ...nodes.filter(isBadNode)];
+}
+
+function createVoicePlayer(client, options, node = null) {
+    const target = node || orderedNodes(client)[0] || null;
+    return target && typeof client.riffy.createPlayer === 'function'
+        ? client.riffy.createPlayer(target, options)
+        : client.riffy.createConnection(options);
+}
+
+// The same player, with the voice details Discord already sent, moves to another
+// node: nobody leaves and joins again, so nothing can destroy the new player.
+async function moveVoiceToNode(player, node) {
+    const connection = player.connection;
+    const voice = connection?.voice;
+    if (!connection || !voice?.sessionId || !voice.endpoint || !voice.token
+        || typeof connection.updatePlayerVoiceData !== 'function') {
+        return false;
+    }
+    // The old node is told to let go but never waited for: a stuck node must not block this one.
+    Promise.resolve(player.node?.rest?.destroyPlayer?.(player.guildId)).catch(() => {});
+    player.node = node;
+    // The old node's unanswered voice update no longer counts.
+    connection.pendingUpdate = null;
+    try {
+        await withTimeout(connection.updatePlayerVoiceData({
+            sessionId: voice.sessionId,
+            endpoint: voice.endpoint,
+            token: voice.token,
+            channelId: player.voiceChannel,
+        }), VOICE_MOVE_TIMEOUT_MS);
+    } catch (error) {
+        logger.warn(`[MUSIC] Node ${node?.name} did not take the voice details: ${error?.message || error}`);
+        markNodeBad(node);
+        return false;
+    }
+    // The node took the voice details; as after a normal join, the player counts as connected.
+    connection.establishing = false;
+    player.connected = true;
+    return true;
+}
+
 // Riffy waits for the voice connection and rejects when it never comes. Awaiting
 // it means no "Now playing" for a song that never started, and no stray rejection.
 // When Discord did send the voice details but this node could not use them (public
-// nodes are flaky), the other nodes get one try each before giving up.
+// nodes are flaky), the same player moves to each other node before giving up.
 async function startPlayback(client, interaction, player) {
-    if (await tryPlay(player)) return player;
-    logger.warn(`[MUSIC] Voice connection failed in ${interaction.guild.id}: ${describeVoice(player)}`);
-
+    const guildId = interaction.guild.id;
+    if (await tryPlay(player)) {
+        markNodeGood(player.node);
+        return player;
+    }
+    // Only a node that was given Discord's voice details and could not use them is at fault.
     const voice = player.connection?.voice || {};
-    const detailsArrived = Boolean(voice.sessionId && voice.endpoint && voice.token);
-    const others = detailsArrived && typeof client.riffy?.createPlayer === 'function' && Array.isArray(client.riffy.leastUsedNodes)
-        ? client.riffy.leastUsedNodes.filter(node => node !== player.node)
-        : [];
-    const items = [...(player.queue || [])];
-    const options = {
-        guildId: interaction.guild.id,
-        voiceChannel: interaction.member.voice.channel.id,
-        textChannel: interaction.channel.id,
-        deaf: true,
-    };
-    let current = player;
-    for (const node of others) {
-        dropPlayer(current);
-        current = client.riffy.createPlayer(node, options);
-        current.setVolume?.(getGuildMusicData(interaction.guild.id).volume);
-        for (const item of items) current.queue.add(item);
-        if (await tryPlay(current)) return current;
-        logger.warn(`[MUSIC] Voice connection failed again in ${interaction.guild.id}: ${describeVoice(current)}`);
+    if (voice.sessionId && voice.endpoint && voice.token) markNodeBad(player.node);
+    logger.warn(`[MUSIC] Voice connection failed in ${guildId}: ${describeVoice(player)}`);
+
+    const tried = new Set([player.node]);
+    for (const node of orderedNodes(client)) {
+        if (tried.has(node)) continue;
+        tried.add(node);
+        if (!await moveVoiceToNode(player, node)) continue;
+        if (await tryPlay(player)) {
+            markNodeGood(node);
+            return player;
+        }
+        markNodeBad(node);
+        logger.warn(`[MUSIC] Voice connection failed again in ${guildId}: ${describeVoice(player)}`);
     }
 
-    dropPlayer(current);
+    dropPlayer(player);
     throw new CloudyError(
         'Voice connection failed',
         ErrorTypes.NETWORK,
@@ -169,10 +250,9 @@ export async function ensurePlayer(client, interaction, { node = null } = {}) {
             textChannel: interaction.channel.id,
             deaf: true,
         };
-        // A link is opened on a node that can play it, so the player lives there too.
-        player = node && typeof client.riffy.createPlayer === 'function'
-            ? client.riffy.createPlayer(node, options)
-            : client.riffy.createConnection(options);
+        // A link is opened on a node that can play it, so the player lives there too;
+        // otherwise the player starts on the node that did not recently fail.
+        player = createVoicePlayer(client, options, node);
         guildData.playerChannelId = interaction.channel.id;
     }
 
@@ -180,19 +260,8 @@ export async function ensurePlayer(client, interaction, { node = null } = {}) {
     return { player, guildData };
 }
 
-function isDuplicateTrack(player, track) {
-    const uri = track?.info?.uri;
-    if (!uri) {
-        return false;
-    }
-    if (player.current?.info?.uri === uri) {
-        return true;
-    }
-    return player.queue.some((existing) => existing.info?.uri === uri);
-}
-
 export async function joinVoiceChannel(client, interaction) {
-    assertRiffyAvailable(client);
+    await waitForMusicReady(client);
     assertInVoice(interaction.member);
     if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
 
@@ -212,7 +281,7 @@ export async function joinVoiceChannel(client, interaction) {
 
     if (!player) {
         await releaseStaleVoice(client, interaction);
-        player = client.riffy.createConnection({
+        player = createVoicePlayer(client, {
             guildId,
             voiceChannel: channel.id,
             textChannel: interaction.channel.id,
@@ -265,14 +334,32 @@ async function resolveQuery(client, interaction, query, node = null) {
     return result;
 }
 
+// A plain search tries the node the player lives on first and then the others, so
+// one node that cannot answer never fails the command.
+async function searchAcrossNodes(client, interaction, query, preferred = null) {
+    const nodes = [...new Set([preferred, ...orderedNodes(client)].filter(Boolean))];
+    if (!nodes.length) return resolveQuery(client, interaction, query);
+    let failure = null;
+    let last = null;
+    for (const node of nodes) {
+        try {
+            const result = await resolveQuery(client, interaction, query, node);
+            if (isPlayableResult(result)) return result;
+            last = result;
+        } catch (error) {
+            failure ||= error;
+        }
+    }
+    if (last) return last;
+    throw failure;
+}
+
 // Links from YouTube, Spotify, Apple Music, Deezer, SoundCloud and others go to
 // the music server. A link is tried on every connected node, and a new player
 // is created on the node that opened it (no voice join for a link nobody can open).
 async function resolveLinkAndConnect(client, interaction, query) {
     const existing = getPlayer(client, interaction.guild.id);
-    const nodes = existing
-        ? [existing.node].filter(Boolean)
-        : (Array.isArray(client.riffy.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : []);
+    const nodes = existing ? [existing.node].filter(Boolean) : orderedNodes(client);
 
     if (!nodes.length) {
         const { player } = await ensurePlayer(client, interaction);
@@ -304,8 +391,8 @@ async function resolveLinkAndConnect(client, interaction, query) {
 // Opens a link on any connected node without joining voice (used to check a
 // playlist link before it is saved).
 export async function inspectMusicLink(client, query, requester) {
-    assertRiffyAvailable(client);
-    const nodes = Array.isArray(client.riffy.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : [];
+    await waitForMusicReady(client);
+    const nodes = orderedNodes(client);
     let failure = null;
     let answered = false;
     for (const node of nodes.length ? nodes : [null]) {
@@ -324,7 +411,7 @@ export async function inspectMusicLink(client, query, requester) {
 }
 
 export async function playQuery(client, interaction, rawQuery) {
-    assertRiffyAvailable(client);
+    await waitForMusicReady(client);
     assertInVoice(interaction.member);
     if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
 
@@ -335,23 +422,16 @@ export async function playQuery(client, interaction, rawQuery) {
         ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
     } else {
         ({ player } = await ensurePlayer(client, interaction));
-        result = await resolveQuery(client, interaction, query);
+        result = await searchAcrossNodes(client, interaction, query, player.node);
     }
 
     const { loadType, tracks, playlistInfo } = result;
 
     if (loadType === 'playlist' || loadType === 'PLAYLIST_LOADED') {
-        let added = 0;
-        let skipped = 0;
-
+        // Every song is added, also one that is already in the queue (owner's choice).
         for (const track of tracks) {
             track.info.requester = interaction.user;
-            if (isDuplicateTrack(player, track)) {
-                skipped += 1;
-                continue;
-            }
             player.queue.add(track);
-            added += 1;
         }
 
         if (!player.playing && !player.paused) {
@@ -361,7 +441,7 @@ export async function playQuery(client, interaction, rawQuery) {
         return {
             embed: successEmbed(
                 'Playlist added',
-                `**${playlistInfo?.name || 'Playlist'}**\nAdded ${added} of ${tracks.length} track(s).${skipped ? ` Skipped ${skipped} duplicate(s).` : ''}`,
+                `**${playlistInfo?.name || 'Playlist'}**\nAdded ${tracks.length} track(s).`,
             ),
         };
     }
@@ -375,14 +455,6 @@ export async function playQuery(client, interaction, rawQuery) {
         const track = tracks?.[0];
         if (!track) {
             throw new CloudyError('No results', ErrorTypes.USER_INPUT, 'No results found for that query.');
-        }
-
-        if (isDuplicateTrack(player, track)) {
-            throw new CloudyError(
-                'Duplicate track',
-                ErrorTypes.USER_INPUT,
-                `**${track.info.title}** is already in the queue or playing.`,
-            );
         }
 
         track.info.requester = interaction.user;
@@ -482,7 +554,7 @@ export async function pausePlayback(client, interaction) {
     assertCanControl(interaction.member, player);
 
     if (player.paused) {
-        throw new CloudyError('Already paused', ErrorTypes.USER_INPUT, 'Playback is already paused.');
+        return successEmbed('Paused', 'Playback is paused.');
     }
 
     await applyPause(client, interaction.guild.id);
@@ -497,7 +569,7 @@ export async function resumePlayback(client, interaction) {
     assertCanControl(interaction.member, player);
 
     if (!player.paused) {
-        throw new CloudyError('Not paused', ErrorTypes.USER_INPUT, 'Playback is not paused.');
+        return successEmbed('Resumed', 'Playback is playing.');
     }
 
     await applyResume(client, interaction.guild.id);
@@ -507,7 +579,7 @@ export async function resumePlayback(client, interaction) {
 export async function shuffleQueue(client, interaction) {
     const player = getPlayer(client, interaction.guild.id);
     if (!player?.queue?.length) {
-        throw new CloudyError('Empty queue', ErrorTypes.USER_INPUT, 'The queue is empty.');
+        return successEmbed('Shuffle', 'There is nothing to shuffle yet. Add more songs first.');
     }
     assertCanControl(interaction.member, player);
     player.queue.shuffle();
@@ -628,7 +700,7 @@ export async function moveInQueue(client, interaction, from, to) {
 export async function clearQueue(client, interaction) {
     const player = getPlayer(client, interaction.guild.id);
     if (!player?.queue?.length) {
-        throw new CloudyError('Empty queue', ErrorTypes.USER_INPUT, 'The queue is already empty.');
+        return successEmbed('Queue cleared', 'The queue is empty.');
     }
     assertCanControl(interaction.member, player);
     player.queue.clear();

@@ -36,6 +36,12 @@ export default {
     // one-time CDN swap starts without ever running twice.
     scheduleCloudyLogoMigration(client);
 
+    // Music starts first: a /play right after a restart waits for the music nodes,
+    // so they connect as early as possible (it used to start several seconds later).
+    if (client.config?.features?.music) {
+      await runReadyStep('music/Riffy initialization', async () => initRiffyAfterReady(client));
+    }
+
     let presence = config.bot.presence;
     try {
       presence = await client.db.get('global:bot:profile:presence') || presence;
@@ -105,7 +111,6 @@ export default {
     await runReadyStep('invite tracking initialization', () => initializeInviteTracking(client));
 
     if (client.config?.features?.music) {
-      await runReadyStep('music/Riffy initialization', async () => initRiffyAfterReady(client));
       // Non-blocking, idempotent guide: keep one existing bot-authored
       // information embed in #music and never overwrite owner edits.
       void runReadyStep('music guide', async () => {

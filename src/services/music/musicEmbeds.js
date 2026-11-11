@@ -104,37 +104,35 @@ export function buildMusicGuideEmbed() {
     });
 }
 
+// Owner's choice: /play starts the music and the player's buttons do everything
+// else, so the buttons are explained here by their own emoji. Only commands that
+// are not on the player (for example a future Guess the song) get a slash command line.
+const MUSIC_COMMANDS_DESCRIPTION = [
+    '**Start the music**',
+    '`/play` — Type a song name or paste a link from YouTube, Spotify, Apple Music, Deezer or SoundCloud. Everything else is done with the buttons on the player.',
+    '',
+    '**Player buttons**',
+    '⏸️ / ▶️ **Pause / Resume** — Pause the song, press again to continue.',
+    '⏭️ **Skip** — Play the next song.',
+    '🔀 **Shuffle** — Mix up the order of the queue.',
+    '🔁 / 🔂 **Loop** — Press once to repeat the song (🔂), again to repeat the queue (🔁) and a third time to turn it off.',
+    '📋 **Queue** — See what is coming up next.',
+    '🎵 **Playlists** — Start a saved playlist, add a new one with its link or remove one.',
+    '⏹️ **Stop** — Stop the music, clear the queue and leave the voice channel.',
+].join('\n');
+
 export function buildMusicCommandsEmbed() {
-    return createEmbed({
+    const embed = createEmbed({
         title: 'Music commands',
-        description: [
-            '**Getting started**',
-            '`/play` — Play a song.',
-            '`/join` — Join voice.',
-            '`/now playing` — Current song.',
-            '`/queue` — Show queue.',
-            '',
-            '**Playback controls**',
-            '`/music pause` — Pause.',
-            '`/music resume` — Resume.',
-            '`/music skip` — Next song.',
-            '`/music stop` — Stop.',
-            '`/music shuffle` — Shuffle.',
-            '`/music loop` — Repeat.',
-            '',
-            '**Queue & volume**',
-            '`/music volume` — Set volume.',
-            '`/music remove` — Remove song.',
-            '`/music move` — Move song.',
-            '`/music clear` — Clear queue.',
-            '`/music leave` — Disconnect.',
-            '',
-            'Join a voice channel to play music.',
-        ].join('\n'),
+        description: 'Music commands',
         color: 'primary',
         thumbnail: CLOUDY_C_LOGO_URL,
         footer: CLOUDY_FOOTER,
     });
+    // Embed text loses its standard emoji everywhere else; here they are the point,
+    // so the text is set on the finished embed.
+    embed.data.description = MUSIC_COMMANDS_DESCRIPTION;
+    return embed;
 }
 
 function getLoopLabel(loop) {
