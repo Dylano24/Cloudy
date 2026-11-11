@@ -46,7 +46,9 @@ async function highestHistoricalReportNumber(client, guildId) {
         const pages = channelId === REPORT_SUBMISSION_CHANNEL_ID ? 3 : 1;
         for (let page = 0; page < pages; page++) {
           const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
-          if (!batch.size) break;
+          // Discord returns a Collection. Ignore incomplete mocked responses;
+          // never treat a single fetched message as a history batch.
+          if (!batch?.size || typeof batch.values !== 'function') break;
           for (const message of batch.values()) {
             if (message.author?.id !== client.user?.id) continue;
             highest = Math.max(highest, reportNumberFromMessage(message));
