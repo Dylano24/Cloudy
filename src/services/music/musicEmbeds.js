@@ -174,13 +174,13 @@ export function buildNowPlayingEmbed(track, player, guildData) {
     const artwork = getTrackArtwork(track);
     return new EmbedBuilder({
         title: 'Now playing',
-        description: `**${String(track?.info?.title || 'Unknown track').slice(0, 220)}**${progressBar ? `\\n\\n${progressBar}` : ''}`,
+        description: `**${String(track?.info?.title || 'Unknown track').slice(0, 220)}**${progressBar ? `\n\n${progressBar}` : ''}`,
         color: 0xFFFFFF,
         fields,
         thumbnail: { url: CLOUDY_C_LOGO_URL },
         ...(artwork ? { image: { url: artwork } } : {}),
         footer: { text: CLOUDY_FOOTER },
-    });;
+    });
 }
 
 export function buildQueueEmbed(queue, currentTrack, page = 0) {
