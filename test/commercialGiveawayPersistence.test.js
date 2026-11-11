@@ -63,7 +63,10 @@ test('giveaway deletion reports failure when its database update is rejected', a
   assert.equal(f.logLookups(), 0);
 });
 
-for (const rejectedWrite of [1, 2]) {
+// The draw is saved first (write 1). Before the winners are announced, Cloudy
+// saves that the announcement is being sent (write 2), so winners can never be
+// tagged twice; the announcement's ID and claim deadline follow (write 3).
+for (const rejectedWrite of [1, 2, 3]) {
   test(`giveaway end stops before success when persistence write ${rejectedWrite} is rejected`, async () => {
     const giveaway = { messageId: '123456789012345678', channelId: 'target', prize: 'Prize', participants: ['winner'], winnerCount: 1 };
     let writes = 0;
@@ -86,7 +89,13 @@ for (const rejectedWrite of [1, 2]) {
     assert.equal(f.replies.length, 0);
     assert.equal(f.logLookups(), 0);
     assert.equal(edits, rejectedWrite === 1 ? 0 : 1);
-    assert.equal(announcements, rejectedWrite === 1 ? 0 : 1);
+    // Winners are only ever tagged after "being announced" was saved.
+    assert.equal(announcements, rejectedWrite === 3 ? 1 : 0);
     assert.ok(failure, 'Rejected persistence must surface as failure');
+    const saved = stored[giveaway.messageId];
+    if (rejectedWrite === 1) assert.notEqual(saved.ended, true, 'nothing was saved, so the giveaway is still open');
+    // The saved draw is still waiting to be shown: the next check announces it.
+    if (rejectedWrite === 2) assert.deepEqual(saved.resultPending, { kind: 'ended', winners: ['winner'], attempts: 0 });
+    if (rejectedWrite === 3) assert.equal(saved.resultPending, undefined);
   });
 }

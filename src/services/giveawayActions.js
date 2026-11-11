@@ -3,7 +3,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { CloudyError, ErrorTypes } from '../utils/errorHandler.js';
 import { Mutex } from '../utils/mutex.js';
-import { getEndedGiveaways, unwrapReplitData } from '../utils/database.js';
+import { getEndedGiveaways, getGiveawaysAwaitingResult, unwrapReplitData } from '../utils/database.js';
 import { getGuildGiveaways, saveGiveaway, deleteGiveaway } from '../utils/giveaways.js';
 import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
@@ -90,6 +90,35 @@ async function fetchGiveawayChannel(client, guild, channelId) {
 
 async function fetchGiveawayMessage(channel, messageId) {
     return attempt(() => channel?.messages?.fetch?.(messageId));
+}
+
+// Unknown Channel / Unknown Message: the giveaway is really gone from Discord.
+const GONE_CODES = new Set([10003, 10008]);
+const isGone = error => GONE_CODES.has(error?.code);
+// Discord answered with an error, so the request was certainly not carried out.
+const wasRejected = error => Number.isInteger(error?.status) && error.status >= 400;
+
+// Like the two lookups above, but it tells "gone" apart from "could not be
+// checked right now" (Discord busy, a timeout, a restart in progress). A
+// giveaway is never closed, and a winner never dropped, on a guess.
+async function locateGiveawayMessage(client, guild, channelId, messageId) {
+    let channel = (channelId && guild?.channels?.cache?.get?.(channelId)) || null;
+    let failure = null;
+    for (const lookup of [() => guild?.channels?.fetch?.(channelId), () => client?.channels?.fetch?.(channelId)]) {
+        if (channel || !channelId) break;
+        try {
+            channel = (await lookup()) || null;
+        } catch (error) {
+            if (!isGone(error)) failure ||= error;
+        }
+    }
+    if (!channel) return failure ? { status: 'unavailable', error: failure } : { status: 'gone' };
+    try {
+        const message = (await channel.messages?.fetch?.(messageId)) || null;
+        return message ? { status: 'found', channel, message } : { status: 'gone' };
+    } catch (error) {
+        return isGone(error) ? { status: 'gone' } : { status: 'unavailable', error };
+    }
 }
 
 function giveawayMessagePayload(giveaway, status) {
@@ -230,6 +259,104 @@ export async function postGiveaway(client, guild, channel, draft) {
     return giveaway;
 }
 
+// A drawn result is saved before anything is shown. Until Discord shows it,
+// the giveaway carries `resultPending` ({ kind, winners, attempts }), so a
+// restart or a Discord outage at exactly that moment is picked up again by
+// the next minute's check instead of leaving winners unannounced for good.
+export const GIVEAWAY_RESULT_MAX_ATTEMPTS = 30;
+const pendingResult = (kind, winners) => ({ kind, winners: [...winners], attempts: 0 });
+
+function withoutPendingResult(giveaway) {
+    const { resultPending: _pending, ...rest } = giveaway;
+    return rest;
+}
+
+// The result could not be shown yet: keep it for the next check, at most
+// GIVEAWAY_RESULT_MAX_ATTEMPTS times (then it is closed and logged as an error).
+async function deferGiveawayResult(client, guildId, giveaway, error) {
+    const pending = giveaway.resultPending;
+    const attempts = (Number(pending.attempts) || 0) + 1;
+    const abandoned = attempts >= GIVEAWAY_RESULT_MAX_ATTEMPTS;
+    const next = abandoned
+        ? { ...withoutPendingResult(giveaway), resultAbandonedAt: new Date().toISOString() }
+        : { ...giveaway, resultPending: { ...pending, attempts } };
+    await persist(client, guildId, next);
+    const text = `Giveaway ${giveaway.messageId}: the result could not be shown in Discord `
+        + `(attempt ${attempts}/${GIVEAWAY_RESULT_MAX_ATTEMPTS}): ${error?.message || error}`;
+    if (abandoned) logger.error(`${text}. Giving up.`);
+    else logger.warn(text);
+    return { giveaway: next, winners: pending.winners || [], announced: false, pending: !abandoned };
+}
+
+// Shows a saved result: the giveaway message becomes "ended" and the winners
+// are announced. Runs under the giveaway lock. `located` is a lookup the
+// caller already did.
+async function deliverGiveawayResult(client, guild, giveaway, located = null) {
+    const guildId = guild?.id;
+    const pending = giveaway.resultPending;
+    const reroll = pending.kind === 'reroll';
+    const winners = pending.winners || [];
+    const closeSilently = async () => {
+        // A giveaway message someone removed is closed silently: nobody is
+        // tagged for a giveaway that is no longer visible.
+        const closed = { ...withoutPendingResult(giveaway), ...(reroll ? { claimDeadlineAt: null } : {}) };
+        await persist(client, guildId, closed);
+        return { giveaway: closed, winners, announced: false };
+    };
+    const found = located || await locateGiveawayMessage(client, guild, giveaway.channelId, giveaway.messageId);
+    if (found.status === 'gone') return closeSilently();
+    if (found.status === 'unavailable') return deferGiveawayResult(client, guildId, giveaway, found.error);
+    const { channel, message } = found;
+    try {
+        await message.edit(giveawayMessagePayload(giveaway, reroll ? 'reroll' : 'ended'));
+    } catch (error) {
+        if (isGone(error)) return closeSilently();
+        return deferGiveawayResult(client, guildId, giveaway, error);
+    }
+    // The announcement is sent at most once: that it is being sent is saved
+    // first, so an answer lost after Discord accepted it never tags the
+    // winners a second time.
+    const shown = withoutPendingResult(giveaway);
+    await persist(client, guildId, shown);
+    // An automatic reroll without anyone left to draw has nothing to announce.
+    if (!reroll || winners.length) {
+        let announcement;
+        try {
+            announcement = await channel.send({
+                ...createWinnerAnnouncement(shown, winners, { reroll }),
+                reply: { messageReference: giveaway.messageId, failIfNotExists: false },
+            });
+        } catch (error) {
+            // Discord refused it, so it was certainly not posted: try again.
+            if (wasRejected(error)) return deferGiveawayResult(client, guildId, giveaway, error);
+            throw error;
+        }
+        shown.announcementIds = [...(shown.announcementIds || []), announcement.id];
+        shown.winnerPingMessageId = announcement.id;
+        // Old giveaways have no claim deadline and are never retroactively
+        // rerolled. The 24h claim window starts when winners are announced.
+        if (winners.length) shown.claimDeadlineAt = newClaimDeadline();
+        await persist(client, guildId, shown);
+    }
+    return { giveaway: shown, winners, announced: true };
+}
+
+async function rememberEndedLog(client, guildId, messageId) {
+    await Mutex.runExclusive(lockKey(messageId), async () => {
+        const current = await loadGiveaway(client, guildId, messageId);
+        if (current && !current.endedLogSent) await persist(client, guildId, { ...current, endedLogSent: true });
+    }).catch(error => logger.warn(`Could not note the ended log of giveaway ${messageId}: ${error?.message || error}`));
+}
+
+// "Giveaway ended" is logged once, also when the result is only shown later.
+async function logEndedGiveaway(client, guild, result) {
+    if (!result.giveaway.endedLogSent) {
+        await sendGiveawayEndedLog(client, guild, result.giveaway, result.winners);
+        if (result.pending) await rememberEndedLog(client, guild?.id, result.giveaway.messageId);
+    }
+    if (result.announced) await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.winners);
+}
+
 // Draws the winners, marks the giveaway ended, and announces the winners.
 // The result is saved before anything is shown, so a failed save never
 // announces winners that were not stored.
@@ -251,32 +378,30 @@ export async function finishGiveaway(client, guild, messageId, { endedBy = 'auto
             endedAt: new Date().toISOString(),
             endedBy,
             participantCount: participants.length,
+            resultPending: pendingResult('ended', winners),
         };
         await persist(client, guildId, ended);
-
-        const channel = await fetchGiveawayChannel(client, guild, ended.channelId);
-        const message = await fetchGiveawayMessage(channel, messageId);
-        // A giveaway message someone removed is closed silently: nobody is
-        // tagged for a giveaway that is no longer visible.
-        if (!message) return { giveaway: ended, winners, announced: false };
-
-        await message.edit(giveawayMessagePayload(ended, 'ended', client));
-        const announcement = await channel.send({
-            ...createWinnerAnnouncement(ended, winners),
-            reply: { messageReference: messageId, failIfNotExists: false },
-        });
-        ended.announcementIds = [...(ended.announcementIds || []), announcement.id];
-        ended.winnerPingMessageId = announcement.id;
-        // Old giveaways have no claim deadline and are never retroactively
-        // rerolled. Enable the 24h claim check only for announced winners.
-        if (winners.length) ended.claimDeadlineAt = newClaimDeadline();
-        await persist(client, guildId, ended);
-        return { giveaway: ended, winners, announced: true };
+        return deliverGiveawayResult(client, guild, ended);
     });
     // Ended log in #giveaway-logs; for a giveaway without a code also the
     // winners' countries (Owners tagged).
-    await sendGiveawayEndedLog(client, guild, result.giveaway, result.winners);
-    if (result.announced) await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.winners);
+    await logEndedGiveaway(client, guild, result);
+    return result;
+}
+
+// Shows the saved result of an ended giveaway that could not be shown yet
+// (Discord was unavailable, or Cloudy restarted at that moment).
+export async function resumeGiveawayResult(client, guild, messageId) {
+    const guildId = guild?.id;
+    const result = await Mutex.runExclusive(lockKey(messageId), async () => {
+        const giveaway = await loadGiveaway(client, guildId, messageId);
+        if (!giveaway?.resultPending || !isGiveawayFinished(giveaway)) return null;
+        const { kind } = giveaway.resultPending;
+        return { ...await deliverGiveawayResult(client, guild, giveaway), kind };
+    });
+    if (!result) return null;
+    if (result.kind === 'ended') await logEndedGiveaway(client, guild, result);
+    else if (result.announced) await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.winners);
     return result;
 }
 
@@ -288,6 +413,9 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
         if (!isGiveawayFinished(giveaway)) {
             throw giveawayError('Giveaway still active', 'This giveaway has not ended yet. End it first.');
         }
+        if (giveaway.resultPending) {
+            throw giveawayError('Giveaway result pending', 'The winners of this giveaway are still being announced. Please try again in a minute.');
+        }
         const participants = giveawayParticipants(giveaway);
         if (!participants.length) {
             throw giveawayError('No participants to reroll', 'There are no entries to reroll from.');
@@ -297,6 +425,15 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
         if (!pool.length) {
             throw giveawayError('No new participants to reroll', 'Everyone who entered has already won. There is nobody new to draw.');
         }
+        // Looked up before anyone is drawn: a reroll that cannot be announced
+        // never uses up a winner.
+        const located = await locateGiveawayMessage(client, guild, giveaway.channelId, messageId);
+        if (located.status === 'gone') {
+            throw giveawayError('Giveaway message missing', 'The giveaway message no longer exists, so no new winner was announced.');
+        }
+        if (located.status === 'unavailable') {
+            throw giveawayError('Giveaway message unavailable', 'Discord could not be reached, so no new winner was drawn. Please try again.');
+        }
         const winners = selectWinners(pool, giveaway.winnerCount || 1);
         const rerolled = {
             ...giveaway,
@@ -304,28 +441,14 @@ export async function rerollGiveaway(client, guild, messageId, { rerolledBy } = 
             previousWinnerIds: previousWinners,
             rerolledAt: new Date().toISOString(),
             rerolledBy,
+            resultPending: pendingResult('reroll', winners),
         };
         await persist(client, guildId, rerolled);
-
-        const channel = await fetchGiveawayChannel(client, guild, rerolled.channelId);
-        const message = await fetchGiveawayMessage(channel, messageId);
-        if (!message) {
-            throw giveawayError('Giveaway message missing', 'The giveaway message no longer exists, so no new winner was announced.');
-        }
-        await message.edit(giveawayMessagePayload(rerolled, 'reroll', client));
-        const announcement = await channel.send({
-            ...createWinnerAnnouncement(rerolled, winners, { reroll: true }),
-            reply: { messageReference: messageId, failIfNotExists: false },
-        });
-        rerolled.announcementIds = [...(rerolled.announcementIds || []), announcement.id];
-        rerolled.winnerPingMessageId = announcement.id;
-        if (winners.length) rerolled.claimDeadlineAt = newClaimDeadline();
-        await persist(client, guildId, rerolled);
-        return { giveaway: rerolled, winners };
+        return deliverGiveawayResult(client, guild, rerolled, located);
     });
     await logGiveaway(client, guildId, EVENT_TYPES.GIVEAWAY_REROLL, 'Giveaway rerolled', result.giveaway,
         [{ name: 'New winners', value: result.winners.map(id => `<@${id}>`).join(', '), inline: false }], rerolledBy);
-    await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.winners);
+    if (result.announced) await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.winners);
     return result;
 }
 
@@ -470,7 +593,7 @@ export async function rerollUnclaimedGiveaway(client, guild, messageId) {
     const result = await Mutex.runExclusive(lockKey(messageId), async () => {
         const giveaway = await loadGiveaway(client, guildId, messageId);
         const deadline = Date.parse(giveaway?.claimDeadlineAt || '');
-        if (!giveaway || !isGiveawayFinished(giveaway)
+        if (!giveaway || !isGiveawayFinished(giveaway) || giveaway.resultPending
             || !Number.isFinite(deadline) || deadline > Date.now()) return null;
 
         const currentWinners = [...new Set(giveaway.winnerIds || [])];
@@ -493,13 +616,15 @@ export async function rerollUnclaimedGiveaway(client, guild, messageId) {
             return { claimed, missing, newWinners: [], complete: true };
         }
 
-        const channel = await fetchGiveawayChannel(client, guild, giveaway.channelId);
-        const message = await fetchGiveawayMessage(channel, messageId);
-        if (!message) {
+        const located = await locateGiveawayMessage(client, guild, giveaway.channelId, messageId);
+        if (located.status === 'gone') {
             // Never announce a replacement for a giveaway removed in Discord.
             await persist(client, guildId, { ...giveaway, claimDeadlineAt: null });
             return null;
         }
+        // Discord could not be asked right now: nothing is drawn and the
+        // deadline stays, so the next minute's check simply tries again.
+        if (located.status === 'unavailable') return null;
 
         const excluded = new Set([...(giveaway.previousWinnerIds || []), ...currentWinners]);
         const pool = giveawayParticipants(giveaway).filter(id => !excluded.has(id));
@@ -513,22 +638,15 @@ export async function rerollUnclaimedGiveaway(client, guild, messageId) {
             // Renew the 24h window only for genuinely new, unclaimed winners.
             // When the participant pool is exhausted, stop checking forever.
             claimDeadlineAt: newWinners.length ? newClaimDeadline() : null,
+            resultPending: pendingResult('reroll', newWinners),
         };
         // Persist before changing Discord: no failed DB write may announce a
         // winner. The advanced deadline also prevents duplicate automatic
         // draws on subsequent sweeps or after restarting.
         await persist(client, guildId, rerolled);
-        await message.edit(giveawayMessagePayload(rerolled, 'reroll'));
-        if (newWinners.length) {
-            const announcement = await channel.send({
-                ...createWinnerAnnouncement(rerolled, newWinners, { reroll: true }),
-                reply: { messageReference: messageId, failIfNotExists: false },
-            });
-            rerolled.announcementIds = [...(rerolled.announcementIds || []), announcement.id];
-            rerolled.winnerPingMessageId = announcement.id;
-            await persist(client, guildId, rerolled);
-        }
-        return { giveaway: rerolled, claimed, missing, newWinners, complete: !newWinners.length };
+        const delivered = await deliverGiveawayResult(client, guild, rerolled, located);
+        return { giveaway: delivered.giveaway, claimed, missing, newWinners, complete: !newWinners.length,
+            announced: delivered.announced, pending: delivered.pending === true };
     });
     if (result?.newWinners?.length) {
         await logGiveaway(client, guildId, EVENT_TYPES.GIVEAWAY_REROLL,
@@ -536,7 +654,7 @@ export async function rerollUnclaimedGiveaway(client, guild, messageId) {
                 { name: 'Unclaimed slots', value: String(result.missing.length), inline: true },
                 { name: 'New winners', value: result.newWinners.map(id => `<@${id}>`).join(', '), inline: false },
             ]);
-        await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.newWinners);
+        if (result.announced) await sendGiveawayWinnerCountryLog(client, guild, result.giveaway, result.newWinners);
     }
     return result;
 }
@@ -693,22 +811,38 @@ export async function removeGiveaway(client, guild, messageId, { deletedBy } = {
     return giveaway;
 }
 
-// Runs every minute: ends giveaways whose time is up.
+// Runs every minute: ends giveaways whose time is up, and shows the result
+// of giveaways that ended while Discord or Cloudy was unavailable.
 export async function checkGiveaways(client) {
     try {
         if (!client?.db) return;
+        const justEnded = new Set();
         const due = await getEndedGiveaways(client);
         for (const record of due) {
             const guildId = record.guild_id || record.guildId;
             const messageId = record.message_id || record.messageId;
             const guild = client.guilds?.cache?.get?.(guildId);
             if (!guild || !messageId) continue;
+            justEnded.add(messageId);
             try {
                 await finishGiveaway(client, guild, messageId, { endedBy: 'automatic' });
                 logger.info(`Ended giveaway ${messageId} in guild ${guildId}`);
             } catch (error) {
                 if (error?.context?.status === 'already_ended') continue;
                 logger.error(`Error ending giveaway ${messageId}:`, error);
+            }
+        }
+        for (const record of await getGiveawaysAwaitingResult(client)) {
+            const guildId = record.guild_id || record.guildId;
+            const messageId = record.message_id || record.messageId;
+            const guild = client.guilds?.cache?.get?.(guildId);
+            // One attempt per minute: a giveaway that ended in this run waits for the next.
+            if (!guild || !messageId || justEnded.has(messageId)) continue;
+            try {
+                const result = await resumeGiveawayResult(client, guild, messageId);
+                if (result?.announced) logger.info(`Showed the saved result of giveaway ${messageId} in guild ${guildId}`);
+            } catch (error) {
+                logger.error(`Error showing the result of giveaway ${messageId}:`, error);
             }
         }
     } catch (error) {

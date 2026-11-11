@@ -306,6 +306,60 @@ export async function getEndedGiveaways(client) {
     }
 }
 
+// Ended giveaways whose result (winner announcement) still has to be shown in
+// Discord: `resultPending` is set when the draw is saved and removed once it
+// is shown. Only giveaways ended by the current code ever carry it.
+async function getGiveawaysAwaitingResultFromKv(client) {
+    const wrapper = client?.db;
+    if (!wrapper || typeof wrapper.list !== 'function' || typeof wrapper.get !== 'function') {
+        return [];
+    }
+
+    const waiting = [];
+    for (const key of await wrapper.list('guild:')) {
+        if (!key.endsWith(':giveaways')) continue;
+        const guildId = key.split(':')[1];
+        if (!guildId) continue;
+        const unwrapped = unwrapReplitData(await wrapper.get(key, {})) || {};
+        const giveaways = Array.isArray(unwrapped) ? unwrapped : Object.values(unwrapped);
+        for (const giveaway of giveaways) {
+            if (giveaway?.messageId && giveaway.resultPending) {
+                waiting.push({ guild_id: guildId, message_id: giveaway.messageId });
+            }
+        }
+    }
+    return waiting;
+}
+
+export async function getGiveawaysAwaitingResult(client) {
+    try {
+        const wrapper = client?.db;
+        if (!wrapper || typeof wrapper.get !== 'function') {
+            return [];
+        }
+
+        if (isPostgresSqlReady(wrapper)) {
+            const { pgConfig } = await import('../config/database/postgres.js');
+            const result = await wrapper.db.pool.query(
+                `SELECT guild_id, message_id
+                 FROM ${pgConfig.tables.giveaways}
+                 WHERE jsonb_typeof(data->'resultPending') = 'object'
+                 ORDER BY ends_at ASC`,
+            );
+            return result.rows || [];
+        }
+
+        return await getGiveawaysAwaitingResultFromKv(client);
+    } catch (error) {
+        logger.error('Error getting giveaways awaiting their result:', error);
+        try {
+            return await getGiveawaysAwaitingResultFromKv(client);
+        } catch {
+            return [];
+        }
+    }
+}
+
 export async function markGiveawayEnded(client, giveawayId, endedData) {
     try {
         const wrapper = client?.db;
