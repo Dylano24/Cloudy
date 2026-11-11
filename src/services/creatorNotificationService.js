@@ -3,7 +3,7 @@ import { resolveCloudyChannel } from './cloudyChannelResolver.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_STANDARD_FOOTER } from '../utils/cloudyFooter.js';
 import { fetchCreatorItems } from './creatorNotificationProviders.js';
-import { resolveCreatorAccount } from './creatorLinkResolver.js';
+import { identifyCreatorInput, resolveCreatorAccount } from './creatorLinkResolver.js';
 
 const PREFIX = 'global:creator-notify:';
 const CHECK_INTERVAL_MS = 5 * 60_000;
@@ -40,8 +40,9 @@ async function storeConfig(client, guildId, config) {
 export async function listCreatorNotifications(client, guildId) {
   return structuredClone((await readConfig(client, guildId)).subscriptions);
 }
-export async function addCreatorNotification(client, guildId, platform, rawAccount, channelId, resolverOptions = {}) {
-  const account = await resolveCreatorAccount(platform, rawAccount, resolverOptions);
+export async function addCreatorNotification(client, guildId, selectedPlatform, rawAccount, channelId, resolverOptions = {}) {
+  const { platform, input } = identifyCreatorInput(selectedPlatform, rawAccount);
+  const account = await resolveCreatorAccount(platform, input, resolverOptions);
   return lockGuild(guildId, async () => {
     const config = await readConfig(client, guildId);
     const id = platform + ':' + account;
@@ -54,15 +55,16 @@ export async function addCreatorNotification(client, guildId, platform, rawAccou
     return structuredClone(entry);
   });
 }
-export async function removeCreatorNotification(client, guildId, platform, rawAccount, resolverOptions = {}) {
+export async function removeCreatorNotification(client, guildId, selectedPlatform, rawAccount, resolverOptions = {}) {
+  const { platform, input } = identifyCreatorInput(selectedPlatform, rawAccount);
   return lockGuild(guildId, async () => {
     const config = await readConfig(client, guildId);
     const original = String(rawAccount || '').trim();
     // Allow the exact link used to add a creator to remove it even when
     // YouTube is temporarily unreachable.
     const existing = config.subscriptions.find(item => item.platform === platform
-      && (item.source === original || item.account === original));
-    const account = existing?.account || await resolveCreatorAccount(platform, original, resolverOptions);
+      && (item.source === original || item.source === input || item.account === input));
+    const account = existing?.account || await resolveCreatorAccount(platform, input, resolverOptions);
     const oldLength = config.subscriptions.length;
     config.subscriptions = config.subscriptions.filter(item => item.id !== platform + ':' + account);
     if (oldLength === config.subscriptions.length) return false;
