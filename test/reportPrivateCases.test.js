@@ -329,6 +329,47 @@ test('a member without report access is refused before their timeout duration is
   assert.deepEqual(f.removed, []); assert.equal(f.payloads.length, 0);
 });
 
+test('a case channel removed by hand in Discord is logged as closed, never as the automatic 24-hour deletion', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  let record = await f.submit();
+  // Staff delete the reported member's channel directly in Discord.
+  f.channels.delete(record.cases.target.channelId);
+  await restoreReportCaseTimers(f.client);
+  t.mock.timers.tick(REPORT_CASE_MS); await settle(); await settle();
+  record = await f.client.db.get(reportKey(f.guild.id, 'report'));
+  assert.ok(record.closedAt);
+
+  const target = record.cases.target;
+  assert.equal(target.deletedBy, 'Unknown');
+  assert.equal(target.deleteLogId, undefined, 'no "deleted" log: that title is only for the automatic deletion');
+  const closed = json(f.logs.messages.cache.get(target.closeLogId).embeds[0]);
+  assert.equal(closed.title, 'Moderation update closed');
+  assert.deepEqual(closed.fields.find(field => field.name === 'Closed by'), { name: 'Closed by', value: 'Unknown', inline: true });
+  assert.doesNotMatch(JSON.stringify(closed), /24-hour expiry/);
+
+  // The reporter's channel was still there: that one is the automatic deletion.
+  const reporter = record.cases.reporter;
+  assert.equal(reporter.deletedBy, '24-hour expiry');
+  assert.ok(reporter.expiryStartedAt);
+  assert.equal(json(f.logs.messages.cache.get(reporter.deleteLogId).embeds[0]).title, 'Report update deleted');
+});
+
+test('an automatic deletion interrupted by a restart is still logged as the 24-hour deletion', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const f = fixture(); await f.register();
+  const record = await f.submit();
+  // Cloudy had begun the automatic deletion and removed the channel, then
+  // stopped before that was saved.
+  record.cases.target.expiryStartedAt = Date.now();
+  await f.client.db.set(reportKey(f.guild.id, 'report'), record);
+  f.channels.delete(record.cases.target.channelId);
+  await deleteReportCase(f.client, f.guild, record);
+  const saved = (await f.client.db.get(reportKey(f.guild.id, 'report'))).cases.target;
+  assert.equal(saved.deletedBy, '24-hour expiry');
+  assert.equal(json(f.logs.messages.cache.get(saved.deleteLogId).embeds[0]).title, 'Report moderation deleted');
+});
+
 test('each participant can close their own report channel in one click, with one close log', async () => {
   const f = fixture(); await f.register();
   const record = await f.submit();

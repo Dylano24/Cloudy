@@ -171,7 +171,7 @@ function logEmbed(record, audience, event, actorId) {
   const title = REPORT_LOG_TITLES[audience][event === 'close' ? 'close' : event === 'delete' ? 'delete' : 'created'];
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
-    { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
+    { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : actorId === 'Unknown' ? 'Unknown' : `<@${actorId}>`, inline: true },
     { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
   const embed = caseEmbed({ title, fields, footer: { text: CLOUDY_STANDARD_FOOTER } });
   embed.setThumbnail(CLOUDY_LOGO_URL);
@@ -465,12 +465,26 @@ export async function deleteReportCase(client, guild, record, executor = '24-hou
       const entry = record.cases[kind];
       if (!entry) continue;
       if (!entry.deletedAt) {
+        const automatic = executor === '24-hour expiry';
         const channel = await fetchChannel(guild, entry.channelId);
-        if (channel) await channel.delete(`Report ${record.number}: ${executor}`);
-        entry.deletedAt = Date.now(); entry.deletedBy = executor;
-        if (executor !== '24-hour expiry') {
+        if (channel) {
+          // Noted before the channel is removed, so a restart in between
+          // still knows that the automatic deletion had begun.
+          if (automatic && !entry.expiryStartedAt) {
+            entry.expiryStartedAt = Date.now();
+            await save(client, record);
+          }
+          await channel.delete(`Report ${record.number}: ${executor}`);
+        }
+        // A channel that is already gone at the 24-hour mark was removed by
+        // hand in Discord. That is a closure by someone, never the automatic
+        // deletion, so it is logged as closed, not as deleted.
+        const removedByHand = automatic && !channel && !entry.expiryStartedAt;
+        const actor = removedByHand ? 'Unknown' : executor;
+        entry.deletedAt = Date.now(); entry.deletedBy = actor;
+        if (actor !== '24-hour expiry') {
           entry.closedAt ||= entry.deletedAt;
-          entry.closedBy = executor;
+          entry.closedBy = actor;
         }
         await save(client, record);
       }
