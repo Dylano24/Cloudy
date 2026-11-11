@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { PermissionFlagsBits } from 'discord.js';
+import creatorNotify from '../src/commands/Tools/creatorNotify.js';
+import { CLOUDY_RED_COLOR } from '../src/utils/embedColorPolicy.js';
 import {
   normalizeCreatorAccount, parseCreatorFeed, fetchCreatorItems, creatorProviderReady,
 } from '../src/services/creatorNotificationProviders.js';
@@ -40,7 +43,8 @@ test('accounts are validated without allowing external fetch URLs', () => {
   assert.equal(normalizeCreatorAccount('youtube', CHANNEL_ID), CHANNEL_ID);
   assert.equal(normalizeCreatorAccount('twitch', 'https://www.twitch.tv/Example_Account'), 'example_account');
   assert.equal(normalizeCreatorAccount('tiktok', '@Example.Creator'), 'example.creator');
-  assert.throws(() => normalizeCreatorAccount('youtube', 'https://example.com/private'), /YouTube requires/);
+  assert.throws(() => normalizeCreatorAccount('youtube', 'https://example.com/private'),
+    { message: 'YouTube requires a channel ID' });
   assert.throws(() => normalizeCreatorAccount('tiktok', 'http://127.0.0.1/admin'), /Invalid/);
   assert.equal(creatorProviderReady('tiktok', {}), false, 'no misleading TikTok capability without bridge');
   assert.equal(creatorProviderReady('tiktok', { CREATOR_TIKTOK_FEED_TEMPLATE: 'https://bridge.example/rss/{account}' }), true);
@@ -124,4 +128,27 @@ test('Twitch API source collects live streams and VOD links using app credential
   const items = await fetchCreatorItems({ platform: 'twitch', account: 'channel' }, { env, fetcher });
   assert.deepEqual(items.map(i => i.id), ['live:stream-7', 'video:vod-8']);
   assert.equal(fetched.length, 4);
+});
+
+test('creator-notify exposes only add, remove and list, and invalid YouTube ID uses Cloudy red', async () => {
+  const commandNames = creatorNotify.data.toJSON().options.map(option => option.name);
+  assert.deepEqual(commandNames, ['add', 'remove', 'list']);
+  assert.equal(creatorNotify.globalRegistration, true, 'do not exceed Discord 100 guild commands');
+
+  const interaction = {
+    guildId: GUILD,
+    memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
+    options: {
+      getSubcommand: () => 'add',
+      getString: name => name === 'platform' ? 'youtube' : 'not-a-channel-id',
+      getChannel: () => null,
+    },
+    deferReply: async () => { interaction.deferred = true; },
+    editReply: async payload => { interaction.answer = payload; },
+  };
+  await creatorNotify.execute(interaction, {}, fakeBot().bot);
+  const embed = interaction.answer.embeds[0].toJSON();
+  assert.equal(embed.title, 'Creator notification error');
+  assert.equal(embed.description, 'YouTube requires a channel ID');
+  assert.equal(embed.color, CLOUDY_RED_COLOR);
 });
