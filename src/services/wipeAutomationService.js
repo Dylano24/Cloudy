@@ -941,3 +941,39 @@ export async function expirePreviousWipeRoles(client, guild, server, currentWipe
     });
   }
 }
+// /auto start | pause | stop: change saved automatic votes and giveaways
+// without opening the dashboard. `kind` is 'vote', 'giveaway' or 'all';
+// `jobId` limits it to one automation (the older single setting is 'legacy').
+export const AUTOMATION_COMMAND_STATES = Object.freeze({ start: 'running', pause: 'paused', stop: 'stopped' });
+
+export function automationLabel(kind, job) {
+  const name = String(job?.name || (kind === 'vote' ? job?.question : job?.kit) || '').trim();
+  return `${kind === 'vote' ? 'Auto vote' : 'Auto giveaway'}: ${name || job?.id || 'Untitled'}`.slice(0, 100);
+}
+
+export async function listAutomationsForCommand(client, guildId) {
+  const [votes, giveaways] = await Promise.all([listAutomaticVotes(client, guildId), listAutomaticGiveaways(client, guildId)]);
+  return [...votes.map(job => ({ kind: 'vote', job })), ...giveaways.map(job => ({ kind: 'giveaway', job }))];
+}
+
+export async function setAutomationsState(client, guildId, { kind = 'all', state, jobId = null } = {}) {
+  if (!AUTO_WIPE_STATES.includes(state)) throw new RangeError('Invalid automation state');
+  const targets = (await listAutomationsForCommand(client, guildId))
+    .filter(entry => (kind === 'all' || entry.kind === kind) && (!jobId || `${entry.kind}:${entry.job.id}` === jobId));
+  const results = [];
+  for (const { kind: type, job } of targets) {
+    const label = automationLabel(type, job);
+    if (job.state === state) { results.push({ label, status: 'unchanged' }); continue; }
+    // Pause only applies to a running automation; Start never revives a stopped one-time date.
+    if (state === 'paused' && job.state !== 'running') { results.push({ label, status: 'not-running' }); continue; }
+    try {
+      if (job.id === 'legacy') await setWipeAutomationState(client, guildId, type, state);
+      else if (type === 'vote') await setAutomaticVoteJobState(client, guildId, job.id, state);
+      else await setAutomaticGiveawayJobState(client, guildId, job.id, state);
+      results.push({ label, status: 'changed' });
+    } catch (error) {
+      results.push({ label, status: 'failed', reason: error?.message || 'Could not change it.' });
+    }
+  }
+  return results;
+}

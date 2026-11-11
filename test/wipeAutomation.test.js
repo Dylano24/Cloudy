@@ -82,7 +82,7 @@ const kitCfg = {
 test('command definitions expose explicit settings and member sync without auto defaults', () => {
   const data = autoCommand.data.toJSON();
   assert.equal(data.name, 'auto');
-  assert.deepEqual(data.options.map(option=>option.name), ['feed', 'giveaway', 'vote']);
+  assert.deepEqual(data.options.map(option=>option.name), ['feed', 'giveaway', 'vote', 'start', 'pause', 'stop']);
   assert.equal(wipeCommand.data.toJSON().name, 'wipe');
   assert.equal(wipeCommand.data.toJSON().options[0].name, 'sync');
   for (const option of data.options.filter(x=>['vote', 'giveaway'].includes(x.name))) {
@@ -554,4 +554,32 @@ test('editing a repeat vote later never resets its existing scheduled run', asyn
   }, job.id);
   assert.equal(updated.nextRunAt, job.nextRunAt);
   assert.equal(updated.question, 'Updated question');
+});
+test('/auto start, pause and stop change saved automations without the dashboard', async () => {
+  const { setAutomationsState, listAutomationsForCommand } = await import('../src/services/wipeAutomationService.js');
+  const f=fixture();
+  const job = name => ({ ...voteCfg, name, schedule:'repeat', repeatMinutes:60, durationMinutes:5 });
+  const a = await saveAutomaticVoteJob(f.client, GUILD, job('Map vote A'));
+  await saveAutomaticVoteJob(f.client, GUILD, job('Map vote B'));
+  await configureWipeAutomation(f.client,GUILD,'giveaway',kitCfg);
+  const states = async () => Object.fromEntries((await listAutomationsForCommand(f.client, GUILD))
+    .map(entry => [`${entry.kind}:${entry.job.name || entry.job.kit}`, entry.job.state || 'stopped']));
+
+  let results = await setAutomationsState(f.client, GUILD, { kind:'vote', state:'running' });
+  assert.deepEqual(results.map(r => r.status), ['changed', 'changed']);
+  assert.deepEqual(await states(), { 'vote:Map vote A':'running', 'vote:Map vote B':'running', 'giveaway:Wipe kit':'stopped' });
+
+  results = await setAutomationsState(f.client, GUILD, { kind:'all', state:'paused', jobId:`vote:${a.id}` });
+  assert.deepEqual(results.map(r => r.status), ['changed']);
+  assert.equal((await states())['vote:Map vote A'], 'paused');
+
+  // Pause leaves a stopped automation alone; Start runs everything.
+  results = await setAutomationsState(f.client, GUILD, { kind:'giveaway', state:'paused' });
+  assert.deepEqual(results.map(r => r.status), ['not-running']);
+  await setAutomationsState(f.client, GUILD, { kind:'all', state:'running' });
+  assert.deepEqual(new Set(Object.values(await states())), new Set(['running']));
+
+  await setAutomationsState(f.client, GUILD, { kind:'all', state:'stopped' });
+  assert.deepEqual(new Set(Object.values(await states())), new Set(['stopped']));
+  assert.deepEqual(await setAutomationsState(f.client, '1', { kind:'all', state:'running' }), [], 'only in Cloudy Inc.');
 });
