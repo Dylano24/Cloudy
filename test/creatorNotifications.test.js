@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import creatorNotify from '../src/commands/Tools/creatorNotify.js';
+import { handleCreatorControls } from '../src/services/creatorDashboardService.js';
 import { CLOUDY_RED_COLOR } from '../src/utils/embedColorPolicy.js';
 import { withCreatorErrorColor, ensureCreatorErrorColor } from '../src/utils/cloudyFooter.js';
 import {
@@ -131,29 +132,6 @@ test('Twitch API source collects live streams and VOD links using app credential
   assert.equal(fetched.length, 4);
 });
 
-test('creator-notify exposes only add, remove and list, and invalid YouTube ID uses Cloudy red', async () => {
-  const commandNames = creatorNotify.data.toJSON().options.map(option => option.name);
-  assert.deepEqual(commandNames, ['add', 'remove', 'list']);
-  assert.equal(creatorNotify.globalRegistration, true, 'do not exceed Discord 100 guild commands');
-
-  const interaction = {
-    guildId: GUILD,
-    memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
-    options: {
-      getSubcommand: () => 'add',
-      getString: name => name === 'platform' ? 'youtube' : 'not-a-channel-id',
-      getChannel: () => null,
-    },
-    deferReply: async () => { interaction.deferred = true; },
-    editReply: async payload => { interaction.answer = payload; },
-  };
-  await creatorNotify.execute(interaction, {}, fakeBot().bot);
-  const embed = interaction.answer.embeds[0].toJSON();
-  assert.equal(embed.title, 'Creator notification error');
-  assert.equal(embed.description, 'YouTube requires a channel ID');
-  assert.equal(embed.color, CLOUDY_RED_COLOR);
-});
-
 test('final Discord REST format keeps creator errors Cloudy red, never yellow', async () => {
   const original = { embeds: [{ title: 'Creator notification error',
     description: 'Use a valid link from the selected platform.',
@@ -169,65 +147,123 @@ test('final Discord REST format keeps creator errors Cloudy red, never yellow', 
     'scope cannot change unrelated messages');
 });
 
-test('all creator-notify success and error notices auto-delete after exactly ten seconds', async t => {
+const SESSION_PREFIX = 'creatornotify:';
+function fakeUi(bot) {
+  const log = { updates: [], modals: [], followUps: [], deleted: [], root: null };
+  const make = (customId, kind, extra = {}) => ({
+    customId, guildId: GUILD, user: { id: 'owner' }, client: bot,
+    memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
+    isButton: () => kind === 'button',
+    isStringSelectMenu: () => kind === 'string',
+    isChannelSelectMenu: () => kind === 'channel',
+    isAnySelectMenu: () => kind === 'string' || kind === 'channel',
+    isModalSubmit: () => kind === 'modal',
+    isFromMessage: () => true,
+    deferUpdate: async () => {},
+    update: async payload => { log.updates.push(payload); },
+    editReply: async payload => { log.updates.push(payload); },
+    showModal: async modal => { log.modals.push(modal); },
+    followUp: async payload => { log.followUps.push(payload); return { id: 'notice' }; },
+    webhook: { deleteMessage: async id => { log.deleted.push(id); } },
+    ...extra,
+  });
+  return { log, make };
+}
+async function openDashboard(bot, ui) {
+  const root = ui.make('', 'command', {
+    guild: bot.guilds.cache.get(GUILD),
+    reply: async payload => { ui.log.root = payload; },
+    deleteReply: async () => {},
+  });
+  await creatorNotify.execute(root, {}, bot);
+  const sid = ui.log.root.components[0].toJSON().components[0].custom_id.split(':')[2];
+  const click = (type, value) => handleCreatorControls(
+    ui.make(SESSION_PREFIX + type + ':' + sid + (value ? ':' + value : ''), 'button'), bot);
+  const submit = link => handleCreatorControls(ui.make(SESSION_PREFIX + 'submit:' + sid, 'modal', {
+    fields: { getTextInputValue: () => link },
+  }), bot);
+  return { sid, click, submit };
+}
+
+test('creator-notify is one global command without options that opens a dashboard', () => {
+  const data = creatorNotify.data.toJSON();
+  assert.equal(data.name, 'creator-notify');
+  assert.equal(data.options?.length || 0, 0);
+  assert.equal(creatorNotify.globalRegistration, true, 'do not exceed Discord 100 guild commands');
+});
+
+test('the dashboard adds, pauses and deletes a creator like /auto feed', async () => {
+  const { bot } = fakeBot();
+  const ui = fakeUi(bot);
+  const flow = await openDashboard(bot, ui);
+  const [add, manage] = ui.log.root.components[0].toJSON().components;
+  assert.deepEqual([add.label, manage.label, manage.disabled], ['Add creator', 'Manage creator', true]);
+  assert.equal(ui.log.root.embeds[0].toJSON().title, 'Creator notifications');
+
+  await flow.click('button', 'add');
+  assert.equal(ui.log.updates.at(-1).components.length, 3, 'platform, channel and buttons');
+  await flow.click('button', 'default');
+  assert.equal(ui.log.modals[0].toJSON().title, 'Add creator');
+  await flow.submit('https://youtube.com/channel/' + CHANNEL_ID);
+  const detail = ui.log.updates.at(-1).embeds[0].toJSON();
+  assert.match(detail.fields[0].name, /^YouTube/);
+  const [saved] = await listCreatorNotifications(bot, GUILD);
+  assert.deepEqual([saved.id, saved.channelId, saved.enabled], ['youtube:' + CHANNEL_ID, null, true]);
+
+  await flow.click('button', 'pause');
+  assert.equal((await listCreatorNotifications(bot, GUILD))[0].enabled, false);
+  assert.equal(ui.log.updates.at(-1).components[0].toJSON().components[1].label, 'Resume creator');
+  await flow.click('button', 'pause');
+  const resumed = (await listCreatorNotifications(bot, GUILD))[0];
+  assert.deepEqual([resumed.enabled, resumed.initialized], [true, false]);
+
+  await flow.click('button', 'delete');
+  assert.deepEqual(await listCreatorNotifications(bot, GUILD), []);
+  assert.equal(ui.log.updates.at(-1).components[0].toJSON().components[1].disabled, true);
+});
+
+test('a chosen channel is saved and can be changed from the manage screen', async () => {
+  const { bot } = fakeBot();
+  const ui = fakeUi(bot);
+  const flow = await openDashboard(bot, ui);
+  await flow.click('button', 'add');
+  await handleCreatorControls(ui.make(SESSION_PREFIX + 'channel:' + flow.sid, 'channel', { values: [CHANNEL] }), bot);
+  assert.equal(ui.log.modals.length, 1);
+  await flow.submit('twitch.tv/SomeStreamer');
+  assert.equal((await listCreatorNotifications(bot, GUILD))[0].channelId, CHANNEL);
+  await flow.click('button', 'channel');
+  await flow.click('button', 'default');
+  assert.equal((await listCreatorNotifications(bot, GUILD))[0].channelId, null);
+});
+
+test('dashboard errors are red and remove themselves after exactly ten seconds', async t => {
+  const { bot } = fakeBot();
+  const ui = fakeUi(bot);
+  const flow = await openDashboard(bot, ui);
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const run = async (platform, creator) => {
-    const client = fakeBot().bot;
-    let deleted = 0;
-    const interaction = {
-      guildId: GUILD,
-      memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
-      options: {
-        getSubcommand: () => 'add',
-        getString: name => name === 'platform' ? platform : creator,
-        getChannel: () => null,
-      },
-      deferReply: async () => { interaction.deferred = true; },
-      editReply: async payload => { interaction.answer = payload; },
-      deleteReply: async () => { deleted++; },
-    };
-    await creatorNotify.execute(interaction, {}, client);
-    return { interaction, deletions: () => deleted };
-  };
-  const success = await run('twitch', 'validcreator');
-  const error = await run('youtube', 'not-a-channel-id');
-  assert.equal(success.interaction.answer.embeds[0].toJSON().title, 'Creator added');
-  assert.equal(error.interaction.answer.embeds[0].toJSON().color, CLOUDY_RED_COLOR);
+  await flow.click('button', 'add');
+  await flow.click('button', 'default');
+  await flow.submit('not a link');
+  const embed = ui.log.followUps[0].embeds[0].toJSON();
+  assert.equal(embed.title, 'Creator notification error');
+  assert.equal(embed.color, CLOUDY_RED_COLOR);
   t.mock.timers.tick(9_999);
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(success.deletions(), 0);
-  assert.equal(error.deletions(), 0);
+  assert.deepEqual(ui.log.deleted, []);
   t.mock.timers.tick(1);
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(success.deletions(), 1);
-  assert.equal(error.deletions(), 1);
+  assert.deepEqual(ui.log.deleted, ['notice']);
   t.mock.timers.reset();
 });
 
-test('slash add accepts only a pasted YouTube link, without a selected platform', async () => {
-  const add = creatorNotify.data.toJSON().options.find(option => option.name === 'add');
-  const creator = add.options.find(option => option.name === 'creator');
-  const platform = add.options.find(option => option.name === 'platform');
-  assert.equal(creator.required, true);
-  assert.equal(platform.required, false);
-  const client = fakeBot().bot;
-  const interaction = {
-    guildId: GUILD,
-    memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
-    options: {
-      getSubcommand: () => 'add',
-      getString: name => name === 'creator' ? 'https://youtube.com/channel/' + CHANNEL_ID : null,
-      getChannel: () => null,
-    },
-    deferReply: async () => { interaction.deferred = true; },
-    editReply: async payload => { interaction.answer = payload; },
-  };
-  await creatorNotify.execute(interaction, {}, client);
-  assert.equal(interaction.answer.embeds[0].toJSON().title, 'Creator added');
-  assert.match(interaction.answer.embeds[0].toJSON().description, /youtube: UC/);
-  const [saved] = await listCreatorNotifications(client, GUILD);
-  assert.equal(saved.platform, 'youtube');
-  assert.equal(saved.account, CHANNEL_ID);
+test('only the opener with Manage Server can use the dashboard', async () => {
+  const { bot } = fakeBot();
+  const ui = fakeUi(bot);
+  const flow = await openDashboard(bot, ui);
+  const before = ui.log.updates.length;
+  await handleCreatorControls(ui.make(SESSION_PREFIX + 'button:' + flow.sid + ':add', 'button', { user: { id: 'other' } }), bot);
+  await handleCreatorControls(ui.make(SESSION_PREFIX + 'button:' + flow.sid + ':add', 'button', { memberPermissions: { has: () => false } }), bot);
+  assert.equal(ui.log.updates.length, before);
 });
 
 const html = id => '<html><script>{"channelMetadataRenderer":{"externalId":"' + id + '"}}</script></html>';
