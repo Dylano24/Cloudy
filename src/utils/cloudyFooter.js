@@ -16,6 +16,7 @@ const manualBuilderPostScope = new AsyncLocalStorage();
 const submittedReportNumberScope = new AsyncLocalStorage();
 const reportNoticeNumberScope = new AsyncLocalStorage();
 const reportStaffLogScope = new AsyncLocalStorage();
+const creatorErrorScope = new AsyncLocalStorage();
 const APPEAL_TITLE_PATTERN = /^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i;
 
 // Scoped exceptions to the global automatic C-logo insertion. Footer branding
@@ -102,6 +103,24 @@ export function ensureOutgoingReportStaffLogBranding(payload) {
       footer: { text: CLOUDY_STANDARD_FOOTER },
       thumbnail: { url: CLOUDY_C_LOGO_URL },
     };
+  });
+  return changed ? { ...payload, embeds } : payload;
+}
+
+// Creator errors have a strict red sidebar. Keep this decision through
+// template/branding transformations right up to the Discord REST request.
+export function withCreatorErrorColor(callback) {
+  return creatorErrorScope.run(true, callback);
+}
+
+export function ensureCreatorErrorColor(payload) {
+  if (!creatorErrorScope.getStore() || !Array.isArray(payload?.embeds)) return payload;
+  let changed = false;
+  const embeds = payload.embeds.map(source => {
+    const embed = source?.toJSON?.() || source;
+    if (embed?.title !== 'Creator notification error' && embed?.title !== 'Access denied') return source;
+    changed = true;
+    return { ...embed, color: 0x7A1712 };
   });
   return changed ? { ...payload, embeds } : payload;
 }
@@ -260,14 +279,14 @@ export function installCloudyFooterOutput() {
     // Last mutation before the Discord API request: resolve the relevant
     // scoped report footer policy only after general Cloudy branding.
     if (isMessage && ['POST', 'PATCH'].includes(options.method)) {
-      options = { ...options, body: ensureOutgoingReportStaffLogBranding(
+      options = { ...options, body: ensureCreatorErrorColor(ensureOutgoingReportStaffLogBranding(
         ensureOutgoingReportCaseNoticeFooter(
-          ensureOutgoingReportConfirmationFooter(options.body))) };
+          ensureOutgoingReportConfirmationFooter(options.body)))) };
     } else if (isCallback && [4, 7].includes(options.body?.type)) {
       options = { ...options, body: { ...options.body,
-        data: ensureOutgoingReportStaffLogBranding(
+        data: ensureCreatorErrorColor(ensureOutgoingReportStaffLogBranding(
           ensureOutgoingReportCaseNoticeFooter(
-            ensureOutgoingReportConfirmationFooter(options.body.data))) } };
+            ensureOutgoingReportConfirmationFooter(options.body.data)))) } };
     }
     return original.call(this, options);
   };
