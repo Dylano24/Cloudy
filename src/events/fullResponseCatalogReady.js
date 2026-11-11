@@ -1,4 +1,5 @@
 import { isGameFeedEmbed } from '../services/gameFeedTitles.js';
+import { isMusicPlayerEmbed } from '../services/music/musicPanelIdentity.js';
 import { isPatchBannerRepairInProgress } from '../services/patchNotesBannerService.js';
 import { hasReportActions, isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
 // BUILDER_SAVED_PARITY_V1
@@ -182,8 +183,8 @@ function isBuilderAuthoredMessage(message) {
 }
 
 function applyPayloadTemplates(payload, source) {
-  // Game server feeds and boards keep their own titles and colours.
-  if (Array.isArray(payload?.embeds) && payload.embeds.some(isGameFeedEmbed)) return payload;
+  // Game server feeds, boards and the music player keep their own titles and colours.
+  if (Array.isArray(payload?.embeds) && payload.embeds.some(e => isGameFeedEmbed(e) || isMusicPlayerEmbed(e))) return payload;
   if (isStaffRobberyProtectionPayload(payload)) return payload;
   // This specific Commands guide is already finalized before sending.
   // Never apply a stale runtime catalog title over it.
@@ -360,7 +361,7 @@ function patchMessageEdits() {
 }
 
 function capturePayload(payload, source) {
-  if (Array.isArray(payload?.embeds) && payload.embeds.some(isGameFeedEmbed)) return;
+  if (Array.isArray(payload?.embeds) && payload.embeds.some(e => isGameFeedEmbed(e) || isMusicPlayerEmbed(e))) return;
   if (isStaffRobberyProtectionPayload(payload)) return false;
   if (isPrivateReportCasePayload(payload)) return false;
   if (payload == null) return false;
@@ -557,7 +558,7 @@ export async function applySavedResponsePayloadTemplates(payload, source) {
     const data = embed?.toJSON ? embed.toJSON() : embed;
     if (!data || typeof data !== 'object') return embed;
     if (/^cloudy template key:/i.test(String(data.author?.name || ''))) return embed;
-    if (isGameFeedEmbed(data)) return embed;
+    if (isGameFeedEmbed(data) || isMusicPlayerEmbed(data)) return embed;
     const overlay = getCachedSavedEmbedTemplateData(guildId, channelId, data, {
       responseIdentity: balanceResponseIdentity(data, source),
     });

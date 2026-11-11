@@ -280,3 +280,29 @@ test('30 seconds after the queue ends the bot leaves, although Riffy keeps the l
   assert.equal(f.player.destroyed, true);
   deleteGuildMusicData('records-idle');
 });
+
+test('the music player panel and its records are kept out of every saved response template', async () => {
+  const { isMusicPlayerEmbed } = await import('../src/services/music/musicPanelIdentity.js');
+  const { buildNowPlayingEmbed, buildMusicRequestEmbed } = await import('../src/services/music/musicEmbeds.js');
+  const { applySavedResponsePayloadTemplates } = await import('../src/events/fullResponseCatalogReady.js');
+  const { db } = await import('../src/utils/database.js');
+  const track = { info: { title: 'Shotta\'s.', author: 'Season 25', length: 142_000, artworkUrl: 'https://i.ytimg.com/vi/x/hq.jpg', requester: { username: 'megadawg' } } };
+  const panel = buildNowPlayingEmbed(track, { position: 0, queue: [] }, { loop: 'none' }).toJSON();
+  const record = buildMusicRequestEmbed(track, { playNow: true }).setTitle('Skipped').toJSON();
+  assert.equal(isMusicPlayerEmbed(panel), true);
+  assert.equal(isMusicPlayerEmbed(record), true);
+  assert.equal(isMusicPlayerEmbed({ title: 'Stopped', description: 'Playback stopped.', footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } }), false, 'a plain status reply keeps the normal rules');
+  assert.equal(isMusicPlayerEmbed({ title: 'Now playing', fields: [{ name: 'Requested by', value: 'x' }] }), false, 'only Cloudy\'s own panel');
+
+  // Like Cloudy Inc.: a saved "Now playing" template with a green side line and no picture.
+  const green = { title: 'Now playing', description: '{dynamic}', color: 0x00C49D, fields: [] };
+  const stored = new Map([['cloudy:embed-template:cloudy-inc:__global__', { 'now playing': green, 'other reply': { ...green, title: 'Other reply' } }]]);
+  db.initialized = true; db.useFallback = false; db.connectionType = 'test';
+  db.db = { get: async key => structuredClone(stored.get(key) ?? null), set: async () => true, delete: async () => true, list: async () => [] };
+  const other = { title: 'Other reply', description: 'x', color: 0xFFFFFF };
+  const out = await applySavedResponsePayloadTemplates({ embeds: [panel, other] }, { guildId: 'cloudy-inc', channelId: 'music' });
+  assert.equal(out.embeds[0], panel, 'the panel is sent exactly as built');
+  assert.equal(out.embeds[0].color, 0xFFFFFF, 'white side line, as in Dylano');
+  assert.equal(out.embeds[0].image.url, track.info.artworkUrl, 'the cover stays');
+  assert.equal(out.embeds[1].color, 0x00C49D, 'other replies still follow their saved template');
+});

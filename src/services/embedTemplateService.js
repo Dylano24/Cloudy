@@ -1,4 +1,5 @@
 import { isGameFeedEmbed } from './gameFeedTitles.js';
+import { isMusicPlayerEmbed } from './music/musicPanelIdentity.js';
 import { stripRustPatchLogo } from '../utils/rustPatchPresentation.js';
 import { hasRequiredPatchBanner } from './patchNotesBannerService.js';
 import { hasReportActions, isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
@@ -580,8 +581,8 @@ export async function applySavedEmbedTemplates(message, { initialCreation = fals
   const isProtectedZorpGuide = message.embeds.some(embed => /^\s*(?:☑️\s*)?ZORP Guide\s*$/i.test(String(embed?.title || '')));
   if (isProtectedZorpGuide) return true;
   if (PRESERVE_EXISTING_EMBEDS && !initialCreation) return true;
-  // Game server feeds and boards keep their own fixed colours.
-  if (message.embeds.some(isGameFeedEmbed)) return true;
+  // Game server feeds, boards and the music player keep their own fixed design.
+  if (message.embeds.some(embed => isGameFeedEmbed(embed) || isMusicPlayerEmbed(embed))) return true;
 
   try {
     // Both previous reads used identical scopes and priority. Load the saved
