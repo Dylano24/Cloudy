@@ -168,6 +168,7 @@ export function buildNowPlayingEmbed(track, player, guildData) {
             { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
             ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
             { name: 'Requested by', value: requesterLabel, inline: true },
+            { name: 'Duration', value: formatDuration(track?.info?.length), inline: true },
             { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
             { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
             { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: true },

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelType, Collection } from 'discord.js';
+import { ChannelType, Collection, MessageFlags } from 'discord.js';
 import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
@@ -25,7 +25,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
   assert.deepEqual(embed.fields.map(field => [field.name, field.value]), [
-    ['Artist', 'Artist'], ['Requested by', 'Dawg'], ['Status', 'Paused'], ['Loop', 'Off'], ['Queue', '1 track'],
+    ['Artist', 'Artist'], ['Requested by', 'Dawg'], ['Duration', '3:00'], ['Status', 'Paused'], ['Loop', 'Off'], ['Queue', '1 track'],
   ]);
 });
 
@@ -104,9 +104,11 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.ok(now.options.some(o => o.name === 'playing'));
 });
 
-test('play slash reply is public and includes song cover instead of hiding it', async t => {
+test('/play shows only the persistent player and cleans up its private acknowledgement', async t => {
   let deferOptions = 'not-called';
   let publicReply = null;
+  let deletedReply = false;
+  const panels = [];
   t.mock.method(InteractionHelper, 'safeDefer', async (targetInteraction, options) => {
     deferOptions = options;
     targetInteraction.deferred = true;
@@ -121,9 +123,19 @@ test('play slash reply is public and includes song cover instead of hiding it', 
   queue.add = entry => queue.push(entry);
   const player = {
     current: null, playing: false, paused: false, queue, voiceChannel: 'voice-channel',
-    setVolume() {}, play() { this.playing = true; },
+    setVolume() {}, play() { this.playing = true; this.current = queue.shift(); },
+  };
+  const musicChannel = {
+    id: 'music-channel', name: '🎧│music', type: ChannelType.GuildText,
+    isTextBased: () => true,
+    messages: { cache: new Collection() },
+    send: async payload => { panels.push(payload); return { id: 'live-player-1' }; },
   };
   const client = {
+    channels: { cache: new Collection([[musicChannel.id, musicChannel]]) },
+    guilds: { cache: new Collection([['test-music-server', {
+      id: 'test-music-server', channels: { cache: new Collection([[musicChannel.id, musicChannel]]) },
+    }]]) },
     riffy: {
       players: new Map([['test-music-server', player]]),
       resolve: async () => ({ loadType: 'track', tracks: [currentTrack] }),
@@ -135,13 +147,20 @@ test('play slash reply is public and includes song cover instead of hiding it', 
     member: { voice: { channel: { id: 'voice-channel' } } },
     user: { id: 'test-user', username: 'Test user' },
     options: { getString: () => 'Song' },
+    deleteReply: async () => { deletedReply = true; },
   };
   await playCommand.execute(interaction, {}, client);
-  assert.equal(deferOptions, undefined, 'slash response is visible to everyone');
-  assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
-  assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
-  assert.deepEqual(publicReply.allowedMentions, { parse: [] });
-  assert.equal(queue.length, 1);
+  assert.equal(deferOptions.flags, MessageFlags.Ephemeral, 'the slash acknowledgement is not public');
+  assert.equal(publicReply, null, 'no duplicate /play announcement is posted');
+  assert.equal(deletedReply, true, 'the temporary acknowledgement is deleted');
+  assert.equal(panels.length, 1, 'exactly one public player panel is posted');
+  assert.equal(panels[0].embeds[0].toJSON().image.url, track.info.artworkUrl);
+  assert.equal(panels[0].embeds[0].toJSON().title, 'Now playing');
+  assert.equal(panels[0].embeds[0].toJSON().fields.find(f => f.name === 'Duration').value, '3:00');
+  assert.equal(panels[0].components.length, 2);
+  assert.deepEqual(panels[0].allowedMentions, { parse: [] });
+  assert.equal(queue.length, 0);
+  deleteGuildMusicData('test-music-server');
 });
 
 test('now playing and queue commands publicly show the live track', async t => {

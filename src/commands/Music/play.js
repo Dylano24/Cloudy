@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { playQuery, replyMusicSuccess } from '../../services/music/musicActions.js';
-import { deferMusicPublic } from '../../services/music/prefixSupport.js';
-import { rememberRequestMessage } from '../../services/music/musicRequestMessages.js';
+import { playQuery } from '../../services/music/musicActions.js';
+import { deferMusicCommand } from '../../services/music/prefixSupport.js';
+import { refreshPlayerMessage } from '../../services/music/playerHandler.js';
 
 export default {
     slashOnly: true,
@@ -14,11 +14,13 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await deferMusicPublic(interaction);
-        const result = await playQuery(client, interaction, interaction.options.getString('query'));
-        await replyMusicSuccess(interaction, result.embed);
-        if (result.track) {
-            await rememberRequestMessage(client, result.track, await interaction.fetchReply?.().catch(() => null));
+        // Keep /play's acknowledgement private and temporary. The public
+        // Now playing panel below is the only music message with controls.
+        await deferMusicCommand(interaction);
+        await playQuery(client, interaction, interaction.options.getString('query'));
+        await refreshPlayerMessage(client, interaction.guild.id);
+        if (!interaction._isPrefixCommand) {
+            await interaction.deleteReply?.().catch(() => {});
         }
     },
 };
