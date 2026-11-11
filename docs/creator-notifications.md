@@ -4,10 +4,11 @@ Cloudy checks configured accounts every five minutes and posts a direct content 
 
 ## Discord commands (Manage Server permission)
 
-- `/creator-notify add platform:YouTube creator:UC123...` — YouTube requires its 24-character channel ID beginning `UC` (not its @handle).
-- `/creator-notify add platform:Twitch creator:streamername` — Twitch live broadcasts and new videos/VODs.
-- `/creator-notify add platform:TikTok creator:username` — new videos via a trusted RSS bridge.
-- `/creator-notify add platform:YouTube creator:UC123... channel:#announcements` — optional channel override.
+- `/creator-notify add platform:YouTube creator:https://www.youtube.com/@GoogleDevelopers` — paste a YouTube profile link; Cloudy resolves and stores its stable UC channel ID.
+- `/creator-notify add platform:Twitch creator:https://www.twitch.tv/streamername` — paste a Twitch profile link; Cloudy extracts the login name.
+- `/creator-notify add platform:TikTok creator:https://www.tiktok.com/@username` — paste a TikTok profile link; Cloudy extracts the username.
+- `/creator-notify add platform:YouTube creator:https://youtube.com/@GoogleDevelopers channel:#announcements` — optional channel override.
+- Direct YouTube `UC...` IDs and Twitch/TikTok usernames are still accepted.
 - `/creator-notify list` — saved creators and provider readiness.
 - `/creator-notify remove platform:YouTube creator:UC123...` — stop notifications.
 
@@ -16,6 +17,8 @@ When no channel is supplied, Cloudy resolves the server's existing `#youtube`, `
 ## Platform requirements
 
 **YouTube**: public Atom feed; no API key.
+Cloudy accepts YouTube `/@handle`, `/channel/UC...`, `/c/name` and `/user/name` channel links (also without `https://`). When given a handle or legacy link, Cloudy resolves the UC channel ID from YouTube's channel metadata, or uses the official YouTube Data API if `YOUTUBE_API_KEY` is configured. You can remove a subscription using the same original link. A URL that cannot be resolved produces a clear error; Cloudy never guesses an ID. Only official YouTube hosts are fetched.
+
 
 **Twitch**: set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in the Railway service environment. Twitch uses its OAuth app token plus the official Helix streams and videos endpoints. API credentials are not stored in Discord or the database.
 
