@@ -62,17 +62,26 @@ test('a move whose delete failed (someone else removed it first) is still logged
   assert.equal(await wasDeletedForMove('moved-3'), false);
   await logDeletedMessage(message, { deletedBy: { id: 'mod', label: '<@mod>', source: 'audit', bot: false } });
   assert.equal(w.sent.length, 1);
-  assert.equal(w.sent[0].id, EMBED_LOG_CHANNEL_ID);
+  // A direct Discord deletion of a Cloudy embed goes to the Staff log; the
+  // Embed log is reserved for the Embed Builder's own Delete (7a0d0d4).
+  assert.equal(w.sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
 });
 
-test('every other deletion of a Cloudy embed is still logged, in the Embed log', async () => {
+test('every other deletion of a Cloudy embed is still logged: in the Staff log, or in the Embed log for the Builder\'s Delete', async () => {
   const w = world();
   const message = w.botMessage('removed-1');
   await message.delete();
   await logDeletedMessage(message, { deletedBy: { id: 'bot', label: '<@bot>', source: 'cloudy', bot: true } });
   assert.equal(w.sent.length, 1);
-  assert.equal(w.sent[0].id, EMBED_LOG_CHANNEL_ID);
+  assert.equal(w.sent[0].id, OWNER_MOD_MESSAGE_LOG_ID);
   assert.match(JSON.stringify(w.sent[0].embed), /Server rules/);
+
+  // Only the Embed Builder's explicit Delete uses the Embed log.
+  const builder = world();
+  const removed = builder.botMessage('removed-2');
+  await logDeletedMessage(removed, { deletedBy: { id: 'mod', label: '<@mod>', source: 'embed-builder', bot: false } });
+  assert.equal(builder.sent.length, 1);
+  assert.equal(builder.sent[0].id, EMBED_LOG_CHANNEL_ID);
 });
 
 test('Reappear deletes the old copy through the move deletion', async () => {

@@ -98,11 +98,15 @@ test('a deleted video is hosted on Cloudy\'s own page and linked in the log; not
   rememberMessageDeleter(deleted, { id: 'mod' });
   await logDeletedMessage(deleted);
 
-  // One Discord message: the log. The video is not uploaded to Discord.
+  // One Discord message: the log. Nothing is uploaded with it and nothing
+  // stands outside the embed (owner's choice since 5ddf6d3: deletion logs use
+  // embed images and links only); the first photo is the embed's own picture.
   assert.equal(sent.length, 1);
   const log = sent[0];
-  assert.deepEqual(log.files.map(file => file.name), ['photo.png']);
-  assert.equal(log.embed.image.url, 'attachment://photo.png');
+  assert.deepEqual(log.files, []);
+  assert.equal(log.payload.content, undefined);
+  assert.equal(log.payload.embeds.length, 1);
+  assert.equal(log.embed.image.url, 'https://cdn.discordapp.com/attachments/1/2/photo.png');
   assert.equal(log.embed.fields.length, 1);
   assert.equal(log.embed.fields[0].name, 'Video');
   const link = log.embed.fields[0].value.match(/^\[clip\.mov\]\((https:\/\/cloudy\.test\/deleted-media\/([A-Za-z0-9_-]{32}))\)$/);
@@ -112,7 +116,7 @@ test('a deleted video is hosted on Cloudy\'s own page and linked in the log; not
   assert.match(log.embed.description, /\*\*Attachments:\*\* 2 \(photo\.png, clip\.mov\)/);
 });
 
-test('without video storage the video stays attached to the log itself (never lost)', async t => {
+test('without video storage the video stays linked inside the log itself (never lost)', async t => {
   delete process.env.CLOUDY_EMBED_MEDIA_DIR;
   t.mock.method(globalThis, 'fetch', async () => new Response(Buffer.from('video bytes'), { headers: { 'content-type': 'video/mp4' } }));
   const { sent, message } = setup();
@@ -121,8 +125,11 @@ test('without video storage the video stays attached to the log itself (never lo
   ]) });
   rememberMessageDeleter(deleted, { id: 'mod' });
   await logDeletedMessage(deleted);
+  // Without the media volume the original video link stays in the embed's
+  // Message block; still no file is uploaded with the log.
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0].files.map(file => file.name), ['clip.mp4']);
+  assert.deepEqual(sent[0].files, []);
+  assert.match(sent[0].embed.description, /\*\*Attachments:\*\* 1 \(clip\.mp4\)\n\n\[clip\.mp4\]\(<https:\/\/cdn\.discordapp\.com\/attachments\/1\/2\/clip\.mp4>\)$/);
   assert.equal(sent[0].embed.fields, undefined);
 });
 

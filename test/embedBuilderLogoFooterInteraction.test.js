@@ -59,7 +59,12 @@ test('Builder logo clicks and footer submit acknowledge before changing preview 
   assert.match(content, /await submitted\.deferUpdate\(\);\s*state\.title =/);
 
   const media = source.slice(source.indexOf('async function editMedia('), source.indexOf('async function getSharedOwnerGuilds('));
-  assert.match(media, /await submitted\.deferUpdate\(\);\s*if \(mediaKind === 'video'\)/);
+  // The acknowledgement is started first; the permanent copy of an uploaded
+  // picture overlaps it (Add media starts that copy at once), and no Builder
+  // state changes before the acknowledgement has been awaited.
+  assert.match(media, /const acknowledgement = submitted\.deferUpdate\(\);\s*if \(mediaKind === 'image'\) prefetchDiscordEmbedMedia\(uploadedMedia\.url\);\s*await acknowledgement;\s*if \(mediaKind === 'video'\)/);
+  assert.doesNotMatch(media.slice(0, media.indexOf('await acknowledgement;')), /state\.\w+\s*=[^=]/,
+    'nothing in the Builder changes before Discord has the acknowledgement');
 
   const clearMedia = source.slice(source.indexOf("case 'simple_embed_clear_media':"), source.indexOf("case 'simple_embed_buttons':"));
   assert.match(clearMedia, /await buttonInteraction\.deferUpdate\(\);\s*state\.mediaUrl = null/);
