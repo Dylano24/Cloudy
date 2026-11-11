@@ -111,9 +111,9 @@ export function buildMusicGuideEmbed() {
 // song) get a slash command line.
 const MUSIC_COMMANDS_DESCRIPTION = [
     '**Play**',
-    '`/play` — Play a song or a link.',
+    '`/play` — Play a song or link.',
     '',
-    '**Buttons**',
+    '**Player buttons**',
     '⏸️ Pause or continue',
     '⏭️ Next song',
     '🔀 Shuffle the queue',
