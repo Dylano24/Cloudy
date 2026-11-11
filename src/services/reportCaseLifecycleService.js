@@ -161,15 +161,18 @@ async function ensurePrivateCases(client, guild, report, record, config, activeA
   return save(client, syncAliases(record));
 }
 
+const REPORT_LOG_TITLES = {
+  reporter: { created: 'Report update', close: 'Report update closed', delete: 'Report update deleted' },
+  target: { created: 'Moderation update', close: 'Moderation update closed', delete: 'Report moderation deleted' },
+};
+
 function logEmbed(record, audience, event, actorId) {
-  const prefix = audience === 'reporter' ? 'Report' : 'Moderation';
-  const state = event === 'close' ? 'closed' : event === 'delete' ? 'automatically deleted' : 'update';
-  const title = prefix + ' n•' + record.number + ' ' + state;
+  const title = REPORT_LOG_TITLES[audience][event === 'close' ? 'close' : event === 'delete' ? 'delete' : 'created'];
   const fields = [{ name: 'Report', value: `#${record.number}`, inline: true },
     { name: 'Member', value: `<@${participantId(record, audience)}>`, inline: true },
     { name: event === 'close' ? 'Closed by' : event === 'delete' ? 'Reason' : 'Handled by', value: event === 'delete' ? 'Automatic · 24-hour expiry' : `<@${actorId}>`, inline: true },
     { name: 'Audience', value: audience === 'reporter' ? 'Reporter' : 'Reported member', inline: true }];
-  const embed = caseEmbed({ title, fields });
+  const embed = caseEmbed({ title, fields, footer: { text: CLOUDY_STANDARD_FOOTER } });
   if (event === 'close' || event === 'delete') setPreservedEmbedColor(embed, TICKET_EVENT_STYLES[event].color);
   return embed;
 }
@@ -193,31 +196,39 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
   return record;
 }
 
-// Targeted one-time backfill of the two previously posted #89 logs (and any
-// existing close/expiry entries) using their stored Discord message IDs.
-// Only edits bot-owned logs whose original titles and report number match.
-async function upgradeExistingReport89Titles(client, guild, record, audience) {
+// Upgrade existing bot-owned report logs in place, once per case/audience.
+// Do not duplicate messages, alter report metadata, or touch other log systems.
+async function upgradeExistingReportLogPresentation(client, guild, record, audience) {
   const entry = record.cases?.[audience];
-  if (!entry || entry.logTitlesUpgraded) return;
+  if (!entry || entry.reportLogPresentationV2) return;
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.messages?.fetch) return;
-  for (const [field, event, oldTitle] of [
-    ['createdLogId', 'created', 'Report created'],
-    ['closeLogId', 'close', 'Report closed'],
-    ['deleteLogId', 'delete', 'Report automatically deleted'],
+
+  for (const [idField, event] of [
+    ['createdLogId', 'created'],
+    ['closeLogId', 'close'],
+    ['deleteLogId', 'delete'],
   ]) {
-    if (!entry[field]) continue;
-    const message = await fetchMessage(logs, entry[field]);
-    if (!message || message.author?.id !== client.user.id || !message.embeds?.[0]) continue;
-    const original = message.embeds[0];
-    const expectedTitle = (audience === 'reporter' ? 'Report' : 'Moderation')
-      + ' n•' + record.number + ' ' + (event === 'created' ? 'update' : event === 'close' ? 'closed' : 'automatically deleted');
-    if (original.title === expectedTitle) continue;
-    if (original.title !== oldTitle || !original.fields?.some(field => field.name === 'Report' && field.value === '#' + record.number)) continue;
-    await message.edit({ embeds: [EmbedBuilder.from(original).setTitle(expectedTitle)] });
-    logger.info('Upgraded report #89 staff log title', { guildId: guild.id, audience, event, messageId: message.id });
+    if (!entry[idField]) continue;
+    const message = await fetchMessage(logs, entry[idField]);
+    if (!message || message.author?.id !== client.user.id) continue;
+    const current = message.embeds?.[0];
+    if (!current?.fields?.some(field => field.name === 'Report' && field.value === `#${record.number}`)) continue;
+    const desiredTitle = REPORT_LOG_TITLES[audience][event];
+    const desiredColor = event === 'delete' ? TICKET_EVENT_STYLES.delete.color
+      : event === 'close' ? TICKET_EVENT_STYLES.close.color : null;
+    const original = current.toJSON?.() || current;
+    const requiresEdit = original.title !== desiredTitle
+      || original.footer?.text !== CLOUDY_STANDARD_FOOTER
+      || (desiredColor != null && original.color !== desiredColor);
+    if (!requiresEdit) continue;
+    const updated = EmbedBuilder.from(current).setTitle(desiredTitle);
+    updated.data.footer = { text: CLOUDY_STANDARD_FOOTER };
+    delete updated.data.timestamp;
+    if (desiredColor != null) setPreservedEmbedColor(updated, desiredColor);
+    await message.edit({ embeds: [updated] });
   }
-  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'logTitlesUpgraded', true);
+  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'reportLogPresentationV2', true);
 }
 async function refreshLogControls(client, guild, record, audience) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
@@ -554,7 +565,7 @@ async function markLogControlsCleaned(client, key, audience) {
 // Never repost or alter unrelated reports, audiences, fields or action details.
 async function backfillUnlinkedReport89Logs(client) {
   if (!client.channels?.fetch || !client.db?.get) return;
-  const key = 'global:report-log-89-title-backfill';
+  const key = 'global:report-log-89-title-backfill-v2';
   if (await client.db.get(key)) return;
   const logs = await client.channels.fetch(REPORT_LOG_CHANNEL_ID).catch(() => null);
   if (!logs?.messages?.fetch) return;
@@ -570,11 +581,12 @@ async function backfillUnlinkedReport89Logs(client) {
       const name = embed.fields.find(field => field.name === 'Audience')?.value;
       const audience = name === 'Reporter' ? 'reporter' : name === 'Reported member' ? 'target' : null;
       if (!audience) continue;
-      const expected = audience === 'reporter' ? 'Report n•89 update' : 'Moderation n•89 update';
-      if (embed.title === 'Report created') {
-        await message.edit({ embeds: [EmbedBuilder.from(embed).setTitle(expected)] });
-      } else if (embed.title !== expected) {
-        continue;
+      const expected = REPORT_LOG_TITLES[audience].created;
+      if (embed.title !== expected || embed.footer?.text !== CLOUDY_STANDARD_FOOTER) {
+        const revised = EmbedBuilder.from(embed).setTitle(expected);
+        revised.data.footer = { text: CLOUDY_STANDARD_FOOTER };
+        delete revised.data.timestamp;
+        await message.edit({ embeds: [revised] });
       }
       found.add(audience);
     }
@@ -602,9 +614,9 @@ export async function restoreReportCaseTimers(client) {
         for (const audience of audiences) {
           const entry = record.cases[audience];
           if (!entry) continue;
-          if (Number(record.number) === 89 && !entry.logTitlesUpgraded) {
-            await upgradeExistingReport89Titles(client, guild, record, audience);
-            entry.logTitlesUpgraded = true;
+          if (!entry.reportLogPresentationV2) {
+            await upgradeExistingReportLogPresentation(client, guild, record, audience);
+            entry.reportLogPresentationV2 = true;
           }
           if (!entry.logControlsCleaned) {
             await refreshLogControls(client, guild, record, audience);

@@ -137,6 +137,12 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.doesNotMatch(JSON.stringify(json(reporterNotice.embeds[0])), /Private action reason|Reason|staff/);
   assert.equal(targetNotice.content, '<@target>');
   assert.equal(noticeSection(targetNotice, 'Reason'), 'Private action reason');
+  for (const [audience, entry] of Object.entries(record.cases)) {
+    const createdLog = json(f.logs.messages.cache.get(entry.createdLogId).embeds[0]);
+    assert.equal(createdLog.title, audience === 'reporter' ? 'Report update' : 'Moderation update');
+    assert.equal(createdLog.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.equal(createdLog.fields.find(field => field.name === 'Report')?.value, '#1');
+  }
   assert.equal(json(targetNotice.embeds[0]).title, 'Moderation update');
   assert.equal(json(reporterNotice.embeds[0]).title, 'Report update');
   assert.deepEqual(noticeSections(reporterNotice), ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']);
@@ -183,7 +189,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   for (const [audience, entry] of Object.entries(record.cases)) {
     assert.ok(entry.createdLogId);
     const created = f.logs.messages.cache.get(entry.createdLogId);
-    assert.equal(json(created.embeds[0]).title, audience === 'reporter' ? 'Report n•1 update' : 'Moderation n•1 update');
+    assert.equal(json(created.embeds[0]).title, audience === 'reporter' ? 'Report update' : 'Moderation update');
   }
   assert.equal(f.dms.length, 0);
 });
@@ -285,8 +291,10 @@ test('each participant can close their own report channel in one click, with one
     const latest = await f.client.db.get(reportKey(f.guild.id, record.messageId));
     const closed = latest.cases[audience];
     const log = json(f.logs.messages.cache.get(closed.closeLogId).embeds[0]);
-    assert.equal(log.title, audience === 'reporter' ? 'Report n•1 closed' : 'Moderation n•1 closed');
+    assert.equal(log.title, audience === 'reporter' ? 'Report update closed' : 'Moderation update closed');
     assert.equal(log.fields.find(field => field.name === 'Closed by').value, `<@${member.id}>`);
+    assert.equal(log.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.equal(log.color, TICKET_EVENT_STYLES.close.color);
     assert.equal(closed.deleteLogId, undefined);
     assert.equal(f.payloads.filter(message => message.channelId === channel.id).length, 1);
     if (audience === 'target') assert.ok(f.channels.has(record.cases.reporter.channelId));
@@ -332,7 +340,8 @@ test('both notices show a static 24-hour deletion message, survive restart and e
   for (const [audience, entry] of Object.entries(record.cases)) {
     const deleted = f.logs.messages.cache.get(entry.deleteLogId);
     assert.equal(json(deleted.embeds[0]).color, TICKET_EVENT_STYLES.delete.color);
-    assert.equal(json(deleted.embeds[0]).title, audience === 'reporter' ? 'Report n•1 automatically deleted' : 'Moderation n•1 automatically deleted');
+    assert.equal(json(deleted.embeds[0]).footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.equal(json(deleted.embeds[0]).title, audience === 'reporter' ? 'Report update deleted' : 'Report moderation deleted');
     assert.equal(entry.closeLogId, undefined);
     assert.match(JSON.stringify(json(deleted.embeds[0])), /Automatic.*24-hour expiry/);
   }
@@ -569,10 +578,10 @@ test('startup updates both existing #89 Report created staff logs in place', asy
   const latest = await f.client.db.get(key);
   for (const [audience, entry] of Object.entries(latest.cases)) {
     assert.equal(entry.createdLogId, priorIds[audience]);
-    assert.equal(entry.logTitlesUpgraded, true);
+    assert.equal(entry.reportLogPresentationV2, true);
     const message = f.logs.messages.cache.get(entry.createdLogId);
     assert.equal(json(message.embeds[0]).title, audience === 'reporter'
-      ? 'Report n•89 update' : 'Moderation n•89 update');
+      ? 'Report update' : 'Moderation update');
   }
   assert.equal(f.logs.messages.cache.size, messagesBefore, 'old staff logs are edited, not reposted');
   await restoreReportCaseTimers(f.client);
@@ -606,11 +615,11 @@ test('orphaned #89 Report created staff logs are corrected in place without a ca
   } };
 
   await restoreReportCaseTimers(f.client);
-  assert.equal(json(originals[0].embeds[0]).title, 'Report n•89 update');
-  assert.equal(json(originals[1].embeds[0]).title, 'Moderation n•89 update');
+  assert.equal(json(originals[0].embeds[0]).title, 'Report update');
+  assert.equal(json(originals[1].embeds[0]).title, 'Moderation update');
   assert.equal(unrelated.embeds[0].title, 'Report created');
   assert.equal(f.logs.messages.cache.size, messagesBefore);
-  assert.equal(await f.client.db.get('global:report-log-89-title-backfill'), true);
+  assert.equal(await f.client.db.get('global:report-log-89-title-backfill-v2'), true);
   await restoreReportCaseTimers(f.client);
   assert.equal(f.logs.messages.cache.size, messagesBefore);
 });
