@@ -198,53 +198,43 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 }
 
 export function buildPlayerButtonRows(player, guildData) {
-    const paused = player?.paused;
-    const row1 = new ActionRowBuilder().addComponents(
+    const paused = Boolean(player?.paused);
+    // Icons only, so the five controls stay in one row on a phone; Stop is the
+    // red button alone on the bottom row. No volume buttons (owner's choice):
+    // /music volume still sets it, and the old button ids stay registered so a
+    // player message from before still answers.
+    const controls = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.PAUSE)
-            .setLabel('Pause')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('⏸️')
-            .setDisabled(Boolean(paused)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.RESUME)
-            .setLabel('Resume')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('▶️')
-            .setDisabled(!paused),
+            .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
+            .setStyle(paused ? ButtonStyle.Success : ButtonStyle.Primary)
+            .setEmoji(paused ? '▶️' : '⏸️'),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SKIP)
-            .setLabel('Skip')
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('⏭️'),
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
+            .setStyle(guildData?.shuffle ? ButtonStyle.Success : ButtonStyle.Secondary)
+            .setEmoji('🔀'),
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.LOOP)
+            .setStyle(guildData?.loop && guildData.loop !== 'none' ? ButtonStyle.Success : ButtonStyle.Secondary)
+            .setEmoji(guildData?.loop === 'track' ? '🔂' : '🔁'),
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📋'),
+    );
+
+    const stop = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('⏹️'),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
-            .setLabel('Shuffle')
-            .setStyle(guildData?.shuffle ? ButtonStyle.Success : ButtonStyle.Secondary)
-            .setEmoji('🔀'),
     );
 
-    // No volume buttons (owner's choice); /music volume still sets it. The old
-    // button ids stay registered so a player message from before still answers.
-    const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.LOOP)
-            .setLabel('Loop')
-            .setStyle(guildData?.loop !== 'none' ? ButtonStyle.Success : ButtonStyle.Secondary)
-            .setEmoji('🔁'),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
-            .setLabel('Queue')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📋'),
-    );
-
-    return [row1, row2];
+    return [controls, stop];
 }
 
 export function buildQueuePaginationRow(page, totalPages) {

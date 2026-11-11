@@ -13,6 +13,7 @@ import {
 } from './musicEmbeds.js';
 import { refreshPlayerMessage } from './playerHandler.js';
 import { prepareMusicQuery } from './musicLinks.js';
+import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
 
 const MUSIC_SERVER_BUSY = 'The music server is not responding right now. Please try again in a moment.';
@@ -275,6 +276,8 @@ export async function playQuery(client, interaction, rawQuery) {
                 playNow: willPlayNow,
                 queuePosition,
             }),
+            // Only a song that starts at once says "Now playing" and needs updating later.
+            track: willPlayNow ? track : null,
         };
     }
 
@@ -576,6 +579,7 @@ export async function destroyPlayerSession(client, guildId, player, guildData, {
     guildData.playerChannelId = null;
 
     if (player) {
+        void finishRequestMessage(client, player.current);
         player.queue.clear();
         player.stop();
         if (forceDisconnect || !guildData.twentyFourSeven) {
