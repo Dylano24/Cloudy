@@ -233,6 +233,21 @@ test('report update footers match the visible channel number and repair existing
   }
 });
 
+test('existing compact moderation notice restores one blank line before Auto-close', async () => {
+  const f = fixture(); await f.register();
+  const record = await f.submit();
+  const entry = record.cases.target;
+  const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
+  const old = json(notice.embeds[0]);
+  assert.match(old.description, /Private action reason\n\n\*\*Auto-close\*\*/);
+  notice.embeds = [{ ...old, description: old.description.replace('Private action reason\n\n**Auto-close**', 'Private action reason\n**Auto-close**') }];
+  await restoreReportCaseTimers(f.client);
+  const restored = json(notice.embeds[0]);
+  assert.match(restored.description, /Private action reason\n\n\*\*Auto-close\*\*/);
+  assert.doesNotMatch(restored.description, /Private action reason\n\n\n\*\*Auto-close\*\*/);
+  assert.ok(!restored.fields?.length, 'the notice remains in the compact description format');
+});
+
 test('empty reason, invalid duration and unauthorized submissions cannot perform actions or create cases', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(); await f.register();
