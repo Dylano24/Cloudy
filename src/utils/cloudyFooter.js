@@ -14,6 +14,7 @@ const pendingBuilderPreviewReplyTokens = new Set();
 const manualBuilderSaveMessageIds = new Set();
 const manualBuilderPostScope = new AsyncLocalStorage();
 const submittedReportNumberScope = new AsyncLocalStorage();
+const reportNoticeNumberScope = new AsyncLocalStorage();
 const APPEAL_TITLE_PATTERN = /^(?:Discord|Rust server) appeal(?:\s*[—-]\s*|\s+)(?:Mute|Ban|Other)$/i;
 
 // Scoped exceptions to the global automatic C-logo insertion. Footer branding
@@ -45,6 +46,27 @@ export function ensureOutgoingReportConfirmationFooter(payload) {
   const embeds = payload.embeds.map(source => {
     const embed = source?.toJSON?.() || source;
     if (embed?.title !== 'Report submitted') return source;
+    changed = true;
+    return { ...embed, footer: { text: `Cloudy Inc. • Moderation team • R${number}` } };
+  });
+  return changed ? { ...payload, embeds } : payload;
+}
+
+// Private reporter/target notice footers must use the number visible in the
+// actual case channel, not an older historical record's number.
+export function withReportCaseNoticeNumber(reportNumber, callback) {
+  const number = Number(reportNumber);
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error('Invalid private report channel number.');
+  return reportNoticeNumberScope.run(number, callback);
+}
+
+export function ensureOutgoingReportCaseNoticeFooter(payload) {
+  const number = reportNoticeNumberScope.getStore();
+  if (!number || !Array.isArray(payload?.embeds)) return payload;
+  let changed = false;
+  const embeds = payload.embeds.map(source => {
+    const embed = source?.toJSON?.() || source;
+    if (!['Report update', 'Moderation update'].includes(embed?.title)) return source;
     changed = true;
     return { ...embed, footer: { text: `Cloudy Inc. • Moderation team • R${number}` } };
   });
@@ -205,10 +227,12 @@ export function installCloudyFooterOutput() {
     // Last mutation before the Discord API request: this must run *after* all
     // generic footer/logo formatting and both webhook or callback paths.
     if (isMessage && ['POST', 'PATCH'].includes(options.method)) {
-      options = { ...options, body: ensureOutgoingReportConfirmationFooter(options.body) };
+      options = { ...options, body: ensureOutgoingReportCaseNoticeFooter(
+        ensureOutgoingReportConfirmationFooter(options.body)) };
     } else if (isCallback && [4, 7].includes(options.body?.type)) {
       options = { ...options, body: { ...options.body,
-        data: ensureOutgoingReportConfirmationFooter(options.body.data) } };
+        data: ensureOutgoingReportCaseNoticeFooter(
+          ensureOutgoingReportConfirmationFooter(options.body.data)) } };
     }
     return original.call(this, options);
   };
