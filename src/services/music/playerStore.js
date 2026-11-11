@@ -4,15 +4,12 @@ export class GuildMusicData {
     constructor() {
         this.playerMessageId = null;
         this.playerChannelId = null;
-        this.lastPlayerPayload = null;
-        this.progressClock = null;
         this.autoplay = false;
         this.loop = 'none';
         this.volume = 75;
         this.shuffle = false;
         this.previousTracks = [];
-        // Keep the voice session connected between songs until someone presses Stop.
-        this.twentyFourSeven = true;
+        this.twentyFourSeven = false;
         this.queuePages = new Map();
         this.updateInterval = null;
         this.idleTimeout = null;

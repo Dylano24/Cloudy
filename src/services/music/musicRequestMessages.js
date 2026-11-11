@@ -40,31 +40,3 @@ export async function rememberRequestMessage(client, track, message) {
 export function lastFinishedTrack(player) {
     return Array.isArray(player?.previous) ? player.previous.at(-1) : player?.previous || null;
 }
-
-
-// A previously deployed /play also posted a public summary without controls.
-// Remove only these bot-authored legacy summaries once per text channel, never
-// the real player (which has seven buttons), guides or user messages.
-const cleanedMusicChannels = new Set();
-export async function removeOldMusicAnnouncements(client, channel) {
-    const key = String(channel?.id || '');
-    if (!key || cleanedMusicChannels.has(key) || !channel?.messages?.fetch || !client?.user?.id) return 0;
-    cleanedMusicChannels.add(key);
-    try {
-        const messages = await channel.messages.fetch({ limit: 30 });
-        let deleted = 0;
-        for (const message of messages?.values?.() || []) {
-            if (message.author?.id !== client.user.id || message.components?.length || !message.delete) continue;
-            const e = message.embeds?.[0];
-            if (!['Now playing', 'Added to queue'].includes(e?.title)) continue;
-            if (!e.fields?.some(field => field.name === 'Duration')
-                || !e.fields?.some(field => field.name === 'Requested by')) continue;
-            if (await message.delete().then(() => true, () => false)) deleted++;
-        }
-        return deleted;
-    } catch (error) {
-        cleanedMusicChannels.delete(key);
-        logger.debug('[MUSIC] Legacy announcement cleanup skipped: ' + (error?.message || error));
-        return 0;
-    }
-}

@@ -59,29 +59,12 @@ export function getLavalinkNodes() {
         return fromJson;
     }
 
-    // An explicitly configured private Railway Lavalink must take priority over
-    // public demo nodes bundled in lavalink/nodes.json.
-    const privateHost = process.env.LAVALINK_HOST?.trim();
-    if (privateHost) {
-        const password = process.env.LAVALINK_PASSWORD?.trim();
-        if (!password) {
-            throw new Error('LAVALINK_PASSWORD must be configured when LAVALINK_HOST is set.');
-        }
-        return [{
-            host: privateHost,
-            port: Number(process.env.LAVALINK_PORT || 2333),
-            password,
-            secure: parseBoolean(process.env.LAVALINK_SECURE, false),
-            name: process.env.LAVALINK_NAME || 'Cloudy Private',
-        }];
-    }
-
     const fromFile = loadNodesFromFile();
     if (fromFile?.length) {
         return fromFile;
     }
 
-    const host = 'localhost';
+    const host = process.env.LAVALINK_HOST || 'localhost';
     const port = Number(process.env.LAVALINK_PORT || 2333);
     const password = process.env.LAVALINK_PASSWORD || 'youshallnotpass';
     const secure = parseBoolean(process.env.LAVALINK_SECURE, false);

@@ -12,14 +12,14 @@ import {
     getQueuePageSize,
 } from './musicEmbeds.js';
 import { refreshPlayerMessage } from './playerHandler.js';
-import { prepareMusicQuery, getSpotifyTrackMetadata } from './musicLinks.js';
+import { prepareMusicQuery } from './musicLinks.js';
 import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
 
 const MUSIC_SERVER_BUSY = 'The music server is not responding right now. Please try again in a moment.';
 const LINK_NOT_PLAYABLE = 'That link could not be opened. It may be private, region-locked or not available right now. Try another link or a song name.';
-const RESOLVE_TIMEOUT_MS = 8_000;
-const MUSIC_READY_WAIT_MS = 6_000;
+const RESOLVE_TIMEOUT_MS = 12_000;
+const MUSIC_READY_WAIT_MS = 20_000;
 const VOICE_MOVE_TIMEOUT_MS = 12_000;
 const BAD_NODE_MS = 10 * 60 * 1000;
 const PLAYABLE_LOAD_TYPES = new Set(['track', 'playlist', 'search', 'TRACK_LOADED', 'PLAYLIST_LOADED', 'SEARCH_RESULT']);
@@ -256,7 +256,7 @@ export async function ensurePlayer(client, interaction, { node = null } = {}) {
         guildData.playerChannelId = interaction.channel.id;
     }
 
-    if (player.volume !== guildData.volume) player.setVolume(guildData.volume);
+    player.setVolume(guildData.volume);
     return { player, guildData };
 }
 
@@ -290,7 +290,7 @@ export async function joinVoiceChannel(client, interaction) {
         guildData.playerChannelId = interaction.channel.id;
     }
 
-    if (player.volume !== guildData.volume) player.setVolume(guildData.volume);
+    player.setVolume(guildData.volume);
 
     return successEmbed(
         'Joined voice channel',
@@ -313,14 +313,13 @@ function withTimeout(promise, ms) {
 
 // Riffy throws a TypeError when the music node answers without a body
 // (e.g. while Lavalink restarts); show a clear message instead of a crash.
-async function resolveQuery(client, interaction, query, node = null, source = null) {
+async function resolveQuery(client, interaction, query, node = null) {
     let result;
     try {
         result = await withTimeout(client.riffy.resolve({
             query,
             requester: interaction.user,
             ...(node ? { node } : {}),
-            ...(source ? { source } : {}),
         }), RESOLVE_TIMEOUT_MS);
     } catch (error) {
         throw new CloudyError(
@@ -358,20 +357,20 @@ async function searchAcrossNodes(client, interaction, query, preferred = null) {
 // Links from YouTube, Spotify, Apple Music, Deezer, SoundCloud and others go to
 // the music server. A link is tried on every connected node, and a new player
 // is created on the node that opened it (no voice join for a link nobody can open).
-async function resolveLinkAndConnect(client, interaction, query, source = null) {
+async function resolveLinkAndConnect(client, interaction, query) {
     const existing = getPlayer(client, interaction.guild.id);
     const nodes = existing ? [existing.node].filter(Boolean) : orderedNodes(client);
 
     if (!nodes.length) {
         const { player } = await ensurePlayer(client, interaction);
-        return { player, result: await resolveQuery(client, interaction, query, null, source) };
+        return { player, result: await resolveQuery(client, interaction, query) };
     }
 
     let failure = null;
     let last = null;
     for (const node of nodes) {
         try {
-            const result = await resolveQuery(client, interaction, query, node, source);
+            const result = await resolveQuery(client, interaction, query, node);
             if (isPlayableResult(result)) {
                 const { player } = await ensurePlayer(client, interaction, { node });
                 return { player, result };
@@ -419,39 +418,14 @@ export async function playQuery(client, interaction, rawQuery) {
     const { query, isLink } = await prepareMusicQuery(rawQuery);
     let player;
     let result;
-    let spotifyMetadata = null;
     if (isLink) {
-        // Spotify links are metadata, not directly streamable audio in Lavalink.
-        // Do not send them to Lavalink's generic HTTP player first. Its default
-        // YouTube provider can resolve search results but fail during streaming
-        // with "requires login" / "no supported audio streams".
-        spotifyMetadata = await getSpotifyTrackMetadata(query);
-        if (spotifyMetadata) {
-            try {
-                // SoundCloud uses a separate playable source on Lavalink and
-                // avoids the YouTube client failure observed on Railway.
-                ({ player, result } = await resolveLinkAndConnect(
-                    client, interaction, spotifyMetadata.title, 'scsearch'));
-            } catch (soundcloudError) {
-                logger.warn('[MUSIC] SoundCloud search unavailable, trying music search fallback: '
-                    + (soundcloudError?.message || soundcloudError));
-                ({ player, result } = await resolveLinkAndConnect(
-                    client, interaction, spotifyMetadata.title + ' official audio'));
-            }
-        } else {
-            ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
-        }
+        ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
     } else {
         ({ player } = await ensurePlayer(client, interaction));
         result = await searchAcrossNodes(client, interaction, query, player.node);
     }
 
     const { loadType, tracks, playlistInfo } = result;
-    // Preserve Spotify's actual album cover even when the playback source has
-    // a different video thumbnail (or none).
-    if (spotifyMetadata?.artworkUrl && tracks?.[0]?.info) {
-        tracks[0].info.artworkUrl = spotifyMetadata.artworkUrl;
-    }
 
     if (loadType === 'playlist' || loadType === 'PLAYLIST_LOADED') {
         // Every song is added, also one that is already in the queue (owner's choice).
@@ -556,8 +530,6 @@ export async function applyPause(client, guildId) {
         return false;
     }
 
-    const clock = getGuildMusicData(guildId).progressClock;
-    if (clock?.track === player.current && clock.pausedAt == null) clock.pausedAt = Date.now();
     player.pause(true);
     await refreshPlayerMessage(client, guildId);
     return true;
@@ -569,11 +541,6 @@ export async function applyResume(client, guildId) {
         return false;
     }
 
-    const clock = getGuildMusicData(guildId).progressClock;
-    if (clock?.track === player.current && clock.pausedAt != null) {
-        clock.pausedMs += Math.max(0, Date.now() - clock.pausedAt);
-        clock.pausedAt = null;
-    }
     player.pause(false);
     await refreshPlayerMessage(client, guildId);
     return true;

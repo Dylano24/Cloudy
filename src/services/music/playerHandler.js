@@ -9,7 +9,7 @@ import {
     buildPlayerButtonRows,
 } from './musicEmbeds.js';
 
-const UPDATE_INTERVAL_MS = 10 * 1000;
+const UPDATE_INTERVAL_MS = 15 * 1000;
 const IDLE_DISCONNECT_MS = 30 * 1000;
 const playerRefreshJobs = new WeakMap();
 
@@ -18,8 +18,7 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
     if (!channel) {
         guildData.playerMessageId = null;
         guildData.playerChannelId = null;
-        guildData.lastPlayerPayload = null;
-        return false;
+        return;
     }
 
     const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
@@ -29,14 +28,14 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
             const msg = channel.messages.cache?.get(guildData.playerMessageId)
                 || await channel.messages.fetch(guildData.playerMessageId);
             await msg.edit(payload);
-            return true;
+            return;
         } catch (error) {
             // A temporary API or permission failure must not create another
             // player message. Replace only a message Discord confirms is gone.
             if (Number(error?.code) !== 10008) throw error;
             guildData.playerMessageId = null;
             guildData.playerChannelId = null;
-            guildData.lastPlayerPayload = null;
+            clearUpdateInterval(guildData);
         }
     }
 
@@ -44,10 +43,8 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
         const newMsg = await channel.send(payload);
         guildData.playerMessageId = newMsg.id;
         guildData.playerChannelId = channel.id;
-        return true;
     } catch (error) {
         logger.error('Failed to send music player message:', error);
-        return false;
     }
 }
 
@@ -74,17 +71,7 @@ export async function refreshPlayerMessage(client, guildId) {
         const guild = client.guilds?.cache?.get?.(guildId);
         const musicChannel = !guildData.playerMessageId && guild ? musicChannelFor(guild) : null;
         const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
-        // Discord rate-limits repeated fetch/edit calls. When the progress bar,
-        // controls and track metadata have not changed, leave the message alone.
-        const snapshot = JSON.stringify({
-            channelId,
-            embed: embed.toJSON(),
-            components: components.map(row => row.toJSON()),
-        });
-        if (guildData.playerMessageId && guildData.lastPlayerPayload === snapshot) continue;
-        if (await editOrSendPlayerMessage(client, guildData, channelId, embed, components)) {
-            guildData.lastPlayerPayload = snapshot;
-        }
+        await editOrSendPlayerMessage(client, guildData, channelId, embed, components);
       }
     })().catch(error => {
         logger.error('Failed to refresh music player message:', error);
@@ -181,16 +168,6 @@ export function setupPlayerHandler(client) {
     client.riffy.on('trackStart', async (player, _track) => {
         try {
             const guildData = getGuildMusicData(player.guildId);
-            guildData.playbackFailed = false;
-            // The private Lavalink node can report position=0 for a while.
-            // Anchor progress to trackStart so the visual bar advances even
-            // between (or without) playerUpdate packets.
-            guildData.progressClock = {
-                track: player.current || _track,
-                startedAt: Date.now() - Math.max(0, Number(player.position) || 0),
-                pausedAt: null,
-                pausedMs: 0,
-            };
 
             // Keep the Lavalink player's loop mode aligned with the stored preference.
             // Skip temporarily clears track-loop so it can advance; restore it here.
@@ -229,8 +206,6 @@ export function setupPlayerHandler(client) {
             void finishRequestMessage(client, lastFinishedTrack(player));
             const guildData = getGuildMusicData(player.guildId);
             clearUpdateInterval(guildData);
-            guildData.progressClock = null;
-            guildData.playbackFailed = false;
 
             if (guildData.autoplay) {
                 player.autoplay(player);
@@ -249,7 +224,6 @@ export function setupPlayerHandler(client) {
                 }
                 guildData.playerMessageId = null;
                 guildData.playerChannelId = null;
-                guildData.lastPlayerPayload = null;
             }
 
             if (!guildData.twentyFourSeven) {
@@ -277,8 +251,6 @@ export function setupPlayerHandler(client) {
         void finishRequestMessage(client, player.current);
         const guildData = getGuildMusicData(player.guildId);
         clearUpdateInterval(guildData);
-        guildData.progressClock = null;
-        guildData.playbackFailed = false;
 
         if (guildData.playerMessageId && guildData.playerChannelId) {
             try {
@@ -294,7 +266,6 @@ export function setupPlayerHandler(client) {
 
         guildData.playerMessageId = null;
         guildData.playerChannelId = null;
-        guildData.lastPlayerPayload = null;
         guildData.previousTracks = [];
         guildData.autoPaused = false;
         if (guildData.idleTimeout) {
@@ -303,16 +274,15 @@ export function setupPlayerHandler(client) {
         }
     });
 
-    client.riffy.on('trackError', (player, track, payload) => {
-        const error = payload?.exception?.message || payload?.exception?.cause
-            || payload?.error?.message || payload?.error || payload?.message || payload?.type || 'unknown';
-        logger.warn(`[MUSIC] Audio source failed in ${player.guildId} for "${track?.info?.title}": ${String(error).slice(0, 240)}`);
+    client.riffy.on('trackError', async (player, track, payload) => {
+        logger.error(`Track error in ${player.guildId} for "${track?.info?.title}":`, payload?.error || payload);
         const guildData = getGuildMusicData(player.guildId);
-        // The stream never started: do not animate a fake progress bar.
-        guildData.progressClock = null;
-        guildData.playbackFailed = true;
-        // Riffy handles TrackEndEvent/queueEnd and removes the player when
-        // appropriate. Never spam a plain-text "Failed to play" under it.
+        if (guildData.playerChannelId) {
+            const channel = client.channels.cache.get(guildData.playerChannelId);
+            if (channel) {
+                channel.send(`Failed to play **${track?.info?.title || 'track'}**. Skipping...`).catch(() => null);
+            }
+        }
     });
 
     client.riffy.on('trackStuck', async (player, track, payload) => {
