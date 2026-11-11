@@ -19,6 +19,9 @@ export class GuildMusicData {
         this.lastSkip = null;
         // What the player panel last showed, so an unchanged refresh is not sent again.
         this.lastPanel = null;
+        // The song the player panel shows, and how a song is ending (Skip/Stop).
+        this.panelTrack = null;
+        this.endingTrack = null;
     }
 }
 
