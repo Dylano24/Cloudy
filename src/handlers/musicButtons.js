@@ -8,6 +8,7 @@ import {
     setLoopMode,
     applyPause,
     applyResume,
+    skipCurrentTrack,
 } from '../services/music/musicActions.js';
 import { canControlMusic, VOICE_CHANNEL_DENIAL } from '../services/music/permissions.js';
 import { refreshPlayerMessage } from '../services/music/playerHandler.js';
@@ -106,12 +107,7 @@ async function handleMusicButton(interaction, client) {
                 await applyResume(client, interaction.guild.id);
                 break;
             case MUSIC_BUTTON_IDS.SKIP:
-                // Under track-loop, stop() would replay the same track. Clear it so the
-                // skip advances; trackStart re-applies the stored loop to the next track.
-                if (player.loop === 'track') {
-                    player.setLoop('none');
-                }
-                player.stop();
+                if (player.current) skipCurrentTrack(player, guildData);
                 break;
             case MUSIC_BUTTON_IDS.STOP:
                 await destroyPlayerSession(client, interaction.guild.id, player, guildData);

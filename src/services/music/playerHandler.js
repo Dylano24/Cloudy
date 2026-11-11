@@ -11,7 +11,23 @@ import {
 
 const UPDATE_INTERVAL_MS = 15 * 1000;
 const IDLE_DISCONNECT_MS = 30 * 1000;
+const SHUTDOWN_PANEL_REMOVAL_MS = 3_000;
 const playerRefreshJobs = new WeakMap();
+// The track Lavalink last reported as started (TrackStartEvent), per player.
+const startedTracks = new WeakMap();
+
+/** Lavalink reported that this track really started playing. */
+export function markTrackStarted(player, track = player?.current) {
+    if (player && track) startedTracks.set(player, track);
+    if (player) {
+        player.position = 0;
+        player.cloudyPositionAt = Date.now();
+    }
+}
+
+function hasStarted(player) {
+    return Boolean(player?.current) && startedTracks.get(player) === player.current;
+}
 
 async function editOrSendPlayerMessage(client, guildData, channelId, embed, components) {
     const channel = client.channels.cache.get(channelId);
@@ -22,12 +38,19 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
     }
 
     const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
+    // A refresh that would show exactly the same panel is not sent again (the
+    // 15-second timer while paused, or a bar piece that did not move yet).
+    const panel = JSON.stringify(payload);
 
     if (guildData.playerMessageId) {
+        if (guildData.lastPanel?.messageId === guildData.playerMessageId && guildData.lastPanel.panel === panel) {
+            return;
+        }
         try {
             const msg = channel.messages.cache?.get(guildData.playerMessageId)
                 || await channel.messages.fetch(guildData.playerMessageId);
             await msg.edit(payload);
+            guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
             return;
         } catch (error) {
             // A temporary API or permission failure must not create another
@@ -43,6 +66,7 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
         const newMsg = await channel.send(payload);
         guildData.playerMessageId = newMsg.id;
         guildData.playerChannelId = channel.id;
+        guildData.lastPanel = { messageId: newMsg.id, panel };
     } catch (error) {
         logger.error('Failed to send music player message:', error);
     }
@@ -61,6 +85,11 @@ export async function refreshPlayerMessage(client, guildId) {
         job.pending = false;
         const player = client.riffy?.players?.get(guildId);
         if (!player?.current) {
+            return;
+        }
+        // A new player panel only appears once Lavalink says the song really
+        // started: a song that cannot be streamed never shows as playing.
+        if (!guildData.playerMessageId && !hasStarted(player)) {
             return;
         }
 
@@ -165,8 +194,15 @@ export function setupPlayerHandler(client) {
         logger.warn(`[MUSIC] Voice connection closed in ${player?.guildId}: code ${payload?.code} ${payload?.reason || ''} (by remote: ${payload?.byRemote})`);
     });
 
-    client.riffy.on('trackStart', async (player, _track) => {
+    // The node reports the position every few seconds; the time it arrived lets
+    // the progress bar follow the song in between (livePlayerPosition).
+    client.riffy.on('playerUpdate', (player) => {
+        player.cloudyPositionAt = Date.now();
+    });
+
+    client.riffy.on('trackStart', async (player, track) => {
         try {
+            markTrackStarted(player, track || player.current);
             const guildData = getGuildMusicData(player.guildId);
 
             // Keep the Lavalink player's loop mode aligned with the stored preference.
@@ -274,15 +310,12 @@ export function setupPlayerHandler(client) {
         }
     });
 
-    client.riffy.on('trackError', async (player, track, payload) => {
-        logger.error(`Track error in ${player.guildId} for "${track?.info?.title}":`, payload?.error || payload);
-        const guildData = getGuildMusicData(player.guildId);
-        if (guildData.playerChannelId) {
-            const channel = client.channels.cache.get(guildData.playerChannelId);
-            if (channel) {
-                channel.send(`Failed to play **${track?.info?.title || 'track'}**. Skipping...`).catch(() => null);
-            }
-        }
+    // Riffy skips a song that cannot be streamed by itself (stop() after the
+    // event). Owner's choice: no public "Failed to play ... Skipping" message under
+    // the player; the reason stays in the log.
+    client.riffy.on('trackError', (player, track, payload) => {
+        const exception = payload?.exception || payload?.error || payload;
+        logger.warn(`[MUSIC] Track could not be streamed in ${player.guildId} ("${track?.info?.title || 'track'}", ${track?.info?.sourceName || 'unknown source'}, node ${player?.node?.name || '?'}): ${exception?.message || exception?.cause || JSON.stringify(exception)}`);
     });
 
     client.riffy.on('trackStuck', async (player, track, payload) => {
@@ -290,16 +323,37 @@ export function setupPlayerHandler(client) {
     });
 }
 
+// A restart (deploy) ends every music session. Its player panel is removed
+// before the client goes away, so no panel with dead buttons stays behind.
 export async function shutdownMusic(client) {
     if (!client.riffy?.players) {
         return;
     }
 
-    for (const player of client.riffy.players.values()) {
+    const removals = [];
+    for (const [guildId, player] of [...client.riffy.players]) {
+        const guildData = getGuildMusicData(guildId);
+        clearUpdateInterval(guildData);
+        const { playerMessageId, playerChannelId } = guildData;
+        guildData.playerMessageId = null;
+        guildData.playerChannelId = null;
+        guildData.lastPanel = null;
+        const channel = playerMessageId && playerChannelId ? client.channels?.cache?.get(playerChannelId) : null;
+        if (channel?.messages?.delete) {
+            removals.push(channel.messages.delete(playerMessageId).catch(() => {}));
+        }
         try {
             player.destroy();
         } catch (error) {
             logger.debug('Error destroying music player during shutdown:', error.message);
         }
+    }
+    if (removals.length) {
+        let timer;
+        await Promise.race([
+            Promise.allSettled(removals),
+            new Promise(resolve => { timer = setTimeout(resolve, SHUTDOWN_PANEL_REMOVAL_MS); }),
+        ]);
+        clearTimeout(timer);
     }
 }

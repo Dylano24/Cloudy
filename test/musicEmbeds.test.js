@@ -8,7 +8,7 @@ import nowCommand from '../src/commands/Music/now.js';
 import nowplayingCommand from '../src/commands/Music/nowplaying.js';
 import queueCommand from '../src/commands/Music/queue.js';
 import musicCommand from '../src/commands/Music/music.js';
-import { refreshPlayerMessage } from '../src/services/music/playerHandler.js';
+import { refreshPlayerMessage, markTrackStarted } from '../src/services/music/playerHandler.js';
 import { deleteGuildMusicData, getGuildMusicData } from '../src/services/music/playerStore.js';
 
 const FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -46,6 +46,7 @@ test('a new player panel goes to #music; an existing panel keeps its message', a
   const music = channel('music-channel', '🎧│music');
   const general = channel('general-channel', '💬│general');
   const player = { current: track, paused: false, position: 0, textChannel: general.id, queue: [] };
+  markTrackStarted(player); // Lavalink reported the song started
   const client = {
     channels: { cache: new Collection([[music.id, music], [general.id, general]]) },
     guilds: { cache: new Collection([[guildId, { id: guildId, channels: { cache: new Collection([[music.id, music], [general.id, general]]) } }]]) },
@@ -123,7 +124,8 @@ test('/play shows only the persistent player and cleans up its private acknowled
   queue.add = entry => queue.push(entry);
   const player = {
     current: null, playing: false, paused: false, queue, voiceChannel: 'voice-channel',
-    setVolume() {}, play() { this.playing = true; this.current = queue.shift(); },
+    // Like Lavalink: the song starts and the node reports it (TrackStartEvent).
+    setVolume() {}, play() { this.playing = true; this.current = queue.shift(); markTrackStarted(this); },
   };
   const musicChannel = {
     id: 'music-channel', name: '🎧│music', type: ChannelType.GuildText,

@@ -69,6 +69,17 @@ export function musicProgressBar(positionMs, lengthMs, steps = 10) {
     }).join('');
 }
 
+// Where the song is now. The node reports the position every few seconds; in
+// between, the time since that report is added while the song plays (never while
+// paused), so the bar follows the music even when a report is late. A song that
+// has not reported anything yet stays at its last known position.
+export function livePlayerPosition(player, now = Date.now()) {
+    const position = Math.max(0, Number(player?.position) || 0);
+    const reportedAt = Number(player?.cloudyPositionAt) || 0;
+    if (!reportedAt || player?.paused || !player?.current) return position;
+    return position + Math.max(0, now - reportedAt);
+}
+
 export function buildMusicRequestEmbed(track, { playNow = false, queuePosition = 1 } = {}) {
     const info = track?.info || {};
     const requester = info.requester;
@@ -156,7 +167,7 @@ export function buildNowPlayingEmbed(track, player, guildData) {
 
     const queued = player?.queue?.length || 0;
     const album = getAlbumName(track);
-    const progressBar = musicProgressBar(player?.position || 0, track?.info?.length);
+    const progressBar = musicProgressBar(livePlayerPosition(player), track?.info?.length);
     // The track's cover is the image; the Cloudy logo stays the thumbnail. The
     // white bar sits under the title on its own line and is the only progress
     // indicator (owner's choice: no "position / length" text next to it).
