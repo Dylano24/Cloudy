@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import creatorNotify from '../src/commands/Tools/creatorNotify.js';
 import { CLOUDY_RED_COLOR } from '../src/utils/embedColorPolicy.js';
+import { withCreatorErrorColor, ensureCreatorErrorColor } from '../src/utils/cloudyFooter.js';
 import {
   normalizeCreatorAccount, parseCreatorFeed, fetchCreatorItems, creatorProviderReady,
 } from '../src/services/creatorNotificationProviders.js';
@@ -151,4 +152,54 @@ test('creator-notify exposes only add, remove and list, and invalid YouTube ID u
   assert.equal(embed.title, 'Creator notification error');
   assert.equal(embed.description, 'YouTube requires a channel ID');
   assert.equal(embed.color, CLOUDY_RED_COLOR);
+});
+
+test('final Discord REST format keeps creator errors Cloudy red, never yellow', async () => {
+  const original = { embeds: [{ title: 'Creator notification error',
+    description: 'Use a valid link from the selected platform.',
+    color: 0xFCFFA1, footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } }] };
+  const payload = await withCreatorErrorColor(async () => {
+    await Promise.resolve();
+    return ensureCreatorErrorColor(original);
+  });
+  assert.equal(payload.embeds[0].color, CLOUDY_RED_COLOR);
+  assert.equal(payload.embeds[0].description, original.embeds[0].description);
+  assert.equal(payload.embeds[0].footer.text, original.embeds[0].footer.text);
+  assert.equal(ensureCreatorErrorColor(original).embeds[0].color, 0xFCFFA1,
+    'scope cannot change unrelated messages');
+});
+
+test('all creator-notify success and error notices auto-delete after exactly ten seconds', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const run = async (platform, creator) => {
+    const client = fakeBot().bot;
+    let deleted = 0;
+    const interaction = {
+      guildId: GUILD,
+      memberPermissions: { has: permission => permission === PermissionFlagsBits.ManageGuild },
+      options: {
+        getSubcommand: () => 'add',
+        getString: name => name === 'platform' ? platform : creator,
+        getChannel: () => null,
+      },
+      deferReply: async () => { interaction.deferred = true; },
+      editReply: async payload => { interaction.answer = payload; },
+      deleteReply: async () => { deleted++; },
+    };
+    await creatorNotify.execute(interaction, {}, client);
+    return { interaction, deletions: () => deleted };
+  };
+  const success = await run('twitch', 'validcreator');
+  const error = await run('youtube', 'not-a-channel-id');
+  assert.equal(success.interaction.answer.embeds[0].toJSON().title, 'Creator added');
+  assert.equal(error.interaction.answer.embeds[0].toJSON().color, CLOUDY_RED_COLOR);
+  t.mock.timers.tick(9_999);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(success.deletions(), 0);
+  assert.equal(error.deletions(), 0);
+  t.mock.timers.tick(1);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(success.deletions(), 1);
+  assert.equal(error.deletions(), 1);
+  t.mock.timers.reset();
 });

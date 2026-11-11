@@ -1,8 +1,9 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { addCreatorNotification, listCreatorNotifications, removeCreatorNotification } from '../../services/creatorNotificationService.js';
 import { creatorProviderReady, CREATOR_PLATFORMS } from '../../services/creatorNotificationProviders.js';
-import { successEmbed, warningEmbed } from '../../utils/embeds.js';
-import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
+import { successEmbed, errorEmbed } from '../../utils/embeds.js';
+import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
+import { withCreatorErrorColor } from '../../utils/cloudyFooter.js';
 
 const platforms = option => option.setName('platform').setDescription('Platform')
   .setRequired(true).addChoices(...CREATOR_PLATFORMS.map(platform => ({
@@ -12,10 +13,21 @@ const username = option => option.setName('creator')
   .setDescription('Paste a YouTube, Twitch or TikTok link, or enter a creator ID').setRequired(true);
 
 async function respond(interaction, title, message, success = true) {
-  const embed = success ? successEmbed(title, message)
-    : setPreservedEmbedColor(warningEmbed(title, message), CLOUDY_RED_COLOR);
-  if (interaction.deferred || interaction.replied) await interaction.editReply({ embeds: [embed] });
-  else await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  const embed = success ? successEmbed(title, message) : errorEmbed(title, message, { showDetails: false });
+  if (!success) embed.data.color = CLOUDY_RED_COLOR;
+  const send = () => interaction.deferred || interaction.replied
+    ? interaction.editReply({ embeds: [embed] })
+    : interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  if (success) await send();
+  else await withCreatorErrorColor(send);
+  // Temporary command notices follow Cloudy's 10-second rule, including
+  // invalid URL errors, permission errors and success confirmations.
+  const timer = setTimeout(() => {
+    if (typeof interaction.deleteReply === 'function') {
+      void Promise.resolve().then(() => interaction.deleteReply()).catch(() => {});
+    }
+  }, 10_000);
+  timer.unref?.();
 }
 export default {
   data: new SlashCommandBuilder()
