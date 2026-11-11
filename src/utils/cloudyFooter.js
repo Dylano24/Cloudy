@@ -52,6 +52,10 @@ export function withCloudyFooter(payload, { isNewMessage = true, suppressAutomat
       const original = source?.toJSON?.() || source || {};
       if (original.type && original.type !== 'rich') return source;
       const title = String(original.title || '').trim();
+      // A submitted report has a real reserved case number. Preserve its
+      // explicit moderation footer through both interaction and webhook REST.
+      if (title === 'Report submitted'
+          && /^Cloudy Inc\. • Moderation team • R[1-9]\d*$/.test(original.footer?.text || '')) return source;
       // Appeal embeds use the normal Cloudy footer without a time, as reports
       // do; the handling time is shown in their Handled at field.
       if (appealChannel || APPEAL_TITLE_PATTERN.test(title)) {

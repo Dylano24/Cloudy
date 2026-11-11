@@ -32,7 +32,10 @@ function cleanBrandingText(value) {
 export function normalizeCloudyEmbed(embed, { ensureFooter = false } = {}) {
   const source = typeof embed?.toJSON === 'function' ? embed.toJSON() : { ...embed };
 
-  if (isReportUpdateTitle(source.title) || (source.type && source.type !== 'rich')) {
+  // Report submitted confirmations use the immutable number reserved for
+  // this submission. The generic branding pass must not replace R<number>.
+  if ((source.title === 'Report submitted' && /^Cloudy Inc\. • Moderation team • R[1-9]\d*$/.test(source.footer?.text || ''))
+      || isReportUpdateTitle(source.title) || (source.type && source.type !== 'rich')) {
     return { embed, changed: false };
   }
 
