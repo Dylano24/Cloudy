@@ -9,7 +9,7 @@ export function normalizeCreatorAccount(platform, raw) {
   let account = String(raw || '').trim();
   if (kind === 'youtube') {
     account = account.replace(/^https:\/\/(?:www\.)?youtube\.com\/channel\//i, '').replace(/\/$/, '');
-    if (!/^UC[\w-]{22}$/.test(account)) throw new Error('YouTube requires a UC channel ID, not a handle.');
+    if (!/^UC[\w-]{22}$/.test(account)) throw new Error('YouTube requires a channel ID');
   } else {
     account = account.replace(kind === 'twitch' ? /^https:\/\/(?:www\.)?twitch\.tv\//i : /^https:\/\/(?:www\.)?tiktok\.com\/@/i, '')
       .replace(/^@/, '').replace(/\/$/, '').toLowerCase();
