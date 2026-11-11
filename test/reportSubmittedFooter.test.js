@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createEmbed } from '../src/utils/embeds.js';
 import { buildReportSubmittedEmbed } from '../src/utils/reportSubmittedEmbed.js';
-import { withCloudyFooter } from '../src/utils/cloudyFooter.js';
+import { withCloudyFooter, withReportSubmittedNumber, ensureOutgoingReportConfirmationFooter } from '../src/utils/cloudyFooter.js';
 import { normalizeCloudyEmbed } from '../src/services/cloudyBrandingService.js';
 import { CLOUDY_STANDARD_FOOTER, ensureReportSubmittedFooter } from '../src/utils/cloudyFooter.js';
 
@@ -76,4 +76,25 @@ test('numbered report confirmation cannot be overwritten by global Cloudy normal
   assert.equal(normalized.embed.toJSON().footer.text, 'Cloudy Inc. • Moderation team • R110');
   const outgoing = withCloudyFooter({ embeds: [normalized.embed] });
   assert.equal(outgoing.embeds[0].toJSON().footer.text, 'Cloudy Inc. • Moderation team • R110');
+});
+
+test('final Discord REST payload repairs incorrect Report submitted footer using the actual number', async () => {
+  const render = async number => withReportSubmittedNumber(number, async () => {
+    await Promise.resolve();
+    const outdated = { embeds: [{ title: 'Report submitted', footer: {
+      text: '© Cloudy Inc. • Quality. Innovation. Performance.',
+    }, fields: [{ name: 'Reported message', value: 'X' }] }] };
+    const result = ensureOutgoingReportConfirmationFooter(withCloudyFooter(outdated));
+    assert.equal(result.embeds[0].footer.text, `Cloudy Inc. • Moderation team • R${number}`);
+    assert.deepEqual(result.embeds[0].fields, [{ name: 'Reported message', value: 'X' }]);
+    return result;
+  });
+  const responses = await Promise.all([render(110), render(111)]);
+  assert.equal(responses[0].embeds[0].footer.text, 'Cloudy Inc. • Moderation team • R110');
+  assert.equal(responses[1].embeds[0].footer.text, 'Cloudy Inc. • Moderation team • R111');
+  assert.deepEqual(ensureOutgoingReportConfirmationFooter({ embeds: [{ title: 'Report submitted' }] }),
+    { embeds: [{ title: 'Report submitted' }] }, 'unscoped embeds remain untouched');
+  assert.deepEqual(await withReportSubmittedNumber(112, async () =>
+    ensureOutgoingReportConfirmationFooter({ embeds: [{ title: 'Moderation update' }] })),
+    { embeds: [{ title: 'Moderation update' }] }, 'private moderation updates remain untouched');
 });
