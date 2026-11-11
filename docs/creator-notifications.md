@@ -2,19 +2,14 @@
 
 Cloudy checks configured accounts every five minutes and posts a direct content link to the platform's existing Discord channel. Monitoring is opt-in: nothing is announced until a server moderator adds a creator.
 
-## Discord commands (Manage Server permission)
+## Discord command (Manage Server permission)
 
-- `/creator-notify add platform:YouTube creator:https://www.youtube.com/@GoogleDevelopers` — paste a YouTube profile link; Cloudy resolves and stores its stable UC channel ID.
-- `/creator-notify add platform:Twitch creator:https://www.twitch.tv/streamername` — paste a Twitch profile link; Cloudy extracts the login name.
-- `/creator-notify add platform:TikTok creator:https://www.tiktok.com/@username` — paste a TikTok profile link; Cloudy extracts the username.
-- `/creator-notify add platform:YouTube creator:https://youtube.com/@GoogleDevelopers channel:#announcements` — optional channel override.
-- Direct YouTube `UC...` IDs and Twitch/TikTok usernames are still accepted.
-- `/creator-notify list` — saved creators and provider readiness.
-- `/creator-notify remove platform:YouTube creator:UC123...` — stop notifications.
+`/creator-notify` opens a private dashboard, built like `/auto feed` (it closes after 5 minutes of inactivity):
 
-**Simple setup:** `/creator-notify add creator:https://www.youtube.com/@kanaalnaam` — the platform field is optional when pasting a supported link. Cloudy identifies YouTube, Twitch or TikTok from its URL, even if a different platform was selected accidentally. Select the platform only when entering a bare username (except a full `UC...` YouTube channel ID). Paste the person's profile URL; the bot monitors new posts by that creator rather than only the pasted video.
+- **Add creator** — choose the channel (or **Use platform channel** for the existing `#youtube`, `#twitch` or `#tiktok` channel), then paste the creator's profile link in the form. The platform is detected from the link (YouTube `/@handle`, `/channel/UC...`, `/c/` and `/user/`, video links such as `youtu.be`; Twitch and TikTok profile links). Choose a platform on the channel step only when entering a bare username.
+- **Manage creator** — pick a creator, then **Change channel**, **Pause creator** / **Resume creator** (a resumed creator skips anything posted while paused) or **Delete creator**. A server can monitor up to 25 creators.
 
-When no channel is supplied, Cloudy resolves the server's existing `#youtube`, `#twitch`, or `#tiktok` channel. The first successful check initializes a baseline without reposting older content. Only unseen content is announced; the recent IDs are stored in PostgreSQL between restarts. Moderation permissions are required for all configuration actions.
+Errors are red and disappear after 10 seconds. The first successful check initializes a baseline without reposting older content. Only unseen content is announced; the recent IDs are stored in PostgreSQL between restarts.
 
 ## Platform requirements
 
