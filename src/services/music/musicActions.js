@@ -1,4 +1,4 @@
-import { MessageFlags } from 'discord.js';
+import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { successEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -43,6 +43,50 @@ export function assertInVoice(member) {
             'You need to be in a voice channel.',
         );
     }
+}
+
+// A voice channel the bot cannot join (no Connect/Speak, or full) would leave
+// /play waiting for a connection that never comes.
+function assertBotCanJoin(interaction) {
+    const channel = interaction.member?.voice?.channel;
+    const me = interaction.guild?.members?.me;
+    const permissions = me && channel?.permissionsFor?.(me);
+    if (!permissions) return;
+    if (!permissions.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak])) {
+        throw new CloudyError(
+            'Missing voice permissions',
+            ErrorTypes.PERMISSION,
+            `I need the View Channel, Connect and Speak permissions in **${channel.name}**.`,
+        );
+    }
+    if (channel.userLimit > 0 && (channel.members?.size || 0) >= channel.userLimit
+        && !permissions.has(PermissionFlagsBits.MoveMembers)) {
+        throw new CloudyError('Voice channel full', ErrorTypes.USER_INPUT, `**${channel.name}** is full.`);
+    }
+}
+
+// Riffy waits for the voice connection and rejects when it never comes. Awaiting
+// it means no "Now playing" for a song that never started, and no stray rejection.
+async function startPlayback(player) {
+    let started;
+    try {
+        started = await player.play();
+    } catch (error) {
+        logger.warn(`[MUSIC] Playback could not start: ${error?.message || error}`);
+        started = false;
+    }
+    if (started !== false) return;
+    try {
+        player.queue?.clear?.();
+        player.destroy();
+    } catch {
+        // already gone
+    }
+    throw new CloudyError(
+        'Voice connection failed',
+        ErrorTypes.NETWORK,
+        'I could not connect to your voice channel. Check that I can connect and speak there, then try again.',
+    );
 }
 
 export function assertCanControl(member, player) {
@@ -95,6 +139,7 @@ function isDuplicateTrack(player, track) {
 export async function joinVoiceChannel(client, interaction) {
     assertRiffyAvailable(client);
     assertInVoice(interaction.member);
+    if (!getPlayer(client, interaction.guild.id)) assertBotCanJoin(interaction);
 
     const guildId = interaction.guild.id;
     const guildData = getGuildMusicData(guildId);
@@ -225,6 +270,7 @@ export async function inspectMusicLink(client, query, requester) {
 export async function playQuery(client, interaction, rawQuery) {
     assertRiffyAvailable(client);
     assertInVoice(interaction.member);
+    if (!getPlayer(client, interaction.guild.id)) assertBotCanJoin(interaction);
 
     const { query, isLink } = await prepareMusicQuery(rawQuery);
     let player;
@@ -253,7 +299,7 @@ export async function playQuery(client, interaction, rawQuery) {
         }
 
         if (!player.playing && !player.paused) {
-            player.play();
+            await startPlayback(player);
         }
 
         return {
@@ -290,7 +336,7 @@ export async function playQuery(client, interaction, rawQuery) {
         const queuePosition = player.queue.length;
 
         if (willPlayNow) {
-            player.play();
+            await startPlayback(player);
         }
 
         return {
