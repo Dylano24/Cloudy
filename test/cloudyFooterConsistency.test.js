@@ -11,8 +11,7 @@ import { GIVEAWAY_CLAIM_LOG_FOOTER } from '../src/services/giveawayClaimLogServi
 
 // The standard Cloudy footer is written out in many files. This guards the
 // approved wording so no copy can drift from it, and pins the footer picture
-// of the vote card (see docs/audit/production-audit-2026-11-11.md for why that one
-// footer looks larger on PC than on a phone).
+// of the vote card (see docs/audit/production-audit-2026-11-11.md).
 
 const STANDARD = '© Cloudy Inc. • Quality. Innovation. Performance.';
 
@@ -55,9 +54,12 @@ function pngSize(file) {
   return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
 }
 
-test('the vote card keeps its approved footer picture', () => {
-  assert.deepEqual(pngSize('assets/vote-footer-small.png'), { width: 450, height: 23 });
-  assert.match(VOTE_FOOTER_URL, /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-footer-small\.png$/,
+test('the vote card footer is a picture as wide as a phone shows it, so PC and phone match', () => {
+  // On PC Discord shows a picture at its own width; on a phone it shrinks it
+  // to the card (about 315 points). At 450 px the footer was larger on PC.
+  assert.deepEqual(pngSize('assets/vote-footer-compact.png'), { width: 315, height: 16 });
+  assert.deepEqual(pngSize('assets/vote-footer-small.png'), { width: 450, height: 23 }, 'the earlier picture is kept');
+  assert.match(VOTE_FOOTER_URL, /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/vote-footer-compact\.png$/,
     'a fixed link: the picture never changes or reloads when a vote is redrawn');
 
   const vote = { messageId: '1', guildId: '2', channelId: '3', question: 'Q', options: ['A', 'B'], votes: {}, layout: 'preview' };
