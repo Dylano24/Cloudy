@@ -76,23 +76,20 @@ test('public song announcement includes verified artwork, artist, album and queu
   assert.equal(formatMusicProgress(0, 0), null);
 });
 
-test('music guide documents the real slash commands and keeps Cloudy branding', () => {
+test('music guide keeps Cloudy branding and the commands explain the player buttons by emoji', () => {
   const guide = buildMusicGuideEmbed().toJSON();
   assert.equal(guide.title, 'Cloudy music');
   assert.match(guide.description, /Click the button below/);
   assert.ok(!guide.description.includes('/now playing'), 'the public panel must remain short');
   const commands = buildMusicCommandsEmbed().toJSON();
   assert.equal(commands.title, 'Music commands');
-  assert.match(commands.description, /\/now playing/);
-  assert.match(commands.description, /\/music volume/);
-  for (const hidden of ['/music seek', '/music 247', '/music guide', '/nowplaying']) {
-    assert.ok(!commands.description.includes(hidden), `${hidden} must be removed from the Commands list`);
+  // The buttons of the player, each with its own emoji and a short explanation.
+  for (const [emoji, name] of [['⏸️', 'Pause / Resume'], ['▶️', 'Pause / Resume'], ['⏭️', 'Skip'], ['🔀', 'Shuffle'], ['🔁', 'Loop'], ['🔂', 'Loop'], ['📋', 'Queue'], ['🎵', 'Playlists'], ['⏹️', 'Stop']]) {
+    assert.ok(commands.description.includes(emoji), `${emoji} is explained`);
+    assert.ok(commands.description.includes(`**${name}**`), `${name} is explained`);
   }
-  assert.match(commands.description, /\/music leave/);
-  assert.ok(!commands.description.includes('Please note'));
-  for (const line of commands.description.split('\n').filter(line => line.includes(' — '))) {
-    assert.ok(line.split(' — ')[1].length <= 15, `Command explanation must stay short: ${line}`);
-  }
+  // /play is the only slash command: the player covers the rest, other commands (such as a future Guess the song) get their own line.
+  assert.deepEqual(commands.description.match(/`\/[a-z ]+`/g), ['`/play`']);
   assert.equal(commands.footer.text, FOOTER);
   assert.match(guide.description, /\/play/);
   assert.equal(guide.footer.text, FOOTER);

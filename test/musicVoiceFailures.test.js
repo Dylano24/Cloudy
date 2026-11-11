@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PermissionFlagsBits } from 'discord.js';
-import { playQuery } from '../src/services/music/musicActions.js';
+import { playQuery, waitForMusicReady } from '../src/services/music/musicActions.js';
 import { setupPlayerHandler } from '../src/services/music/playerHandler.js';
 
 const track = { info: { title: 'Song', author: 'Artist', uri: 'https://example.com/song', length: 1000 } };
@@ -75,22 +75,66 @@ test('play() answers false instead of rejecting where nobody awaits it', async (
   assert.equal(await player.play(), false);
 });
 
-test('when Discord sent the voice details but the node cannot use them, the other node is tried', async () => {
-  const nodeA = { name: 'A' };
-  const nodeB = { name: 'B' };
-  const first = makePlayer(async () => false);
-  first.node = nodeA;
-  first.connection = { voice: { sessionId: 's', endpoint: 'rotterdam123.discord.media', token: 't' } };
-  const second = makePlayer(async function play() { this.playing = true; return this; });
-  const { client, interaction } = setup('voice-failover', first);
+test('when Discord sent the voice details but the node cannot use them, the same player moves to the other node', async () => {
+  const nodeA = { name: 'A-move', rest: { destroyed: 0, destroyPlayer() { this.destroyed += 1; return Promise.resolve(); } } };
+  const nodeB = { name: 'B-move', rest: {} };
+  let plays = 0;
+  const player = makePlayer(async function play() {
+    plays += 1;
+    if (plays === 1) return false;
+    this.playing = true;
+    return this;
+  });
+  player.guildId = 'voice-move';
+  player.voiceChannel = 'voice';
+  const sent = [];
+  player.connection = {
+    voice: { sessionId: 's', endpoint: 'rotterdam123.discord.media', token: 't' },
+    pendingUpdate: 'unanswered',
+    establishing: true,
+    updatePlayerVoiceData: async data => { sent.push({ node: player.node.name, data }); },
+  };
+  const { client, interaction } = setup('voice-move', player);
   client.riffy.leastUsedNodes = [nodeA, nodeB];
   const created = [];
-  client.riffy.createPlayer = node => { created.push(node.name); second.node = node; return second; };
+  client.riffy.createPlayer = node => { created.push(node.name); player.node = node; return player; };
   const { embed } = await playQuery(client, interaction, 'some song');
-  assert.deepEqual(created, ['B']);
-  assert.equal(first.destroyed, true, 'the failed connection is dropped');
-  assert.equal(second.queue.length, 1, 'the song moved to the new connection');
+  assert.deepEqual(created, ['A-move'], 'the player is created once: nobody leaves and joins again');
+  assert.equal(player.node, nodeB);
+  assert.deepEqual(sent, [{ node: 'B-move', data: { sessionId: 's', endpoint: 'rotterdam123.discord.media', token: 't', channelId: 'voice' } }]);
+  assert.equal(nodeA.rest.destroyed, 1, 'the old node is told to let go');
+  assert.equal(player.connection.pendingUpdate, null);
+  assert.equal(player.destroyed, false);
+  assert.equal(player.queue.length, 1, 'the song stays queued for the new node');
   assert.equal(embed.toJSON().title, 'Now playing');
+
+  // The node that failed is tried last for the next /play, so nobody waits for it again.
+  const next = makePlayer(async function play() { this.playing = true; return this; });
+  const second = setup('voice-move-next', next);
+  second.client.riffy.leastUsedNodes = [nodeA, nodeB];
+  const createdNext = [];
+  second.client.riffy.createPlayer = node => { createdNext.push(node.name); next.node = node; return next; };
+  await playQuery(second.client, second.interaction, 'another song');
+  assert.deepEqual(createdNext, ['B-move']);
+});
+
+test('every node is tried and the message is clear when none can hold the voice connection', async () => {
+  const nodeA = { name: 'A-none', rest: { destroyPlayer: async () => {} } };
+  const nodeB = { name: 'B-none', rest: { destroyPlayer: async () => {} } };
+  const player = makePlayer(async () => false);
+  player.guildId = 'voice-none';
+  player.voiceChannel = 'voice';
+  const sent = [];
+  player.connection = {
+    voice: { sessionId: 's', endpoint: 'x.discord.media', token: 't' },
+    updatePlayerVoiceData: async () => { sent.push(player.node.name); },
+  };
+  const { client, interaction } = setup('voice-none', player);
+  client.riffy.leastUsedNodes = [nodeA, nodeB];
+  client.riffy.createPlayer = node => { player.node = node; return player; };
+  await assert.rejects(playQuery(client, interaction, 'some song'), error => /could not connect to your voice channel/.test(error.userMessage));
+  assert.deepEqual(sent, ['B-none']);
+  assert.equal(player.destroyed, true);
 });
 
 test('no second try when Discord never sent the voice details', async () => {
@@ -100,9 +144,9 @@ test('no second try when Discord never sent the voice details', async () => {
   const { client, interaction } = setup('voice-no-details', first);
   client.riffy.leastUsedNodes = [first.node, { name: 'B' }];
   let created = 0;
-  client.riffy.createPlayer = () => { created += 1; return makePlayer(async () => true); };
+  client.riffy.createPlayer = node => { created += 1; first.node = node; return first; };
   await assert.rejects(playQuery(client, interaction, 'some song'), error => /could not connect to your voice channel/.test(error.userMessage));
-  assert.equal(created, 0);
+  assert.equal(created, 1, 'the player is created once and never moved: there are no voice details to move');
   assert.equal(first.destroyed, true);
 });
 
@@ -134,4 +178,59 @@ test('a bot that is not shown in a voice channel just joins', async () => {
   client.riffy.createConnection = () => { order.push('join'); return player; };
   await playQuery(client, interaction, 'some song');
   assert.deepEqual(order, ['join']);
+});
+
+test('a /play right after a restart waits for the music server instead of failing', async () => {
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('restart-wait', player, { permissionsFor: () => ({ has: () => true }) }, {});
+  client.riffy.initiated = false;
+  client.riffy.leastUsedNodes = [];
+  setTimeout(() => { client.riffy.initiated = true; client.riffy.leastUsedNodes = [{ name: 'W-ready' }]; }, 400);
+  client.riffy.createPlayer = node => { player.node = node; return player; };
+  const { embed } = await playQuery(client, interaction, 'some song');
+  assert.equal(embed.toJSON().title, 'Now playing');
+});
+
+test('when the music server never comes up the message is clear, not "Something went wrong"', async () => {
+  const client = { riffy: { initiated: false, players: new Map() } };
+  await assert.rejects(waitForMusicReady(client, 300), error => {
+    assert.equal(error.name, 'CloudyError');
+    assert.equal(error.type, 'network');
+    assert.match(error.userMessage, /music server is not responding/);
+    return true;
+  });
+});
+
+test('the same song can be added again, also while it plays or is queued', async () => {
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('duplicates', player, { permissionsFor: () => ({ has: () => true }) }, {});
+  const first = await playQuery(client, interaction, 'some song');
+  assert.equal(first.embed.toJSON().title, 'Now playing');
+  const again = await playQuery(client, interaction, 'some song');
+  assert.equal(again.embed.toJSON().title, 'Added to queue');
+  assert.equal(player.queue.length, 2);
+
+  client.riffy.resolve = async () => ({ loadType: 'playlist', playlistInfo: { name: 'Mix' }, tracks: [{ ...track, info: { ...track.info } }, { ...track, info: { ...track.info } }] });
+  const playlist = await playQuery(client, interaction, 'a playlist');
+  assert.match(playlist.embed.toJSON().description, /Added 2 track\(s\)\./);
+  assert.doesNotMatch(playlist.embed.toJSON().description, /duplicate/i);
+  assert.equal(player.queue.length, 4);
+});
+
+test('a search that one node cannot answer is answered by the other node', async () => {
+  const nodeA = { name: 'A-search' };
+  const nodeB = { name: 'B-search' };
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('search-fallback', player, { permissionsFor: () => ({ has: () => true }) }, {});
+  client.riffy.leastUsedNodes = [nodeA, nodeB];
+  client.riffy.createPlayer = node => { player.node = node; return player; };
+  const asked = [];
+  client.riffy.resolve = async ({ node }) => {
+    asked.push(node.name);
+    if (node === nodeA) throw new TypeError('no body');
+    return { loadType: 'track', tracks: [{ ...track, info: { ...track.info } }] };
+  };
+  const { embed } = await playQuery(client, interaction, 'some song');
+  assert.deepEqual(asked, ['A-search', 'B-search']);
+  assert.equal(embed.toJSON().title, 'Now playing');
 });
