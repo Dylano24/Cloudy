@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PermissionFlagsBits } from 'discord.js';
 import { playQuery, waitForMusicReady } from '../src/services/music/musicActions.js';
 import { setupPlayerHandler } from '../src/services/music/playerHandler.js';
+import { initializeMusic } from '../src/services/music/riffySetup.js';
 
 const track = { info: { title: 'Song', author: 'Artist', uri: 'https://example.com/song', length: 1000 } };
 function makePlayer(play) {
@@ -233,4 +234,12 @@ test('a search that one node cannot answer is answered by the other node', async
   const { embed } = await playQuery(client, interaction, 'some song');
   assert.deepEqual(asked, ['A-search', 'B-search']);
   assert.equal(embed.toJSON().title, 'Now playing');
+});
+
+test('a music node that drops out is tried again for as long as it takes, never given up', () => {
+  const client = Object.assign(new EventEmitter(), { channels: { cache: new Map() }, guilds: { cache: new Map() } });
+  initializeMusic(client);
+  assert.equal(client.riffy.options.reconnectTries, Infinity);
+  assert.equal(client.riffy.options.reconnectTimeout, 10_000);
+  client.riffy.removeAllListeners();
 });
