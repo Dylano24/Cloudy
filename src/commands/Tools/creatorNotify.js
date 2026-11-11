@@ -29,6 +29,9 @@ export default {
       .addStringOption(platforms).addStringOption(username))
     .addSubcommand(sub => sub.setName('list').setDescription('Show configured creator notifications'))
     .addSubcommand(sub => sub.setName('check').setDescription('Check for new posts now')),
+  // Discord limits guild commands to 100. Keep this feature as one global
+  // application command; existing 100 guild commands stay untouched.
+  globalRegistration: true,
   category: 'Tools',
   async execute(interaction, _config, client) {
     if (!interaction.guildId || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
