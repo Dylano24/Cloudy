@@ -114,3 +114,24 @@ test('the bot\'s own member is fetched when it is not cached, so the permission 
   await assert.rejects(playQuery(client, interaction, 'some song'), error => error.type === 'permission');
   assert.equal(created.length, 0);
 });
+
+test('a bot that Discord still shows in a voice channel leaves it before joining', async () => {
+  const order = [];
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('voice-stale', player, { permissionsFor: () => ({ has: () => true }) }, { voice: { channelId: 'old-channel' } });
+  client.riffy.send = payload => order.push(['send', payload.op, payload.d.channel_id]);
+  client.riffy.createConnection = () => { order.push(['join']); return player; };
+  const { embed } = await playQuery(client, interaction, 'some song');
+  assert.deepEqual(order, [['send', 4, null], ['join']], 'it leaves first, then joins');
+  assert.equal(embed.toJSON().title, 'Now playing');
+});
+
+test('a bot that is not shown in a voice channel just joins', async () => {
+  const order = [];
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('voice-clean', player, { permissionsFor: () => ({ has: () => true }) }, { voice: { channelId: null } });
+  client.riffy.send = () => order.push('send');
+  client.riffy.createConnection = () => { order.push('join'); return player; };
+  await playQuery(client, interaction, 'some song');
+  assert.deepEqual(order, ['join']);
+});
