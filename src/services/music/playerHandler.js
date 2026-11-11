@@ -3,6 +3,7 @@
 import { logger } from '../../utils/logger.js';
 import { getGuildMusicData, clearUpdateInterval } from './playerStore.js';
 import { findCloudyChannelByAlias, getCloudyChannelDefinition } from '../cloudyChannelResolver.js';
+import { finishRequestMessage, lastFinishedTrack } from './musicRequestMessages.js';
 import {
     buildNowPlayingEmbed,
     buildPlayerButtonRows,
@@ -174,8 +175,16 @@ export function setupPlayerHandler(client) {
         }
     });
 
+    client.riffy.on('trackEnd', (player, track, payload) => {
+        const reason = String(payload?.reason || '').replace('_', '').toLowerCase();
+        // A song on repeat is still playing.
+        if (player?.loop === 'track' && reason === 'finished') return;
+        void finishRequestMessage(client, track, reason === 'loadfailed' ? 'failed' : 'played');
+    });
+
     client.riffy.on('queueEnd', async (player) => {
         try {
+            void finishRequestMessage(client, lastFinishedTrack(player));
             const guildData = getGuildMusicData(player.guildId);
             clearUpdateInterval(guildData);
 
@@ -220,6 +229,7 @@ export function setupPlayerHandler(client) {
     });
 
     client.riffy.on('playerDisconnect', async (player) => {
+        void finishRequestMessage(client, player.current);
         const guildData = getGuildMusicData(player.guildId);
         clearUpdateInterval(guildData);
 

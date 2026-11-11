@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { playQuery, replyMusicSuccess } from '../../services/music/musicActions.js';
 import { deferMusicPublic } from '../../services/music/prefixSupport.js';
+import { rememberRequestMessage } from '../../services/music/musicRequestMessages.js';
 
 export default {
     slashOnly: true,
@@ -16,5 +17,8 @@ export default {
         await deferMusicPublic(interaction);
         const result = await playQuery(client, interaction, interaction.options.getString('query'));
         await replyMusicSuccess(interaction, result.embed);
+        if (result.track) {
+            await rememberRequestMessage(client, result.track, await interaction.fetchReply?.().catch(() => null));
+        }
     },
 };
