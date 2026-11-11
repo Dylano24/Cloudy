@@ -134,3 +134,37 @@ test('add and remove with the same YouTube channel link store stable UC IDs and 
   }), true, 'removal by original pasted link should not require another YouTube request');
   assert.equal((await listCreatorNotifications(client, GUILD)).length, 0);
 });
+
+test('common pasted YouTube share links resolve the author from video metadata', async () => {
+  const videoId = 'dQw4w9WgXcQ';
+  const videoPage = '<script>ytInitialPlayerResponse={"videoDetails":{"videoId":"' +
+    videoId + '","channelId":"' + ID + '","title":"Clip"}};</script>';
+  const urls = [];
+  const fetcher = async url => {
+    urls.push(url);
+    return response(videoPage);
+  };
+  const sources = [
+    'https://youtu.be/' + videoId + '?si=abc123',
+    'youtu.be/' + videoId,
+    'https://www.youtube.com/watch?v=' + videoId + '&si=xyz',
+    'https://youtube.com/shorts/' + videoId + '?feature=share',
+    'https://www.youtube.com/live/' + videoId,
+    'https://music.youtube.com/watch?v=' + videoId,
+  ];
+  for (const source of sources) {
+    assert.equal(await resolveCreatorAccount('youtube', source, { fetcher, env: {} }), ID, source);
+  }
+  assert.equal(urls.length, sources.length);
+  assert.ok(urls.every(url => url === 'https://www.youtube.com/watch?v=' + videoId));
+});
+
+test('YouTube share URLs still reject untrusted hosts before fetching', async () => {
+  let attempted = 0;
+  const fetcher = async () => { attempted++; return response(''); };
+  await assert.rejects(
+    resolveCreatorAccount('youtube', 'https://youtu.be.attacker.example/dQw4w9WgXcQ', { fetcher }),
+    /valid link/,
+  );
+  assert.equal(attempted, 0);
+});
