@@ -3,7 +3,7 @@
 import { normalizeCreatorAccount } from './creatorNotificationProviders.js';
 
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
-const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com']);
+const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be']);
 const TWITCH_HOSTS = new Set(['twitch.tv', 'www.twitch.tv', 'm.twitch.tv']);
 const TIKTOK_HOSTS = new Set(['tiktok.com', 'www.tiktok.com', 'm.tiktok.com']);
 const HANDLENAME = /^[\p{L}\p{N}_.-]{2,45}$/u;
@@ -13,7 +13,7 @@ function urlFromInput(raw) {
   const value = String(raw || '').trim();
   if (value.length > 512) throw new Error('Creator link is too long.');
   if (/^https?:\/\//i.test(value)) return new URL(value);
-  if (/^(?:www\.|m\.)?(?:youtube\.com|twitch\.tv|tiktok\.com)\//i.test(value)) {
+  if (/^(?:(?:www\.|m\.|music\.)?youtube\.com|(?:www\.)?youtu\.be|(?:www\.)?twitch\.tv|(?:www\.)?tiktok\.com)\//i.test(value)) {
     return new URL('https://' + value);
   }
   return null;
@@ -43,6 +43,14 @@ function youtubeReference(raw) {
     return { id: parts[1] };
   }
   const first = parts[0] || '';
+  // YouTube's share menu most often copies youtu.be, Shorts, Live or watch
+  // links, not a profile URL. Resolve their author channel from the video.
+  const videoId = url.hostname.endsWith('youtu.be') ? first
+    : first === 'watch' ? url.searchParams.get('v')
+      : ['shorts', 'live', 'embed'].includes(first) ? parts[1] : null;
+  if (videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    return { page: 'https://www.youtube.com/watch?v=' + videoId, kind: 'video' };
+  }
   if (first.startsWith('@') && HANDLENAME.test(first.slice(1))) {
     return { page: 'https://www.youtube.com/' + encodeURI(first), kind: 'handle', name: first.slice(1) };
   }
@@ -58,6 +66,9 @@ function youtubeReference(raw) {
 function officialYouTubeId(html) {
   const id = '(UC[A-Za-z0-9_-]{22})';
   const patterns = [
+    // Video shares expose the publishing channel in videoDetails rather than
+    // the channelMetadataRenderer used on profile pages.
+    new RegExp('"videoDetails"\\s*:\\s*\\{[\\s\\S]{0,5000}?"channelId"\\s*:\\s*"' + id + '"'),
     new RegExp('"externalId"\\s*:\\s*"' + id + '"'),
     new RegExp('"channelMetadataRenderer"\\s*:\\s*\\{[\\s\\S]{0,2000}?"externalId"\\s*:\\s*"' + id + '"'),
     new RegExp('<link\\b[^>]*rel=["\\x27]canonical["\\x27][^>]*href=["\\x27]https://(?:www\\.)?youtube\\.com/channel/' + id + '["\\x27]', 'i'),
@@ -99,7 +110,7 @@ async function fetchYouTubePage(page, fetcher) {
 
 async function youtubeApiId({ kind, name }, env, fetcher) {
   const key = String(env.YOUTUBE_API_KEY || '').trim();
-  if (!key || kind === 'c') return null;
+  if (!key || kind === 'c' || kind === 'video') return null;
   const params = new URLSearchParams({ part: 'id', key, [kind === 'user' ? 'forUsername' : 'forHandle']: name });
   const response = await fetcher('https://www.googleapis.com/youtube/v3/channels?' + params, {
     signal: AbortSignal.timeout(10_000),
