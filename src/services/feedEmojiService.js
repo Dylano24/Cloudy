@@ -42,10 +42,10 @@ const BASE_EMOJIS = {
   kill_weapon: { name: 'cloudy_rifle', id: '1568299289984106526', fallback: '<a:cloudy_rifle:1568299289984106526>' },
   kill_skull: { name: 'cloudy_headshot', id: '1568299328450207764', fallback: '<a:cloudy_headshot:1568299328450207764>' },
   // ZORP on/off (owner's choice): the owner's own cloudy_zorp_on / cloudy_zorp_off.
-  on: { name: 'cloudy_zorp_on', id: '1568458840775729264', fallbackKey: 'on_swipe', fallback: '<a:cloudy_zorp_on:1568458840775729264>' },
-  off: { name: 'cloudy_zorp_off', id: '1568458812761833632', fallbackKey: 'off_swipe', fallback: '<a:cloudy_zorp_off:1568458812761833632>' },
+  on: { name: 'cloudy_zorp_on_steel', id: '1570121904243613746', fallbackKey: 'on_swipe', fallback: '<:cloudy_zorp_on_steel:1570121904243613746>' },
+  off: { name: 'cloudy_zorp_off_steel', id: '1570122163522895934', fallbackKey: 'off_swipe', fallback: '<:cloudy_zorp_off_steel:1570122163522895934>' },
   // Raid alert (owner's choice): the owner's own cloudy_alert.
-  raid: { name: 'cloudy_alert', id: '1568465464181653594', fallback: '<a:cloudy_alert:1568465464181653594>' },
+  raid: { name: 'cloudy_alert_steel', id: '1570122427416182894', fallback: '<:cloudy_alert_steel:1570122427416182894>' },
   on_swipe: { name: 'on_swipe', id: '1567862120639635458', fallback: '<a:on_swipe:1567862120639635458>' },
   off_swipe: { name: 'off_swipe', id: '1567862121117782077', fallback: '<a:off_swipe:1567862121117782077>' },
 };
