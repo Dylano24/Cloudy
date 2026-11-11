@@ -39,7 +39,7 @@ async function saveCasePresentationField(client, key, audience, field, value) {
     if (!latest?.cases?.[audience]) return latest;
     // A deleted channel still needs its essential close/delete log IDs. Never
     // restore a private notification after deletion.
-    if (latest.cases[audience].deletedAt && !field.endsWith('LogId') && field !== 'logTitlesUpgraded') return latest;
+    if (latest.cases[audience].deletedAt && !field.endsWith('LogId') && !['logTitlesUpgraded', 'reportLogPresentationV3'].includes(field)) return latest;
     latest.cases[audience][field] = value;
     return save(client, latest);
   });
@@ -203,9 +203,12 @@ async function publishStaffLog(client, guild, record, audience, event, actorId, 
 
 // Upgrade existing bot-owned report logs in place, once per case/audience.
 // Do not duplicate messages, alter report metadata, or touch other log systems.
+// Reconcile both previously migrated and old report-logs by their persisted
+// Discord message IDs. Earlier migrations skipped messages whose footer and
+// Report # field disagreed, leaving obsolete R-numbers visible in staff logs.
 async function upgradeExistingReportLogPresentation(client, guild, record, audience) {
   const entry = record.cases?.[audience];
-  if (!entry || entry.reportLogPresentationV2) return;
+  if (!entry || entry.reportLogPresentationV3) return;
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
   if (!logs?.messages?.fetch) return;
 
@@ -215,25 +218,32 @@ async function upgradeExistingReportLogPresentation(client, guild, record, audie
     ['deleteLogId', 'delete'],
   ]) {
     if (!entry[idField]) continue;
+    // An event logged as "deleted" can only be produced by 24-hour expiry.
+    if (event === 'delete' && entry.deletedBy !== '24-hour expiry') continue;
     const message = await fetchMessage(logs, entry[idField]);
     if (!message || message.author?.id !== client.user.id) continue;
     const current = message.embeds?.[0];
-    if (!current?.fields?.some(field => field.name === 'Report' && field.value === `#${record.number}`)) continue;
+    const original = current?.toJSON?.() || current;
+    if (!original?.fields?.some(field => field.name === 'Report' && /^#\d+$/.test(field.value || ''))) continue;
+    const currentAudience = original.fields.find(field => field.name === 'Audience')?.value;
+    const expectedAudience = audience === 'reporter' ? 'Reporter' : 'Reported member';
+    if (currentAudience && currentAudience !== expectedAudience) continue;
     const desiredTitle = REPORT_LOG_TITLES[audience][event];
     const desiredColor = event === 'delete' ? TICKET_EVENT_STYLES.delete.color
-      : event === 'close' ? TICKET_EVENT_STYLES.close.color : null;
-    const original = current.toJSON?.() || current;
+      : event === 'close' ? TICKET_EVENT_STYLES.close.color : 0xFFFFFF;
     const requiresEdit = original.title !== desiredTitle
       || original.footer?.text !== CLOUDY_STANDARD_FOOTER
-      || (desiredColor != null && original.color !== desiredColor);
+      || original.color !== desiredColor
+      || original.thumbnail?.url !== CLOUDY_LOGO_URL;
     if (!requiresEdit) continue;
     const updated = EmbedBuilder.from(current).setTitle(desiredTitle);
     updated.data.footer = { text: CLOUDY_STANDARD_FOOTER };
     delete updated.data.timestamp;
-    if (desiredColor != null) setPreservedEmbedColor(updated, desiredColor);
-    await message.edit({ embeds: [updated] });
+    updated.setThumbnail(CLOUDY_LOGO_URL);
+    setPreservedEmbedColor(updated, desiredColor);
+    await message.edit({ embeds: [updated], components: [] });
   }
-  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'reportLogPresentationV2', true);
+  await saveCasePresentationField(client, reportKey(record.guildId, record.messageId), audience, 'reportLogPresentationV3', true);
 }
 async function refreshLogControls(client, guild, record, audience) {
   const logs = await fetchChannel(guild, REPORT_LOG_CHANNEL_ID);
@@ -619,9 +629,9 @@ export async function restoreReportCaseTimers(client) {
         for (const audience of audiences) {
           const entry = record.cases[audience];
           if (!entry) continue;
-          if (!entry.reportLogPresentationV2) {
+          if (!entry.reportLogPresentationV3) {
             await upgradeExistingReportLogPresentation(client, guild, record, audience);
-            entry.reportLogPresentationV2 = true;
+            entry.reportLogPresentationV3 = true;
           }
           if (!entry.logControlsCleaned) {
             await refreshLogControls(client, guild, record, audience);
