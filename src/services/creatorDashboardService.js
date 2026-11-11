@@ -124,15 +124,13 @@ export function creatorChannelChooser(session, editing = false) {
   if (!editing) rows.push(new ActionRowBuilder().addComponents(platformMenu(session)));
   rows.push(new ActionRowBuilder().addComponents(picker));
   rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':default')
-      .setLabel('Use platform channel').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id)
       .setLabel('Back').setStyle(ButtonStyle.Secondary),
   ));
   return {
     embeds: [baseEmbed(editing
-      ? 'Select the channel where Cloudy should post this creator, or use the #youtube, #twitch or #tiktok channel.'
-      : 'Select the channel where Cloudy should post, or use the #youtube, #twitch or #tiktok channel. Choose a platform only when you will enter a username instead of a profile link.')],
+      ? 'Select the channel where Cloudy should post this creator.'
+      : 'Select the channel where Cloudy should post. Choose a platform only when you will enter a username instead of a profile link.')],
     components: rows,
     allowedMentions: { parse: [] },
   };
@@ -170,7 +168,7 @@ export function creatorDetail(session, creator) {
     value: '**Profile:** ' + profileUrl(creator)
       + '\n**Channel:** ' + destinationText(creator)
       + '\n**Status:** ' + statusText(creator)
-      + '\nExisting posts are skipped; only new videos and livestreams are announced.',
+      + '\n\nExisting posts are skipped; only new videos and livestreams are announced.',
   });
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(PREFIX + 'button:' + session.id + ':channel')
@@ -189,7 +187,7 @@ export function creatorDetail(session, creator) {
 function addModal(session) {
   const field = new TextInputBuilder().setCustomId('link').setLabel('Creator link')
     .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500)
-    .setPlaceholder('https://www.youtube.com/@MrBeast');
+    .setPlaceholder('https://www.youtube.com/@');
   return new ModalBuilder().setCustomId(PREFIX + 'submit:' + session.id).setTitle('Add creator')
     .addComponents(new ActionRowBuilder().addComponents(field));
 }
@@ -313,15 +311,6 @@ export async function handleCreatorControls(interaction, client) {
         if (!creators.length) return await showDashboard(interaction, client, session).then(() => true);
         session.view = 'picker';
         await interaction.update(creatorChooser(session, creators));
-        return true;
-      }
-      if (value === 'default' && session.action === 'add') {
-        session.channelId = null;
-        await showAddForm(interaction, session);
-        return true;
-      }
-      if (value === 'default' && session.action === 'channel' && session.creator) {
-        await saveChannel(interaction, client, session, null);
         return true;
       }
       if (!session.creator || session.view !== 'detail' || !['channel', 'pause', 'delete'].includes(value)) {
