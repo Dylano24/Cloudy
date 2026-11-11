@@ -1,5 +1,6 @@
-// Saved playlists of the music player: a private panel (Playlists button on the
-// player) to start a playlist, add one with its link or remove one. A saved
+// Saved playlists of the music player: a private panel (Add button on the
+// player) to start a playlist, add one with its link (then Start or Delete it at
+// once) or remove one. A saved
 // playlist is its link, so starting it always loads the current songs. They are
 // stored per server in PostgreSQL (guild:<id>:music-playlists), never in memory.
 import {
@@ -128,6 +129,19 @@ function playlistMenu(session, items, action, placeholder) {
 }
 
 export function buildPlaylistPanel(session, items) {
+  // Right after Add (owner's choice): the new playlist with Start and Delete.
+  const focused = session.view === 'saved' ? items.find(item => item.id === session.focusId) : null;
+  if (focused) {
+    return {
+      embeds: [baseEmbed(`**${String(focused.name).slice(0, 200)}**\n${songs(focused.count || 0)} · added by ${focused.ownerName || 'Unknown'}`)],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(PREFIX + 'play:' + session.id).setLabel('Start').setStyle(ButtonStyle.Success).setEmoji('▶️'),
+        new ButtonBuilder().setCustomId(PREFIX + 'delete:' + session.id).setLabel('Delete').setStyle(ButtonStyle.Danger).setEmoji('🗑️'),
+        new ButtonBuilder().setCustomId(PREFIX + 'back:' + session.id).setLabel('Back').setStyle(ButtonStyle.Secondary),
+      )],
+      allowedMentions: { parse: [] },
+    };
+  }
   if (session.view === 'remove' && items.length) {
     return {
       embeds: [baseEmbed('Choose the playlist you want to remove.')],
@@ -212,8 +226,35 @@ export async function openPlaylistPanel(interaction, client) {
 
 async function showPanel(interaction, client, session, method = 'update') {
   const items = await listPlaylists(client, session.guildId);
-  if (!items.length) session.view = 'main';
+  if (!items.length || (session.view === 'saved' && !items.some(item => item.id === session.focusId))) session.view = 'main';
   await interaction[method](buildPlaylistPanel(session, items));
+}
+
+// Starts a saved playlist; the confirmation replaces the panel and removes itself after 10 seconds.
+async function startSavedPlaylist(interaction, client, session, playlistId) {
+  await interaction.deferUpdate();
+  const items = await listPlaylists(client, session.guildId);
+  const item = items.find(entry => entry.id === playlistId);
+  if (!item) throw new CloudyError('Missing playlist', ErrorTypes.USER_INPUT, 'That playlist no longer exists.');
+  const player = getPlayer(client, session.guildId);
+  if (player) assertCanControl(interaction.member, player);
+  const { embed } = await playQuery(client, interaction, item.url);
+  closeSession(session, false);
+  await interaction.editReply({ embeds: [embed], components: [] });
+  removeLater(() => interaction.deleteReply());
+}
+
+async function deletePlaylist(interaction, client, session, playlistId, method) {
+  const result = await removePlaylist(client, session.guildId, playlistId, {
+    userId: interaction.user.id,
+    canManage: Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild)),
+  });
+  if (result.reason === 'forbidden') {
+    throw new CloudyError('Not allowed', ErrorTypes.PERMISSION, 'Only the person who added this playlist or a moderator can remove it.');
+  }
+  session.view = 'main';
+  await showPanel(interaction, client, session, method);
+  if (result.removed) await notice(interaction, successEmbed('Playlist removed', `**${result.entry.name}** was removed.`));
 }
 
 export async function handleMusicPlaylistControls(interaction, client) {
@@ -240,32 +281,24 @@ export async function handleMusicPlaylistControls(interaction, client) {
     }
 
     if (type === 'start' && interaction.isStringSelectMenu()) {
+      await startSavedPlaylist(interaction, client, session, interaction.values[0]);
+      return true;
+    }
+
+    if (type === 'play' && interaction.isButton()) {
+      await startSavedPlaylist(interaction, client, session, session.focusId);
+      return true;
+    }
+
+    if (type === 'delete' && interaction.isButton()) {
       await interaction.deferUpdate();
-      const items = await listPlaylists(client, session.guildId);
-      const item = items.find(entry => entry.id === interaction.values[0]);
-      if (!item) throw new CloudyError('Missing playlist', ErrorTypes.USER_INPUT, 'That playlist no longer exists.');
-      const player = getPlayer(client, session.guildId);
-      if (player) assertCanControl(interaction.member, player);
-      const { embed } = await playQuery(client, interaction, item.url);
-      // The confirmation replaces the panel and removes itself after 10 seconds.
-      closeSession(session, false);
-      await interaction.editReply({ embeds: [embed], components: [] });
-      removeLater(() => interaction.deleteReply());
+      await deletePlaylist(interaction, client, session, session.focusId, 'editReply');
       return true;
     }
 
     if (type === 'removepick' && interaction.isStringSelectMenu()) {
       await interaction.deferUpdate();
-      const result = await removePlaylist(client, session.guildId, interaction.values[0], {
-        userId: interaction.user.id,
-        canManage: Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild)),
-      });
-      if (result.reason === 'forbidden') {
-        throw new CloudyError('Not allowed', ErrorTypes.PERMISSION, 'Only the person who added this playlist or a moderator can remove it.');
-      }
-      session.view = 'main';
-      await showPanel(interaction, client, session, 'editReply');
-      if (result.removed) await notice(interaction, successEmbed('Playlist removed', `**${result.entry.name}** was removed.`));
+      await deletePlaylist(interaction, client, session, interaction.values[0], 'editReply');
       return true;
     }
 
@@ -287,7 +320,9 @@ export async function handleMusicPlaylistControls(interaction, client) {
         ownerId: interaction.user.id,
         ownerName: String(interaction.user.username || 'Unknown').slice(0, 40),
       });
-      session.view = 'main';
+      // The new playlist is shown with Start and Delete (owner's choice).
+      session.view = 'saved';
+      session.focusId = entry.id;
       await showPanel(interaction, client, session, 'editReply');
       await notice(interaction, successEmbed('Playlist added', `**${entry.name}** · ${songs(entry.count)}`));
       return true;

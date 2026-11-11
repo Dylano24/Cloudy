@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Collection } from 'discord.js';
-import { playQuery, applyPause, applyResume, skipCurrentTrack, destroyPlayerSession } from '../src/services/music/musicActions.js';
+import { playQuery, applyPause, applyResume, skipCurrentTrack, destroyPlayerSession, playPreviousTrack } from '../src/services/music/musicActions.js';
 import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/playerStore.js';
 import { refreshPlayerMessage, markTrackStarted, setupPlayerHandler, shutdownMusic } from '../src/services/music/playerHandler.js';
 import { livePlayerPosition } from '../src/services/music/musicEmbeds.js';
@@ -309,4 +309,63 @@ test('the music player panel and its records are kept out of every saved respons
   assert.equal(out.embeds[0].color, 0xFFFFFF, 'white side line, as in Dylano');
   assert.equal(out.embeds[0].image.url, track.info.artworkUrl, 'the cover stays');
   assert.equal(out.embeds[1].color, 0x00C49D, 'other replies still follow their saved template');
+});
+
+test('Previous plays the song before, this song waits after it; with nothing earlier the song starts again', () => {
+  const player = makePlayer();
+  const first = song('first');
+  const second = song('second');
+  const third = song('third');
+  player.current = second;
+  player.queue.add(third);
+  player.seek = position => { player.seekedTo = position; };
+  const data = getGuildMusicData('reliability-previous');
+  data.previousTracks = [first];
+  assert.equal(playPreviousTrack(player, data), true);
+  assert.deepEqual(player.queue.map(item => item.info.title), ['first', 'second', 'third']);
+  assert.equal(player.stops, 1);
+  assert.equal(data.goingBack, true);
+  assert.equal(playPreviousTrack(player, data), false, 'a double click goes back once');
+
+  const alone = makePlayer();
+  alone.current = song('only');
+  alone.seek = position => { alone.seekedTo = position; };
+  const fresh = getGuildMusicData('reliability-previous-alone');
+  assert.equal(playPreviousTrack(alone, fresh), true);
+  assert.equal(alone.seekedTo, 0);
+  assert.equal(alone.stops, 0);
+  deleteGuildMusicData('reliability-previous');
+  deleteGuildMusicData('reliability-previous-alone');
+});
+
+test('going back adds nothing to the history, so Previous can go back further', async () => {
+  const f = liveFixture('reliability-history');
+  const a = song('a');
+  const b = song('b');
+  f.player.current = b;
+  f.player.previous = a;
+  f.client.riffy.emit('trackStart', f.player, b);
+  await settle(); await settle();
+  const data = getGuildMusicData('reliability-history');
+  assert.deepEqual(data.previousTracks.map(item => item.info.title), ['a']);
+  data.goingBack = true;
+  f.player.current = a;
+  f.player.previous = b;
+  f.client.riffy.emit('trackStart', f.player, a);
+  await settle(); await settle();
+  assert.deepEqual(data.previousTracks.map(item => item.info.title), ['a'], 'the song left behind is not added');
+  assert.equal(data.goingBack, false);
+  deleteGuildMusicData('reliability-history');
+});
+
+test('a playlist added while a song plays shows in the player panel at once', async () => {
+  const f = panelFixture('reliability-playlist-now');
+  markTrackStarted(f.player);
+  await refreshPlayerMessage(f.client, 'reliability-playlist-now');
+  f.client.riffy.resolve = async () => ({ loadType: 'playlist', playlistInfo: { name: 'Mix' }, tracks: [song('a'), song('b'), song('c')] });
+  const interaction = { guild: { id: 'reliability-playlist-now' }, channel: { id: 'panel-channel' }, user: { id: 'u' }, member: { voice: { channel: { id: 'voice' } } } };
+  await playQuery(f.client, interaction, 'https://open.spotify.com/playlist/x');
+  const queueField = f.edits.at(-1).embeds[0].toJSON().fields.find(field => field.name === 'Queue');
+  assert.equal(queueField.value, '3 tracks', 'not only after the next 15-second refresh');
+  deleteGuildMusicData('reliability-playlist-now');
 });
