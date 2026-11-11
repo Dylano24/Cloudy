@@ -1,7 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { playQuery, replyMusicSuccess } from '../../services/music/musicActions.js';
-import { deferMusicPublic } from '../../services/music/prefixSupport.js';
-import { rememberRequestMessage } from '../../services/music/musicRequestMessages.js';
+import { deferMusicCommand } from '../../services/music/prefixSupport.js';
 
 export default {
     slashOnly: true,
@@ -14,11 +13,11 @@ export default {
         ),
 
     async execute(interaction, config, client) {
-        await deferMusicPublic(interaction);
+        // Only the persistent music player is public; a private acknowledgement
+        // prevents the second "Now playing" embed from cluttering #music.
+        await deferMusicCommand(interaction);
         const result = await playQuery(client, interaction, interaction.options.getString('query'));
         await replyMusicSuccess(interaction, result.embed);
-        if (result.track) {
-            await rememberRequestMessage(client, result.track, await interaction.fetchReply?.().catch(() => null));
-        }
+
     },
 };
