@@ -9,7 +9,7 @@ const platforms = option => option.setName('platform').setDescription('Platform'
     name: platform[0].toUpperCase() + platform.slice(1), value: platform,
   })));
 const username = option => option.setName('creator')
-  .setDescription('YouTube UC channel ID, Twitch username or TikTok username').setRequired(true);
+  .setDescription('Paste a YouTube, Twitch or TikTok link, or enter a creator ID').setRequired(true);
 
 async function respond(interaction, title, message, success = true) {
   const embed = success ? successEmbed(title, message)
