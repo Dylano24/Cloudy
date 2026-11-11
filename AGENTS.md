@@ -109,6 +109,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 
 ## Music
 
+- `/play` accepts song names and links from YouTube, YouTube Music, Spotify, Apple Music, Deezer, SoundCloud and anything else the Lavalink node opens (owner's choice: the old YouTube-link block is gone on purpose). `musicLinks.js` only cleans pasted text (share messages, `spotify:` URIs, old iTunes links) and expands a few official short links; `playQuery` tries a link on every connected node and creates the player on the node that opened it.
 - Music embeds (owner's choice): sentence-case titles ("Now playing", "Music queue", "Loop updated", ...), the Cloudy logo as thumbnail and the Cloudy footer; on "Now playing" the track cover is the image and Paused/Playing is the Status field. A new player panel (Now playing with controls) is posted in #music when the server has it; an existing panel keeps its message.
 
 ## Vote

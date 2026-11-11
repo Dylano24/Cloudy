@@ -9,7 +9,7 @@ export default {
         .setName('play')
         .setDescription('Play a song or add it to the queue')
         .addStringOption((opt) =>
-            opt.setName('query').setDescription('Song name or URL').setRequired(true),
+            opt.setName('query').setDescription('Song name or a link (YouTube, Spotify, Apple Music, ...)').setRequired(true),
         ),
 
     async execute(interaction, config, client) {
