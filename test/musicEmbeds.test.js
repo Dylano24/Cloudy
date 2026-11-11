@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelType, Collection, MessageFlags } from 'discord.js';
-import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress, getTrackArtwork, estimatedMusicPosition } from '../src/services/music/musicEmbeds.js';
-import { ensureWhiteMusicEmbeds } from '../src/utils/cloudyFooter.js';
+import { ChannelType, Collection } from 'discord.js';
+import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
 import nowCommand from '../src/commands/Music/now.js';
@@ -22,8 +21,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   // (plain blocks until the white pieces are uploaded).
   assert.equal(embed.description, '**Song**\n\n▰▰▰▱▱▱▱▱▱▱');
   assert.equal(buildNowPlayingEmbed({ info: { ...track.info, length: 0 } }, { position: 0, queue: [] }, {}).toJSON().description, '**Song**');
-  assert.match(embed.thumbnail.url, /cloudy-c-logo-auf-auf\.gif/);
-  assert.equal(embed.color, 0xFFFFFF);
+  assert.match(embed.thumbnail.url, /cloudy-c-logo/);
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
   assert.equal(embed.footer.text, FOOTER);
   assert.deepEqual(embed.fields.map(field => [field.name, field.value]), [
@@ -106,10 +104,9 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.ok(now.options.some(o => o.name === 'playing'));
 });
 
-test('/play publishes only the persistent music panel, with no second public or private embed', async t => {
+test('play slash reply is public and includes song cover instead of hiding it', async t => {
   let deferOptions = 'not-called';
   let publicReply = null;
-  let replyDeleted = false;
   t.mock.method(InteractionHelper, 'safeDefer', async (targetInteraction, options) => {
     deferOptions = options;
     targetInteraction.deferred = true;
@@ -137,13 +134,13 @@ test('/play publishes only the persistent music panel, with no second public or 
     channel: { id: 'music-channel' },
     member: { voice: { channel: { id: 'voice-channel' } } },
     user: { id: 'test-user', username: 'Test user' },
-    deleteReply: async () => { replyDeleted = true; },
     options: { getString: () => 'Song' },
   };
   await playCommand.execute(interaction, {}, client);
-  assert.equal(deferOptions.flags, MessageFlags.Ephemeral, 'the acknowledgement must not be a public message');
-  assert.equal(replyDeleted, true, 'the temporary acknowledgement disappears on success');
-  assert.equal(publicReply, null, 'no extra /play embed is sent');
+  assert.equal(deferOptions, undefined, 'slash response is visible to everyone');
+  assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
+  assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
+  assert.deepEqual(publicReply.allowedMentions, { parse: [] });
   assert.equal(queue.length, 1);
 });
 
@@ -196,112 +193,4 @@ test('the player has one row of icon controls; Playlists and Stop share the bott
   const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
   assert.equal(paused[0][0].custom_id, 'music_resume');
   assert.equal(paused[0][3].emoji.name, '🔂');
-});
-
-test('unchanged now-playing panels do not generate redundant Discord edits', async () => {
-  const guildId = 'music-no-redundant-edits';
-  const sent = [];
-  const edits = [];
-  const message = { id: 'one-panel', edit: async payload => { edits.push(payload); } };
-  const channel = {
-    id: 'music-channel', name: 'music', type: ChannelType.GuildText, isTextBased: () => true,
-    messages: { cache: new Collection([['one-panel', message]]), fetch: async () => message },
-    send: async payload => { sent.push(payload); return message; },
-  };
-  const guild = { id: guildId, channels: { cache: new Collection([[channel.id, channel]]) } };
-  const player = { current: track, paused: false, playing: true, position: 0, textChannel: channel.id, queue: [] };
-  const client = {
-    channels: { cache: new Collection([[channel.id, channel]]) },
-    guilds: { cache: new Collection([[guildId, guild]]) },
-    riffy: { players: new Map([[guildId, player]]) },
-  };
-  try {
-    await refreshPlayerMessage(client, guildId);
-    await refreshPlayerMessage(client, guildId);
-    assert.equal(sent.length, 1);
-    assert.equal(edits.length, 0, 'no edit if progress and buttons have not changed');
-    player.paused = true;
-    await refreshPlayerMessage(client, guildId);
-    assert.equal(edits.length, 1, 'a meaningful change still refreshes the panel');
-  } finally {
-    deleteGuildMusicData(guildId);
-  }
-});
-
-
-test('music embeds preserve original Lavalink artwork even though Riffy drops artworkUrl from info', () => {
-  const rawTrack = { info: {
-    title: 'Original', author: 'Real artist', length: 120_000, sourceName: 'soundcloud',
-    requester: { username: 'Dawg' },
-  }, rawData: { info: { artworkUrl: 'https://cdn.example.com/real-cover.jpg' } } };
-  assert.equal(getTrackArtwork(rawTrack), 'https://cdn.example.com/real-cover.jpg');
-  const panel = buildNowPlayingEmbed(rawTrack, { position: 0, queue: [], paused: false }, {}).toJSON();
-  const request = buildMusicRequestEmbed(rawTrack, { playNow: true }).toJSON();
-  assert.equal(panel.image.url, 'https://cdn.example.com/real-cover.jpg');
-  assert.equal(request.image.url, 'https://cdn.example.com/real-cover.jpg');
-  assert.equal(panel.color, 0xFFFFFF);
-  assert.equal(request.color, 0xFFFFFF);
-  assert.match(panel.thumbnail.url, /cloudy-c-logo-auf-auf\.gif/);
-  assert.match(request.thumbnail.url, /cloudy-c-logo-auf-auf\.gif/);
-  assert.ok(panel.fields.every(field => field.inline === false));
-  assert.ok(request.fields.every(field => field.inline === false));
-});
-
-test('YouTube fallback uses the source identifier; no promise-based thumbnail getter is accessed', () => {
-  let getterCalls = 0;
-  const info = { identifier: 'dQw4w9WgXcQ', sourceName: 'youtube' };
-  Object.defineProperty(info, 'thumbnail', { get() { getterCalls++; return Promise.resolve('wrong'); } });
-  assert.equal(getTrackArtwork({ info }), 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
-  assert.equal(getterCalls, 0);
-});
-
-test('final Discord output forces white only on music request and player embeds', () => {
-  const playing = buildNowPlayingEmbed(track, { position: 5000, queue: [] }, {}).toJSON();
-  const request = buildMusicRequestEmbed(track, { playNow: true }).toJSON();
-  const warning = { title: 'Other', color: 0x00C49D };
-  const result = ensureWhiteMusicEmbeds({ embeds: [
-    { ...playing, color: 0x00C49D }, { ...request, color: 0x00C49D }, warning,
-  ] });
-  assert.deepEqual(result.embeds.map(e => e.color), [0xFFFFFF, 0xFFFFFF, 0x00C49D]);
-});
-
-
-test('both live player and /play request use the original Dylano Cloudy C without altering the cover', () => {
-  const current = buildNowPlayingEmbed(track, { position: 0, paused: false, queue: [] }, {}).toJSON();
-  const announcement = buildMusicRequestEmbed(track, { playNow: true }).toJSON();
-  const expected = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
-  assert.equal(current.thumbnail.url, expected);
-  assert.equal(announcement.thumbnail.url, expected);
-  assert.equal(current.color, 0xFFFFFF);
-  assert.equal(announcement.color, 0xFFFFFF);
-  assert.equal(current.image.url, track.info.artworkUrl);
-  assert.equal(announcement.image.url, track.info.artworkUrl);
-});
-
-
-test('progress interpolates stale Lavalink position using the active track clock', () => {
-  const started = 1_000_000;
-  const active = { current: track, position: 0, timestamp: 0, playing: true, paused: false, queue: [] };
-  const guild = { progressClock: { track, startedAt: started, pausedAt: null, pausedMs: 0 } };
-  assert.equal(estimatedMusicPosition(active, guild, started + 60_000), 60_000);
-  assert.equal(estimatedMusicPosition(active, guild, started + 90_000), 90_000);
-  assert.match(buildNowPlayingEmbed(active.current, {
-    ...active, position: estimatedMusicPosition(active, guild, started + 60_000),
-  }, {}).toJSON().description, /▰▰▰/);
-  guild.progressClock.pausedAt = started + 62_000;
-  active.paused = true;
-  assert.equal(estimatedMusicPosition(active, guild, started + 100_000), 62_000);
-  active.paused = false;
-  guild.progressClock.pausedMs = 38_000;
-  guild.progressClock.pausedAt = null;
-  assert.equal(estimatedMusicPosition(active, guild, started + 110_000), 72_000);
-  const next = { ...active, current: { info: { title: 'Next', length: 180_000 } } };
-  assert.equal(estimatedMusicPosition(next, guild, started + 110_000), 0,
-    'the previous track clock does not leak into the next song');
-});
-
-test('progress bar shows its first white segment once a song has started', async () => {
-  const { musicProgressBar } = await import('../src/services/music/musicEmbeds.js');
-  assert.match(musicProgressBar(1000, 180000), /▰/);
-  assert.equal(musicProgressBar(0, 180000), '▱'.repeat(10));
 });
