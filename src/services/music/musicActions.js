@@ -313,13 +313,14 @@ function withTimeout(promise, ms) {
 
 // Riffy throws a TypeError when the music node answers without a body
 // (e.g. while Lavalink restarts); show a clear message instead of a crash.
-async function resolveQuery(client, interaction, query, node = null) {
+async function resolveQuery(client, interaction, query, node = null, source = null) {
     let result;
     try {
         result = await withTimeout(client.riffy.resolve({
             query,
             requester: interaction.user,
             ...(node ? { node } : {}),
+            ...(source ? { source } : {}),
         }), RESOLVE_TIMEOUT_MS);
     } catch (error) {
         throw new CloudyError(
@@ -357,20 +358,20 @@ async function searchAcrossNodes(client, interaction, query, preferred = null) {
 // Links from YouTube, Spotify, Apple Music, Deezer, SoundCloud and others go to
 // the music server. A link is tried on every connected node, and a new player
 // is created on the node that opened it (no voice join for a link nobody can open).
-async function resolveLinkAndConnect(client, interaction, query) {
+async function resolveLinkAndConnect(client, interaction, query, source = null) {
     const existing = getPlayer(client, interaction.guild.id);
     const nodes = existing ? [existing.node].filter(Boolean) : orderedNodes(client);
 
     if (!nodes.length) {
         const { player } = await ensurePlayer(client, interaction);
-        return { player, result: await resolveQuery(client, interaction, query) };
+        return { player, result: await resolveQuery(client, interaction, query, null, source) };
     }
 
     let failure = null;
     let last = null;
     for (const node of nodes) {
         try {
-            const result = await resolveQuery(client, interaction, query, node);
+            const result = await resolveQuery(client, interaction, query, node, source);
             if (isPlayableResult(result)) {
                 const { player } = await ensurePlayer(client, interaction, { node });
                 return { player, result };
@@ -420,15 +421,25 @@ export async function playQuery(client, interaction, rawQuery) {
     let result;
     let spotifyMetadata = null;
     if (isLink) {
-        try {
+        // Spotify links are metadata, not directly streamable audio in Lavalink.
+        // Do not send them to Lavalink's generic HTTP player first. Its default
+        // YouTube provider can resolve search results but fail during streaming
+        // with "requires login" / "no supported audio streams".
+        spotifyMetadata = await getSpotifyTrackMetadata(query);
+        if (spotifyMetadata) {
+            try {
+                // SoundCloud uses a separate playable source on Lavalink and
+                // avoids the YouTube client failure observed on Railway.
+                ({ player, result } = await resolveLinkAndConnect(
+                    client, interaction, spotifyMetadata.title, 'scsearch'));
+            } catch (soundcloudError) {
+                logger.warn('[MUSIC] SoundCloud search unavailable, trying music search fallback: '
+                    + (soundcloudError?.message || soundcloudError));
+                ({ player, result } = await resolveLinkAndConnect(
+                    client, interaction, spotifyMetadata.title + ' official audio'));
+            }
+        } else {
             ({ player, result } = await resolveLinkAndConnect(client, interaction, query));
-        } catch (originalError) {
-            // Private Lavalink can play YouTube but doesn't necessarily have a
-            // Spotify source plugin. Resolve the real Spotify track title via
-            // Spotify oEmbed, then search for playable audio on the same node.
-            spotifyMetadata = await getSpotifyTrackMetadata(query);
-            if (!spotifyMetadata) throw originalError;
-            ({ player, result } = await resolveLinkAndConnect(client, interaction, spotifyMetadata.title + ' official audio'));
         }
     } else {
         ({ player } = await ensurePlayer(client, interaction));

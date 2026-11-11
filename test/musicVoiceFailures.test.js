@@ -260,3 +260,24 @@ test('the music bot stays in voice after the queue finishes until Stop is presse
   assert.equal(player.destroyed, false);
   deleteGuildMusicData(guildId);
 });
+
+
+test('a track source error does not post an unwanted Failed to play text message', async () => {
+  let sent = 0;
+  const client = {
+    channels: { cache: new Map([['text', { send: async () => { sent++; } }]]) },
+    riffy: new EventEmitter(),
+  };
+  setupPlayerHandler(client);
+  const guildId = 'no-music-error-spam';
+  const { getGuildMusicData, deleteGuildMusicData } = await import('../src/services/music/playerStore.js');
+  const data = getGuildMusicData(guildId);
+  data.playerChannelId = 'text';
+  data.progressClock = { track, startedAt: Date.now() - 1000, pausedAt: null, pausedMs: 0 };
+  client.riffy.emit('trackError',
+    { guildId, current: track }, track, { error: { message: 'YouTube requires login' } });
+  assert.equal(sent, 0);
+  assert.equal(data.progressClock, null);
+  assert.equal(data.playbackFailed, true);
+  deleteGuildMusicData(guildId);
+});

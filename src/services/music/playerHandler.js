@@ -181,6 +181,7 @@ export function setupPlayerHandler(client) {
     client.riffy.on('trackStart', async (player, _track) => {
         try {
             const guildData = getGuildMusicData(player.guildId);
+            guildData.playbackFailed = false;
             // The private Lavalink node can report position=0 for a while.
             // Anchor progress to trackStart so the visual bar advances even
             // between (or without) playerUpdate packets.
@@ -229,6 +230,7 @@ export function setupPlayerHandler(client) {
             const guildData = getGuildMusicData(player.guildId);
             clearUpdateInterval(guildData);
             guildData.progressClock = null;
+            guildData.playbackFailed = false;
 
             if (guildData.autoplay) {
                 player.autoplay(player);
@@ -276,6 +278,7 @@ export function setupPlayerHandler(client) {
         const guildData = getGuildMusicData(player.guildId);
         clearUpdateInterval(guildData);
         guildData.progressClock = null;
+        guildData.playbackFailed = false;
 
         if (guildData.playerMessageId && guildData.playerChannelId) {
             try {
@@ -300,15 +303,16 @@ export function setupPlayerHandler(client) {
         }
     });
 
-    client.riffy.on('trackError', async (player, track, payload) => {
-        logger.error(`Track error in ${player.guildId} for "${track?.info?.title}":`, payload?.error || payload);
+    client.riffy.on('trackError', (player, track, payload) => {
+        const error = payload?.exception?.message || payload?.exception?.cause
+            || payload?.error?.message || payload?.error || payload?.message || payload?.type || 'unknown';
+        logger.warn(`[MUSIC] Audio source failed in ${player.guildId} for "${track?.info?.title}": ${String(error).slice(0, 240)}`);
         const guildData = getGuildMusicData(player.guildId);
-        if (guildData.playerChannelId) {
-            const channel = client.channels.cache.get(guildData.playerChannelId);
-            if (channel) {
-                channel.send(`Failed to play **${track?.info?.title || 'track'}**. Skipping...`).catch(() => null);
-            }
-        }
+        // The stream never started: do not animate a fake progress bar.
+        guildData.progressClock = null;
+        guildData.playbackFailed = true;
+        // Riffy handles TrackEndEvent/queueEnd and removes the player when
+        // appropriate. Never spam a plain-text "Failed to play" under it.
     });
 
     client.riffy.on('trackStuck', async (player, track, payload) => {
