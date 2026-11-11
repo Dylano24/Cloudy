@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelType, Collection } from 'discord.js';
-import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress, getTrackArtwork } from '../src/services/music/musicEmbeds.js';
+import { ChannelType, Collection, MessageFlags } from 'discord.js';
+import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress, getTrackArtwork, estimatedMusicPosition } from '../src/services/music/musicEmbeds.js';
 import { ensureWhiteMusicEmbeds } from '../src/utils/cloudyFooter.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
@@ -106,9 +106,10 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   assert.ok(now.options.some(o => o.name === 'playing'));
 });
 
-test('play slash announcement is public in both guilds, like the original player', async t => {
+test('/play publishes only the persistent music panel, with no second public or private embed', async t => {
   let deferOptions = 'not-called';
   let publicReply = null;
+  let replyDeleted = false;
   t.mock.method(InteractionHelper, 'safeDefer', async (targetInteraction, options) => {
     deferOptions = options;
     targetInteraction.deferred = true;
@@ -136,13 +137,13 @@ test('play slash announcement is public in both guilds, like the original player
     channel: { id: 'music-channel' },
     member: { voice: { channel: { id: 'voice-channel' } } },
     user: { id: 'test-user', username: 'Test user' },
+    deleteReply: async () => { replyDeleted = true; },
     options: { getString: () => 'Song' },
   };
   await playCommand.execute(interaction, {}, client);
-  assert.equal(deferOptions, undefined, 'the slash response must be visible to everyone');
-  assert.equal(publicReply.embeds[0].toJSON().image.url, track.info.artworkUrl);
-  assert.equal(publicReply.embeds[0].toJSON().title, 'Now playing');
-  assert.deepEqual(publicReply.allowedMentions, { parse: [] });
+  assert.equal(deferOptions.flags, MessageFlags.Ephemeral, 'the acknowledgement must not be a public message');
+  assert.equal(replyDeleted, true, 'the temporary acknowledgement disappears on success');
+  assert.equal(publicReply, null, 'no extra /play embed is sent');
   assert.equal(queue.length, 1);
 });
 
@@ -275,4 +276,32 @@ test('both live player and /play request use the original Dylano Cloudy C withou
   assert.equal(announcement.color, 0xFFFFFF);
   assert.equal(current.image.url, track.info.artworkUrl);
   assert.equal(announcement.image.url, track.info.artworkUrl);
+});
+
+
+test('progress interpolates stale Lavalink position using the active track clock', () => {
+  const started = 1_000_000;
+  const active = { current: track, position: 0, timestamp: 0, playing: true, paused: false, queue: [] };
+  const guild = { progressClock: { track, startedAt: started, pausedAt: null, pausedMs: 0 } };
+  assert.equal(estimatedMusicPosition(active, guild, started + 60_000), 60_000);
+  assert.equal(estimatedMusicPosition(active, guild, started + 90_000), 90_000);
+  assert.match(buildNowPlayingEmbed(active.current, {
+    ...active, position: estimatedMusicPosition(active, guild, started + 60_000),
+  }, {}).toJSON().description, /▰▰▰/);
+  guild.progressClock.pausedAt = started + 62_000;
+  active.paused = true;
+  assert.equal(estimatedMusicPosition(active, guild, started + 100_000), 62_000);
+  active.paused = false;
+  guild.progressClock.pausedMs = 38_000;
+  guild.progressClock.pausedAt = null;
+  assert.equal(estimatedMusicPosition(active, guild, started + 110_000), 72_000);
+  const next = { ...active, current: { info: { title: 'Next', length: 180_000 } } };
+  assert.equal(estimatedMusicPosition(next, guild, started + 110_000), 0,
+    'the previous track clock does not leak into the next song');
+});
+
+test('progress bar shows its first white segment once a song has started', async () => {
+  const { musicProgressBar } = await import('../src/services/music/musicEmbeds.js');
+  assert.match(musicProgressBar(1000, 180000), /▰/);
+  assert.equal(musicProgressBar(0, 180000), '▱'.repeat(10));
 });
