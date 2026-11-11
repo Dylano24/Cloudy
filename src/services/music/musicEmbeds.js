@@ -229,22 +229,14 @@ export function buildPlayerButtonRows(player, guildData) {
             .setEmoji('🔀'),
     );
 
+    // No volume buttons (owner's choice); /music volume still sets it. The old
+    // button ids stay registered so a player message from before still answers.
     const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
             .setLabel('Loop')
             .setStyle(guildData?.loop !== 'none' ? ButtonStyle.Success : ButtonStyle.Secondary)
             .setEmoji('🔁'),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.VOL_DOWN)
-            .setLabel('Vol -')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🔉'),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.VOL_UP)
-            .setLabel('Vol +')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🔊'),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
             .setLabel('Queue')
