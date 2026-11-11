@@ -137,7 +137,7 @@ test('/poll is now /vote, with buttons, live counts and an optional end time', a
       '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote.\n\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses.'],
     'choices tight under their heading, like Results; then the how-to (owner\'s choice: where the description was)');
   const text = textOf(posted);
-  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote\.\n\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses\.\n\*\*Vote ends\*\*\n<t:\d+:f>$/);
+  assert.match(text, /\*\*Choices\*\*\n1️⃣ \*\*Procedural\*\*\n2️⃣ \*\*Barren\*\*\n<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote\.\n<:W87205667glowingdotwhite:1543291335036108830> Press any number to change your vote\.\n\nIn the event of a tie, the outcome will be determined by a random selection among the winning responses\.\n\*\*Vote ends\*\*\n<t:\d+:f>\n-# \*\*© Cloudy Inc\. • Quality\. Innovation\. Performance\.\*\*$/);
   assert.doesNotMatch(text, /[▰▱]|<t:\d+:R>|Mode/, 'no bars, no countdown, no mode');
   assert.equal(card.components.some(part => part.type === 9 && part.accessory?.type === 2), false, 'no Preview without pictures');
   assert.deepEqual(json(posted.components[1]).components.map(button => [button.custom_id, button.emoji?.name, button.label]),
@@ -237,7 +237,7 @@ test('an ended vote stays as it was without buttons; the result is a message und
   assert.equal(edited.components.length, 1, 'only the card: the vote buttons are gone (owner\'s choice)');
   const result = w.sent[0].reply;
   assert.equal(result, w.sent[1], 'the result is a new message, a reply to the vote');
-  assert.match(textOf(result), /^### The vote has ended!\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\*\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>$/, 'Results above Most votes');
+  assert.match(textOf(result), /^### The vote has ended!\n\*\*Question\*\*\nQ\n\*\*Results\*\*\n2️⃣ \*\*B\*\* · 1 vote · 100%\n1️⃣ \*\*A\*\* · 0 votes · 0%\n\*\*Most votes\*\*\n2️⃣ \*\*B\*\*\n\*\*Total votes\*\*\n1 vote\n\*\*Vote ended\*\*\n<t:\d+:f>\n-# \*\*© Cloudy Inc\. • Quality\. Innovation\. Performance\.\*\*$/, 'Results above Most votes');
   assert.equal((await loadVote(w.client, GUILD, messageId)).resultMessageId, result.id);
   // The normal layout (older votes) loses its buttons too.
   const classic = buildVoteMessage({ question: 'Q', options: ['A', 'B'], votes: { a: 1 }, ended: true, endedAt: Date.now() });
@@ -303,9 +303,9 @@ test('an option with a picture gets a small Preview button right next to it; pla
   assert.deepEqual(previews, [['**Choices**\n1️⃣ **DZ West**\n2️⃣ **DZ East**\n3️⃣ **DZ South**', 'vote_media:all', 'Preview']]);
   assert.doesNotMatch(JSON.stringify(card), /vote-bars/, 'no bars');
   const footer = card.components.at(-1);
-  assert.equal(footer.type, 12, 'footer: a thin white picture (small grey text was the only text option)');
-  assert.equal(footer.items[0].media.url, 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@55bde3bff6463da0970409234c32f8430914bc55/assets/vote-footer-compact.png');
-  assert.equal(footer.items[0].description, undefined, 'no ALT label (it showed as a black line)');
+  assert.equal(footer.type, 10, 'compact native Discord subtext, not an image that expands on desktop');
+  assert.equal(footer.content, '-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
+  assert.doesNotMatch(JSON.stringify(card), /vote-footer-compact\.png/, 'old oversized image never appears');
   assert.deepEqual(row.components.map(button => button.custom_id), ['vote_cast:0', 'vote_cast:1', 'vote_cast:2'], 'vote buttons stay under the vote');
   assert.equal(posted.components.length, 2);
   assert.equal(posted.thread, undefined, 'no thread on the vote');
@@ -742,7 +742,7 @@ test('the vote can tag a role; the how-to sits under the choices and there is no
   const card = json(posted.components[0]);
   assert.deepEqual(card.components.flatMap(part => (part.type === 9 ? part.components : part.type === 10 ? [part] : []))
     .map(part => part.content.split('\n')[0]),
-    ['### The vote has started!', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**'],
+    ['### The vote has started!', '**Question**', '**Choices**', '<:W87205667glowingdotwhite:1543291335036108830> Press a number below to vote.', '**Vote ends**', '-# **© Cloudy Inc. • Quality. Innovation. Performance.**'],
     'Question, Choices, then the how-to (owner\'s choice: where the description was)');
   assert.doesNotMatch(JSON.stringify(card), /Description/);
   const stored = await loadVote(w.client, GUILD, posted.id);

@@ -16,15 +16,10 @@ import { votePreviewFile } from './votePreviewService.js';
 
 export const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 export const CLOUDY_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
-// The card of a vote has no real footer: small text is always grey there.
-// White and small (owner's choice) is a thin picture of the footer on a fixed
-// link like the logo, so every edit keeps the same picture and nothing loads
-// again. Discord sizes a picture by the card, not by a font: on PC it is shown
-// at its own width, on a phone it is shrunk to the card (about 315 points).
-// The picture is therefore 450 px wide, pure white (assets/vote-footer-compact.png), so
-// the footer has the same size on PC as on a phone; at 450 px it was about a
-// third larger on PC. The 450 px picture is still in assets/vote-footer-small.png.
-export const VOTE_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@55bde3bff6463da0970409234c32f8430914bc55/assets/vote-footer-compact.png';
+// A media-gallery footer expands to image width on desktop. Use Discord's
+// native compact subtext (-#) so Vote has the same small footer on desktop
+// and mobile, with no additional image download or layout shifts.
+export const VOTE_FOOTER_COMPACT = '-# **' + CLOUDY_FOOTER + '**';
 // The card's progress bar is a thin picture (owner's choice: white, rounded),
 // like the footer: Discord's app loads custom emoji again every time it
 // redraws the vote (each vote and each button press), which made emoji bars
@@ -249,8 +244,7 @@ function buildPreviewVoteMessage(vote, parts) {
     // This heading literally (owner's choice), at the bottom.
     .addTextDisplayComponents(text(`**Vote ends**\n${vote.endsAt ? `<t:${unix(vote.endsAt)}:f>` : 'Never'}`))
     .addSeparatorComponents(sectionGap());
-  card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
-    .setURL(VOTE_FOOTER_URL)));
+  card.addTextDisplayComponents(text(VOTE_FOOTER_COMPACT));
   const rows = [];
   if (!parts.ended) {
     const buttons = parts.options.map((option, index) => new ButtonBuilder()
@@ -301,7 +295,7 @@ export function buildVoteResultMessage(vote, pictureNames = []) {
     .addSeparatorComponents(sectionGap())
     .addTextDisplayComponents(text(`**Vote ended**\n<t:${unix(vote.endedAt || vote.endsAt || Date.now())}:f>`));
   card.addSeparatorComponents(sectionGap())
-    .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(VOTE_FOOTER_URL)));
+    .addTextDisplayComponents(text(VOTE_FOOTER_COMPACT));
   // The role tag is its own message above the result (owner's choice, as on
   // the start), so Discord highlights only the tag and not the result.
   return {
