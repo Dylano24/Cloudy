@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
@@ -160,22 +160,27 @@ export function buildNowPlayingEmbed(track, player, guildData) {
     // The track's cover is the image; the Cloudy logo stays the thumbnail. The
     // white bar sits under the title on its own line and is the only progress
     // indicator (owner's choice: no "position / length" text next to it).
-    return createEmbed({
+    // This player panel is a fixed design shared by every guild. Do not pass it
+    // through the editable system-embed catalog: a saved Cloudy template can
+    // otherwise replace the Dylano layout on the next progress refresh.
+    const fields = [
+        { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
+        ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
+        { name: 'Requested by', value: requesterLabel, inline: true },
+        { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
+        { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
+        { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: true },
+    ];
+    const artwork = getTrackArtwork(track);
+    return new EmbedBuilder({
         title: 'Now playing',
-        description: `**${track?.info?.title || 'Unknown track'}**${progressBar ? `\n\n${progressBar}` : ''}`,
-        color: 'primary',
-        fields: [
-            { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
-            ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
-            { name: 'Requested by', value: requesterLabel, inline: true },
-            { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
-            { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
-            { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: true },
-        ],
-        thumbnail: CLOUDY_C_LOGO_URL,
-        image: getTrackArtwork(track),
-        footer: CLOUDY_FOOTER,
-    });
+        description: `**${String(track?.info?.title || 'Unknown track').slice(0, 220)}**${progressBar ? `\\n\\n${progressBar}` : ''}`,
+        color: 0xFFFFFF,
+        fields,
+        thumbnail: { url: CLOUDY_C_LOGO_URL },
+        ...(artwork ? { image: { url: artwork } } : {}),
+        footer: { text: CLOUDY_FOOTER },
+    });;
 }
 
 export function buildQueueEmbed(queue, currentTrack, page = 0) {
