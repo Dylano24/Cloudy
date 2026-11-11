@@ -1,6 +1,7 @@
 // Accept familiar creator profile links while keeping YouTube subscriptions
 // keyed to its stable UC channel ID. No untrusted host is ever fetched.
 import { normalizeCreatorAccount } from './creatorNotificationProviders.js';
+import { logger } from '../utils/logger.js';
 
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
 const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be']);
@@ -76,7 +77,7 @@ function youtubeReference(raw) {
     : first === 'watch' ? url.searchParams.get('v')
       : ['shorts', 'live', 'embed'].includes(first) ? parts[1] : null;
   if (videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) {
-    return { page: 'https://www.youtube.com/watch?v=' + videoId, kind: 'video' };
+    return { page: 'https://www.youtube.com/watch?v=' + videoId, kind: 'video', name: videoId };
   }
   if (first.startsWith('@') && HANDLENAME.test(first.slice(1))) {
     return { page: 'https://www.youtube.com/' + encodeURI(first), kind: 'handle', name: first.slice(1) };
@@ -98,6 +99,7 @@ function officialYouTubeId(html) {
     new RegExp('"videoDetails"\\s*:\\s*\\{[\\s\\S]{0,5000}?"channelId"\\s*:\\s*"' + id + '"'),
     new RegExp('"externalId"\\s*:\\s*"' + id + '"'),
     new RegExp('"channelMetadataRenderer"\\s*:\\s*\\{[\\s\\S]{0,2000}?"externalId"\\s*:\\s*"' + id + '"'),
+    new RegExp('feeds/videos\\.xml\\?channel_id=' + id),
     new RegExp('<link\\b[^>]*rel=["\\x27]canonical["\\x27][^>]*href=["\\x27]https://(?:www\\.)?youtube\\.com/channel/' + id + '["\\x27]', 'i'),
   ];
   for (const pattern of patterns) {
@@ -112,18 +114,34 @@ function officialYouTubeId(html) {
   return null;
 }
 
+// Servers in the EU are sent to YouTube's cookie-consent page instead of the
+// channel page. That is not a bad link, so it must never be reported as one.
+const CONSENT_HOSTS = new Set(['consent.youtube.com', 'consent.google.com']);
+const PAGE_HEADERS = {
+  Accept: 'text/html,application/xhtml+xml',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+  Cookie: 'SOCS=CAI; CONSENT=YES+cb',
+};
+class YouTubeConsentError extends Error {}
+
 async function fetchYouTubePage(page, fetcher) {
   let current = page;
   for (let index = 0; index < 4; index++) {
     const response = await fetcher(current, {
       redirect: 'manual',
-      headers: { Accept: 'text/html' },
+      headers: PAGE_HEADERS,
       signal: AbortSignal.timeout(10_000),
     });
     if (response.status >= 300 && response.status < 400 && response.headers?.get?.('location')) {
       const next = new URL(response.headers.get('location'), current);
-      validateUrl(next, YOUTUBE_HOSTS);
-      if (next.protocol !== 'https:') throw new Error('YouTube returned an unsafe redirect.');
+      if (CONSENT_HOSTS.has(next.hostname.toLowerCase())
+        || (next.hostname.toLowerCase() === 'www.google.com' && next.pathname.startsWith('/sorry'))) {
+        throw new YouTubeConsentError('blocked');
+      }
+      if (!YOUTUBE_HOSTS.has(next.hostname.toLowerCase()) || next.protocol !== 'https:' || next.username || next.password || next.port) {
+        throw new Error('YouTube returned an unsafe redirect.');
+      }
       current = next.href;
       continue;
     }
@@ -137,7 +155,14 @@ async function fetchYouTubePage(page, fetcher) {
 
 async function youtubeApiId({ kind, name }, env, fetcher) {
   const key = String(env.YOUTUBE_API_KEY || '').trim();
-  if (!key || kind === 'c' || kind === 'video') return null;
+  if (!key || kind === 'c') return null;
+  if (kind === 'video') {
+    const video = new URLSearchParams({ part: 'snippet', key, id: name });
+    const reply = await fetcher('https://www.googleapis.com/youtube/v3/videos?' + video, { signal: AbortSignal.timeout(10_000) });
+    if (!reply.ok) return null;
+    const channel = (await reply.json()).items?.[0]?.snippet?.channelId;
+    return CHANNEL_ID.test(channel || '') ? channel : null;
+  }
   const params = new URLSearchParams({ part: 'id', key, [kind === 'user' ? 'forUsername' : 'forHandle']: name });
   const response = await fetcher('https://www.googleapis.com/youtube/v3/channels?' + params, {
     signal: AbortSignal.timeout(10_000),
@@ -168,16 +193,36 @@ export async function resolveCreatorAccount(platform, raw, { fetcher = fetch, en
   if (reference.id) return reference.id;
   // Prefer the official API when configured; the public channel page works
   // without a key, so normal creator links need no extra service setup.
-  try {
-    // API credentials are optional. An API outage must not prevent the
-    // public YouTube page fallback from resolving the channel.
-    const id = await youtubeApiId(reference, env, fetcher).catch(() => null);
-    if (id) return id;
-    const pageId = await fetchYouTubePage(reference.page, fetcher);
-    if (pageId) return pageId;
-  } catch (error) {
-    if (/unsafe redirect|valid link|oversized response/i.test(error.message)) throw error;
-    throw new Error('Could not resolve this YouTube channel link. Check the link and try again.');
+  // An API outage must not prevent the public page fallback.
+  const id = await youtubeApiId(reference, env, fetcher).catch(() => null);
+  if (id) return id;
+  if (reference.kind === 'video') {
+    // oEmbed names the video's creator profile; the video itself is never stored.
+    try {
+      const reply = await fetcher('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(reference.page), {
+        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000),
+      });
+      const author = reply.ok ? (await reply.json()).author_url : null;
+      if (typeof author === 'string' && author !== reference.page) {
+        return await resolveCreatorAccount('youtube', author, { fetcher, env });
+      }
+    } catch { /* fall back to the video page below */ }
   }
-  throw new Error('Could not find a YouTube channel ID for this link.');
+  const pages = [reference.page, reference.page.replace('//www.youtube.com/', '//m.youtube.com/')];
+  let failure = null;
+  for (const page of pages) {
+    try {
+      const pageId = await fetchYouTubePage(page, fetcher);
+      if (pageId) return pageId;
+    } catch (error) {
+      failure = failure || error;
+      if (/unsafe redirect|oversized response/i.test(error.message)) throw error;
+    }
+  }
+  if (failure) logger.warn('[CREATOR_NOTIFY] YouTube lookup failed for ' + reference.page + ': ' + failure.message);
+  if (failure instanceof YouTubeConsentError) {
+    throw new Error('YouTube blocked the lookup from this server. Paste the channel link in the form youtube.com/channel/UC... or ask the operator to set YOUTUBE_API_KEY.');
+  }
+  if (failure) throw new Error('Could not reach YouTube to resolve this link. Try again in a moment.');
+  throw new Error('Could not find a YouTube channel for this link.');
 }
