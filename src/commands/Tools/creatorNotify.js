@@ -5,8 +5,8 @@ import { successEmbed, errorEmbed } from '../../utils/embeds.js';
 import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { withCreatorErrorColor } from '../../utils/cloudyFooter.js';
 
-const platforms = option => option.setName('platform').setDescription('Platform')
-  .setRequired(true).addChoices(...CREATOR_PLATFORMS.map(platform => ({
+const platforms = option => option.setName('platform').setDescription('Optional when pasting a profile link')
+  .setRequired(false).addChoices(...CREATOR_PLATFORMS.map(platform => ({
     name: platform[0].toUpperCase() + platform.slice(1), value: platform,
   })));
 const username = option => option.setName('creator')
@@ -36,11 +36,11 @@ export default {
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub => sub.setName('add').setDescription('Monitor a creator')
-      .addStringOption(platforms).addStringOption(username)
+      .addStringOption(username).addStringOption(platforms)
       .addChannelOption(option => option.setName('channel')
         .setDescription('Destination (default: platform channel)').addChannelTypes(ChannelType.GuildText)))
     .addSubcommand(sub => sub.setName('remove').setDescription('Stop monitoring a creator')
-      .addStringOption(platforms).addStringOption(username))
+      .addStringOption(username).addStringOption(platforms))
     .addSubcommand(sub => sub.setName('list').setDescription('Show configured creator notifications')),
   // Discord limits guild commands to 100. Keep this feature as one global
   // application command; existing 100 guild commands stay untouched.
@@ -59,11 +59,11 @@ export default {
         const creator = interaction.options.getString('creator');
         const channel = interaction.options.getChannel('channel');
         const entry = await addCreatorNotification(bot, interaction.guildId, platform, creator, channel?.id);
-        const status = creatorProviderReady(platform) ? 'Ready to monitor' : platform === 'tiktok'
+        const status = creatorProviderReady(entry.platform) ? 'Ready to monitor' : entry.platform === 'tiktok'
           ? 'Saved, but TikTok needs a trusted RSS bridge configured by the operator.'
           : 'Saved, but Twitch API credentials must be configured.';
         return respond(interaction, 'Creator added', '**' + entry.platform + ': ' + entry.account
-          + '**\nDestination: ' + (channel ? '<#' + channel.id + '>' : 'the existing #' + platform + ' channel')
+          + '**\nDestination: ' + (channel ? '<#' + channel.id + '>' : 'the existing #' + entry.platform + ' channel')
           + '\n' + status + '\nExisting posts are skipped on first check; new posts are announced.');
       }
       if (action === 'remove') {
