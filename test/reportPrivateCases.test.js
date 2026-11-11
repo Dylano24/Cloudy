@@ -257,6 +257,28 @@ test('report update footers match the visible channel number and repair existing
   }
 });
 
+test('report-113 reporter and moderation notices always use R113 even with stale record numbers', async () => {
+  const f = fixture();
+  await f.register();
+  let record = await f.submit();
+  for (const audience of ['reporter', 'target']) {
+    const channel = f.channels.get(record.cases[audience].channelId);
+    channel.name = 'report-113';
+  }
+  const oldReportNumber = record.number;
+  record.number = 103;
+  await publishReportOutcome(f.client, f.guild, f.report, record, ['delete'], 'staff');
+  for (const audience of ['reporter', 'target']) {
+    const entry = record.cases[audience];
+    const channel = f.channels.get(entry.channelId);
+    const notice = channel.messages.cache.get(entry.messageId);
+    const embed = json(notice.embeds[0]);
+    assert.equal(embed.footer.text, 'Cloudy Inc. • Moderation team • R113');
+    assert.equal(embed.title, audience === 'reporter' ? 'Report update' : 'Moderation update');
+  }
+  assert.notEqual(oldReportNumber, 113, 'case number deliberately differs from channel');
+});
+
 test('existing compact moderation notice restores one blank line before Auto-close', async () => {
   const f = fixture(); await f.register();
   const record = await f.submit();
