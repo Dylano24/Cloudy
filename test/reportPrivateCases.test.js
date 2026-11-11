@@ -245,7 +245,7 @@ test('existing compact moderation notice restores one blank line before Auto-clo
   const restored = json(notice.embeds[0]);
   assert.match(restored.description, /Private action reason\n\n\*\*Auto-close\*\*/);
   assert.doesNotMatch(restored.description, /Private action reason\n\n\n\*\*Auto-close\*\*/);
-  assert.deepEqual(restored.fields, []);
+  assert.ok(!restored.fields?.length, 'the notice remains in the compact description format');
 });
 
 test('empty reason, invalid duration and unauthorized submissions cannot perform actions or create cases', async t => {
