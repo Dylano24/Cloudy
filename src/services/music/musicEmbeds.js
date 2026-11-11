@@ -105,20 +105,22 @@ export function buildMusicGuideEmbed() {
 }
 
 // Owner's choice: /play starts the music and the player's buttons do everything
-// else, so the buttons are explained here by their own emoji. Only commands that
-// are not on the player (for example a future Guess the song) get a slash command line.
+// else, so the buttons are explained here by their own emoji, one short line each
+// in the order of the buttons (one emoji per line keeps the lines neatly under each
+// other). Only commands that are not on the player (for example a future Guess the
+// song) get a slash command line.
 const MUSIC_COMMANDS_DESCRIPTION = [
-    '**Start the music**',
-    '`/play` — Type a song name or paste a link from YouTube, Spotify, Apple Music, Deezer or SoundCloud. Everything else is done with the buttons on the player.',
+    '**Play**',
+    '`/play` — Play a song or a link.',
     '',
-    '**Player buttons**',
-    '⏸️ / ▶️ **Pause / Resume** — Pause the song, press again to continue.',
-    '⏭️ **Skip** — Play the next song.',
-    '🔀 **Shuffle** — Mix up the order of the queue.',
-    '🔁 / 🔂 **Loop** — Press once to repeat the song (🔂), again to repeat the queue (🔁) and a third time to turn it off.',
-    '📋 **Queue** — See what is coming up next.',
-    '🎵 **Playlists** — Start a saved playlist, add a new one with its link or remove one.',
-    '⏹️ **Stop** — Stop the music, clear the queue and leave the voice channel.',
+    '**Buttons**',
+    '⏸️ Pause or continue',
+    '⏭️ Next song',
+    '🔀 Shuffle the queue',
+    '🔁 Repeat song or queue',
+    '📋 Show the queue',
+    '🎵 Saved playlists',
+    '⏹️ Stop and leave',
 ].join('\n');
 
 export function buildMusicCommandsEmbed() {
