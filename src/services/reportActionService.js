@@ -81,9 +81,14 @@ export function reportActionAllowed(interaction, action, config = {}) {
 }
 
 export function timeoutDuration(value) {
-  if (!/^\d+$/.test(String(value).trim())) throw new Error('Enter a whole number of minutes.');
-  const minutes = Number(value);
-  if (minutes < 1 || minutes > 40_320) throw new Error('Timeout must be between 1 and 40320 minutes.');
+  const input = String(value ?? '').trim().toLowerCase();
+  const match = /^(\d+)\s*(m|h|d|w)?$/.exec(input);
+  if (!match) throw new Error('Invalid duration. Use 1m, 1h, 1d or 1w.');
+  // Bare numbers remain minutes to support existing staff workflows.
+  const minutes = Number(match[1]) * ({ m: 1, h: 60, d: 1440, w: 10080 }[match[2] || 'm']);
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 40_320) {
+    throw new Error('Timeout duration must be between 1 minute and 4 weeks (28 days).');
+  }
   return minutes * 60_000;
 }
 
@@ -153,10 +158,11 @@ export async function handleReportAction(interaction, client, [action, userId]) 
     modal.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('minutes')
-        .setLabel('Duration in minutes')
+        .setLabel('Duration (1m, 1h, 1w)')
+        .setPlaceholder('1m, 1h, 1d, 1w')
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
-        .setMaxLength(5),
+        .setMaxLength(10),
     ));
   }
 
@@ -176,6 +182,25 @@ export async function handleReportModeration(interaction, client, [action, userI
   const actions = reportActionsFor(action);
   if (!interaction.inGuild() || !actions.length) return;
   if (!await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral })) return;
+
+  // Reject malformed or out-of-range durations before any report mutation.
+  // A clear ephemeral notice replaces the generic UNKNOWN_ERROR response.
+  if (actions.includes('timeout')) {
+    try {
+      timeoutDuration(interaction.fields.getTextInputValue('minutes'));
+    } catch (error) {
+      await InteractionHelper.safeEditReply(interaction, {
+        embeds: [createEmbed({
+          title: 'Invalid duration',
+          description: error.message,
+          color: 'error',
+        })],
+      });
+      const expiry = setTimeout(() => interaction.deleteReply?.().catch(() => {}), 10_000);
+      expiry.unref?.();
+      return;
+    }
+  }
 
   const config = await getGuildConfig(client, interaction.guildId);
   if (!reportActionAllowed(interaction, action, config)) {
