@@ -12,6 +12,8 @@ Cloudy checks configured accounts every five minutes and posts a direct content 
 - `/creator-notify list` — saved creators and provider readiness.
 - `/creator-notify remove platform:YouTube creator:UC123...` — stop notifications.
 
+**Simple setup:** `/creator-notify add creator:https://www.youtube.com/@kanaalnaam` — the platform field is optional when pasting a supported link. Cloudy identifies YouTube, Twitch or TikTok from its URL, even if a different platform was selected accidentally. Select the platform only when entering a bare username (except a full `UC...` YouTube channel ID). Paste the person's profile URL; the bot monitors new posts by that creator rather than only the pasted video.
+
 When no channel is supplied, Cloudy resolves the server's existing `#youtube`, `#twitch`, or `#tiktok` channel. The first successful check initializes a baseline without reposting older content. Only unseen content is announced; the recent IDs are stored in PostgreSQL between restarts. Moderation permissions are required for all configuration actions.
 
 ## Platform requirements
