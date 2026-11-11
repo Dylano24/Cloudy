@@ -43,7 +43,8 @@ test('PostgreSQL report counter reconciles case numbers with one atomic statemen
   assert.equal(await nextReportNumber(client, '123'), 107);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].params, ['global:report-counter:123', 'global:report:123:%']);
-  assert.match(calls[0].sql, /MAX\(\(value ->> 'number'\)::bigint\)/);
+  assert.match(calls[0].sql, /MAX\(CASE/);
+  assert.match(calls[0].sql, /value ->> 'number'/);
   assert.match(calls[0].sql, /ON CONFLICT \(key\) DO UPDATE/);
   assert.match(calls[0].sql, /GREATEST\(/);
   assert.match(calls[0].sql, /RETURNING value/);
