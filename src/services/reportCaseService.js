@@ -4,6 +4,66 @@ import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 export const REPORT_CATEGORY_ID = '1556215327526887555';
 export const REPORT_CASE_MS = 24 * 60 * 60_000;
 const queues = new Map();
+const historyFloorReads = new WeakMap();
+const issuedReportFloors = new WeakMap();
+// The existing staff reports destination and follow-up report-logs channel.
+// These are only used to recover the high-water mark after old case rows expire.
+const REPORT_SUBMISSION_CHANNEL_ID = '1554538663512248350';
+const REPORT_HISTORY_LOG_CHANNEL_ID = '1556344268099166319';
+
+function reportNumberFromMessage(message) {
+  if (!message?.embeds?.length) return 0;
+  let highest = 0;
+  for (const embed of message.embeds) {
+    const title = String(embed.title || '');
+    const fromTitle = /^New report #([1-9]\d*)$/i.exec(title)?.[1];
+    const fromField = (embed.fields || []).find(field => field.name === 'Report')
+      ?.value?.match(/^#([1-9]\d*)$/)?.[1];
+    const number = Number(fromTitle || fromField);
+    if (Number.isSafeInteger(number) && number > highest) highest = number;
+  }
+  return highest;
+}
+
+async function highestHistoricalReportNumber(client, guildId) {
+  const guild = client.guilds?.cache?.get?.(guildId);
+  if (!guild) return 0;
+  const key = String(guildId);
+  let reads = historyFloorReads.get(client);
+  if (!reads) { reads = new Map(); historyFloorReads.set(client, reads); }
+  if (!reads.has(key)) {
+    const scanning = (async () => {
+      let highest = 0;
+      for (const channelId of [REPORT_SUBMISSION_CHANNEL_ID, REPORT_HISTORY_LOG_CHANNEL_ID]) {
+        const channel = guild.channels.cache?.get?.(channelId)
+          || await guild.channels.fetch(channelId).catch(error => {
+            if (error.code === 10003 || error.code === 50001) return null;
+            throw error;
+          });
+        if (!channel?.messages?.fetch) continue;
+        let before;
+        // Recover the last 300 staff submissions and 100 follow-up logs.
+        const pages = channelId === REPORT_SUBMISSION_CHANNEL_ID ? 3 : 1;
+        for (let page = 0; page < pages; page++) {
+          const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+          // Discord returns a Collection. Ignore incomplete mocked responses;
+          // never treat a single fetched message as a history batch.
+          if (!batch?.size || typeof batch.values !== 'function') break;
+          for (const message of batch.values()) {
+            if (message.author?.id !== client.user?.id) continue;
+            highest = Math.max(highest, reportNumberFromMessage(message));
+          }
+          before = batch.last()?.id;
+          if (!before || batch.size < 100) break;
+        }
+      }
+      return highest;
+    })();
+    reads.set(key, scanning);
+    scanning.catch(() => { if (reads.get(key) === scanning) reads.delete(key); });
+  }
+  return reads.get(key);
+}
 export const reportKey = (guildId, messageId) => `global:report:${guildId}:${messageId}`;
 
 export function withReportLock(key, operation) {
@@ -69,15 +129,18 @@ export function reportCaseControls(record, _staff = false, disabled = false, aud
 export async function nextReportNumber(client, guildId) {
   const key = `global:report-counter:${guildId}`;
   if (client.db.isDegraded?.() || client.db.isAvailable?.() === false) throw new Error('The report database is unavailable.');
+  let issued = issuedReportFloors.get(client);
+  if (!issued) { issued = new Map(); issuedReportFloors.set(client, issued); }
+  const observedFloor = Math.max(await highestHistoricalReportNumber(client, guildId), issued.get(String(guildId)) || 0);
   const pool = client.db.db?.pool;
   if (pool?.query) {
     const { pgConfig } = await import('../config/database/postgres.js');
     const table = pgConfig.tables.temp_data;
     // Increment atomically from the higher of the old counter or saved report numbers.
     const statement = `WITH previous AS (
-      SELECT COALESCE(MAX(CASE
+      SELECT GREATEST($3::bigint, COALESCE(MAX(CASE
         WHEN value ->> 'number' ~ '^[0-9]+$' THEN (value ->> 'number')::bigint
-        ELSE 0 END), 0) AS max_number
+        ELSE 0 END), 0)) AS max_number
       FROM ${table} WHERE key LIKE $2
     )
     INSERT INTO ${table} (key, value, expires_at, created_at)
@@ -86,15 +149,16 @@ export async function nextReportNumber(client, guildId) {
       COALESCE(CASE WHEN ${table}.value::text ~ '^[0-9]+$'
         THEN (${table}.value::text)::bigint END, 0),
       (SELECT max_number FROM previous)
-    ) + 1)
+    ) + 1), expires_at = NULL
     RETURNING value`;
-    const result = await pool.query(statement, [key, `global:report:${guildId}:%`]);
+    const result = await pool.query(statement, [key, `global:report:${guildId}:%`, observedFloor]);
     const number = Number(result.rows[0]?.value);
     if (!Number.isSafeInteger(number) || number < 1) throw new Error('The report counter returned an invalid number.');
+    issued.set(String(guildId), Math.max(number, issued.get(String(guildId)) || 0));
     return number;
   }
   return withReportLock(key, async () => {
-    let highest = Number(await client.db.get(key)) || 0;
+    let highest = Math.max(observedFloor, Number(await client.db.get(key)) || 0);
     for (const caseKey of await client.db.list(`global:report:${guildId}:`)) {
       const stored = await client.db.get(caseKey);
       const number = Number(stored?.number);
@@ -104,6 +168,7 @@ export async function nextReportNumber(client, guildId) {
     if (!Number.isSafeInteger(next) || await client.db.set(key, next) === false) {
       throw new Error('The report counter could not be saved.');
     }
+    issued.set(String(guildId), Math.max(next, issued.get(String(guildId)) || 0));
     return next;
   });
 }
