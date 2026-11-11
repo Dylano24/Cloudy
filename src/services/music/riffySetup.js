@@ -22,10 +22,9 @@ export function initializeMusic(client) {
         },
         defaultSearchPlatform: lavalinkConfig.defaultSearchPlatform,
         restVersion: lavalinkConfig.restVersion,
-        // The public nodes drop out now and then. By default Riffy gives a node up for
-        // good after 3 failed tries (10 seconds) and only a restart brought it back;
-        // now every node is tried again every 10 seconds, for as long as it takes.
-        reconnectTimeout: 10_000,
+        // Public nodes can reject rapid reconnects because of per-bot WebSocket
+        // quotas. Retry indefinitely with enough backoff to avoid a reconnect storm.
+        reconnectTimeout: 60_000,
         reconnectTries: Infinity,
         bypassChecks: {
             nodeFetchInfo: true,

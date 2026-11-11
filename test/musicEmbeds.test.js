@@ -194,3 +194,33 @@ test('the player has one row of icon controls; Playlists and Stop share the bott
   assert.equal(paused[0][0].custom_id, 'music_resume');
   assert.equal(paused[0][3].emoji.name, '🔂');
 });
+
+test('unchanged now-playing panels do not generate redundant Discord edits', async () => {
+  const guildId = 'music-no-redundant-edits';
+  const sent = [];
+  const edits = [];
+  const message = { id: 'one-panel', edit: async payload => { edits.push(payload); } };
+  const channel = {
+    id: 'music-channel', name: 'music', type: ChannelType.GuildText, isTextBased: () => true,
+    messages: { cache: new Collection([['one-panel', message]]), fetch: async () => message },
+    send: async payload => { sent.push(payload); return message; },
+  };
+  const guild = { id: guildId, channels: { cache: new Collection([[channel.id, channel]]) } };
+  const player = { current: track, paused: false, playing: true, position: 0, textChannel: channel.id, queue: [] };
+  const client = {
+    channels: { cache: new Collection([[channel.id, channel]]) },
+    guilds: { cache: new Collection([[guildId, guild]]) },
+    riffy: { players: new Map([[guildId, player]]) },
+  };
+  try {
+    await refreshPlayerMessage(client, guildId);
+    await refreshPlayerMessage(client, guildId);
+    assert.equal(sent.length, 1);
+    assert.equal(edits.length, 0, 'no edit if progress and buttons have not changed');
+    player.paused = true;
+    await refreshPlayerMessage(client, guildId);
+    assert.equal(edits.length, 1, 'a meaningful change still refreshes the panel');
+  } finally {
+    deleteGuildMusicData(guildId);
+  }
+});

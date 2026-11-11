@@ -1,16 +1,16 @@
 [
   {
-    "host": "lavalinkv4.serenetia.com",
-    "port": 443,
-    "password": "https://seretia.link/discord",
-    "secure": true,
-    "name": "Serenetia"
-  },
-  {
     "host": "lava-v4.millohost.my.id",
     "port": 443,
     "password": "https://discord.gg/mjS5J2K3ep",
     "secure": true,
     "name": "MilloHost"
+  },
+  {
+    "host": "lavalinkv4.serenetia.com",
+    "port": 443,
+    "password": "https://seretia.link/discord",
+    "secure": true,
+    "name": "Serenetia"
   }
 ]

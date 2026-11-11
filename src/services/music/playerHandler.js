@@ -18,7 +18,8 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
     if (!channel) {
         guildData.playerMessageId = null;
         guildData.playerChannelId = null;
-        return;
+        guildData.lastPlayerPayload = null;
+        return false;
     }
 
     const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
@@ -28,14 +29,14 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
             const msg = channel.messages.cache?.get(guildData.playerMessageId)
                 || await channel.messages.fetch(guildData.playerMessageId);
             await msg.edit(payload);
-            return;
+            return true;
         } catch (error) {
             // A temporary API or permission failure must not create another
             // player message. Replace only a message Discord confirms is gone.
             if (Number(error?.code) !== 10008) throw error;
             guildData.playerMessageId = null;
             guildData.playerChannelId = null;
-            clearUpdateInterval(guildData);
+            guildData.lastPlayerPayload = null;
         }
     }
 
@@ -43,8 +44,10 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
         const newMsg = await channel.send(payload);
         guildData.playerMessageId = newMsg.id;
         guildData.playerChannelId = channel.id;
+        return true;
     } catch (error) {
         logger.error('Failed to send music player message:', error);
+        return false;
     }
 }
 
@@ -71,7 +74,17 @@ export async function refreshPlayerMessage(client, guildId) {
         const guild = client.guilds?.cache?.get?.(guildId);
         const musicChannel = !guildData.playerMessageId && guild ? musicChannelFor(guild) : null;
         const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
-        await editOrSendPlayerMessage(client, guildData, channelId, embed, components);
+        // Discord rate-limits repeated fetch/edit calls. When the progress bar,
+        // controls and track metadata have not changed, leave the message alone.
+        const snapshot = JSON.stringify({
+            channelId,
+            embed: embed.toJSON(),
+            components: components.map(row => row.toJSON()),
+        });
+        if (guildData.playerMessageId && guildData.lastPlayerPayload === snapshot) continue;
+        if (await editOrSendPlayerMessage(client, guildData, channelId, embed, components)) {
+            guildData.lastPlayerPayload = snapshot;
+        }
       }
     })().catch(error => {
         logger.error('Failed to refresh music player message:', error);
@@ -224,6 +237,7 @@ export function setupPlayerHandler(client) {
                 }
                 guildData.playerMessageId = null;
                 guildData.playerChannelId = null;
+                guildData.lastPlayerPayload = null;
             }
 
             if (!guildData.twentyFourSeven) {
@@ -266,6 +280,7 @@ export function setupPlayerHandler(client) {
 
         guildData.playerMessageId = null;
         guildData.playerChannelId = null;
+        guildData.lastPlayerPayload = null;
         guildData.previousTracks = [];
         guildData.autoPaused = false;
         if (guildData.idleTimeout) {
