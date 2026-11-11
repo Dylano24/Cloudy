@@ -9,7 +9,6 @@ Cloudy checks configured accounts every five minutes and posts a direct content 
 - `/creator-notify add platform:TikTok creator:username` — new videos via a trusted RSS bridge.
 - `/creator-notify add platform:YouTube creator:UC123... channel:#announcements` — optional channel override.
 - `/creator-notify list` — saved creators and provider readiness.
-- `/creator-notify check` — run the same check immediately.
 - `/creator-notify remove platform:YouTube creator:UC123...` — stop notifications.
 
 When no channel is supplied, Cloudy resolves the server's existing `#youtube`, `#twitch`, or `#tiktok` channel. The first successful check initializes a baseline without reposting older content. Only unseen content is announced; the recent IDs are stored in PostgreSQL between restarts. Moderation permissions are required for all configuration actions.

@@ -1,7 +1,8 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { addCreatorNotification, checkCreatorNotifications, listCreatorNotifications, removeCreatorNotification } from '../../services/creatorNotificationService.js';
+import { addCreatorNotification, listCreatorNotifications, removeCreatorNotification } from '../../services/creatorNotificationService.js';
 import { creatorProviderReady, CREATOR_PLATFORMS } from '../../services/creatorNotificationProviders.js';
 import { successEmbed, warningEmbed } from '../../utils/embeds.js';
+import { CLOUDY_RED_COLOR, setPreservedEmbedColor } from '../../utils/embedColorPolicy.js';
 
 const platforms = option => option.setName('platform').setDescription('Platform')
   .setRequired(true).addChoices(...CREATOR_PLATFORMS.map(platform => ({
@@ -11,7 +12,8 @@ const username = option => option.setName('creator')
   .setDescription('YouTube UC channel ID, Twitch username or TikTok username').setRequired(true);
 
 async function respond(interaction, title, message, success = true) {
-  const embed = success ? successEmbed(title, message) : warningEmbed(title, message);
+  const embed = success ? successEmbed(title, message)
+    : setPreservedEmbedColor(warningEmbed(title, message), CLOUDY_RED_COLOR);
   if (interaction.deferred || interaction.replied) await interaction.editReply({ embeds: [embed] });
   else await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
@@ -27,8 +29,7 @@ export default {
         .setDescription('Destination (default: platform channel)').addChannelTypes(ChannelType.GuildText)))
     .addSubcommand(sub => sub.setName('remove').setDescription('Stop monitoring a creator')
       .addStringOption(platforms).addStringOption(username))
-    .addSubcommand(sub => sub.setName('list').setDescription('Show configured creator notifications'))
-    .addSubcommand(sub => sub.setName('check').setDescription('Check for new posts now')),
+    .addSubcommand(sub => sub.setName('list').setDescription('Show configured creator notifications')),
   // Discord limits guild commands to 100. Keep this feature as one global
   // application command; existing 100 guild commands stay untouched.
   globalRegistration: true,
@@ -58,11 +59,6 @@ export default {
           interaction.options.getString('platform'), interaction.options.getString('creator'));
         return respond(interaction, removed ? 'Creator removed' : 'Not found',
           removed ? 'Automatic notifications for that creator are stopped.' : 'No matching creator was configured.', removed);
-      }
-      if (action === 'check') {
-        const sent = await checkCreatorNotifications(bot, interaction.guildId);
-        return respond(interaction, 'Creator notifications checked',
-          sent ? sent + ' new notification(s) posted.' : 'No new posts found. First checks only establish a baseline.');
       }
       const items = await listCreatorNotifications(bot, interaction.guildId);
       if (!items.length) return respond(interaction, 'Creator notifications', 'No creators configured. Use /creator-notify add.');
