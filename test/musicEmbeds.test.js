@@ -92,6 +92,8 @@ test('music guide keeps Cloudy branding and the commands explain the player butt
   }
   // /play is the only slash command: the player covers the rest, other commands (such as a future Guess the song) get their own line.
   assert.deepEqual(commands.description.match(/`\/[a-z ]+`/g), ['`/play`']);
+  // Every line is short enough to stay on one line next to the thumbnail on a phone.
+  for (const line of commands.description.split('\n')) assert.ok(line.length <= 30, `Line too long: ${line}`);
   assert.equal(commands.footer.text, FOOTER);
   assert.match(guide.description, /\/play/);
   assert.equal(guide.footer.text, FOOTER);
