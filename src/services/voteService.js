@@ -5,6 +5,7 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
   MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder,
 } from 'discord.js';
+import { randomInt } from 'node:crypto';
 import { Mutex } from '../utils/mutex.js';
 import { unwrapReplitData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
@@ -413,7 +414,47 @@ export async function castVote(client, guildId, messageId, userId, index) {
   });
 }
 
-// Runs every minute: closes votes whose end time has passed.
+// Unknown Channel / Unknown Message: the vote is really gone from Discord.
+const GONE_CODES = new Set([10003, 10008]);
+const isGone = error => GONE_CODES.has(error?.code);
+export const VOTE_CLOSE_MAX_ATTEMPTS = 30;
+
+// A vote is marked ended first; removing its buttons and posting its result
+// follow. Until that is done the vote carries `closePending`, so a Discord
+// outage or a restart at exactly that moment is picked up again by the next
+// minute's check instead of leaving the vote with its buttons and no result.
+function endedVote(vote, endedAt) {
+  const ended = { ...vote, ended: true, endedAt, closePending: { attempts: 0 } };
+  // A tie: Cloudy picks one of the tied options at random and keeps it
+  // (owner's choice). Saved together with the end, so it can never change.
+  const tied = mostVoted(ended);
+  if (ended.layout === 'preview' && tied.length > 1 && !tied.includes(ended.tieWinner)) {
+    ended.tieWinner = tied[randomInt(tied.length)];
+  }
+  return ended;
+}
+
+function withoutClosePending(vote) {
+  const { closePending: _pending, ...rest } = vote;
+  return rest;
+}
+
+// Changes one stored vote under the votes lock. `change` returns the new vote,
+// or null to leave it as it is. A vote deleted meanwhile stays deleted.
+async function updateVote(client, guildId, messageId, change) {
+  return Mutex.runExclusive(votesKey(guildId), async () => {
+    const votes = await readVotes(client, guildId);
+    const current = votes[messageId];
+    const next = current ? change(current) : null;
+    if (!next) return null;
+    votes[messageId] = next;
+    await writeVotes(client, guildId, votes);
+    return next;
+  });
+}
+
+// Runs every minute: closes votes whose end time has passed, and finishes
+// closing votes that ended while Discord or Cloudy was unavailable.
 export async function endDueVotes(client) {
   for (const guild of client.guilds?.cache?.values?.() || []) {
     let due;
@@ -421,46 +462,97 @@ export async function endDueVotes(client) {
       due = await Mutex.runExclusive(votesKey(guild.id), async () => {
         const votes = await readVotes(client, guild.id);
         const now = Date.now();
-        const ended = Object.values(votes).filter(vote => !vote.ended && vote.endsAt && vote.endsAt <= now);
-        if (!ended.length) return [];
-        for (const vote of ended) votes[vote.messageId] = { ...vote, ended: true, endedAt: vote.endsAt };
-        await writeVotes(client, guild.id, votes);
-        return ended.map(vote => votes[vote.messageId]);
+        const waiting = Object.values(votes).filter(vote => vote.ended && vote.closePending);
+        const ending = Object.values(votes).filter(vote => !vote.ended && vote.endsAt && vote.endsAt <= now);
+        if (ending.length) {
+          for (const vote of ending) votes[vote.messageId] = endedVote(vote, vote.endsAt);
+          await writeVotes(client, guild.id, votes);
+        }
+        return [...waiting, ...ending.map(vote => votes[vote.messageId])];
       });
     } catch (error) {
       logger.warn(`Could not close votes in ${guild.id}:`, error);
       continue;
     }
-    for (const vote of due) await closeVoteMessage(client, guild, vote);
+    for (const vote of due) {
+      await closeVoteMessage(client, guild, vote)
+        .catch(error => logger.warn(`Could not close vote ${vote.messageId}: ${error?.message || error}`));
+    }
   }
+}
+
+// "Gone" (deleted in Discord) is told apart from "could not be checked right
+// now": a vote is never left unfinished on a guess.
+async function locateVoteMessage(guild, vote) {
+  let channel = guild.channels?.cache?.get?.(vote.channelId) || null;
+  if (!channel && guild.channels?.fetch) {
+    try {
+      channel = (await guild.channels.fetch(vote.channelId)) || null;
+    } catch (error) {
+      return isGone(error) ? { status: 'gone' } : { status: 'unavailable', error };
+    }
+  }
+  if (!channel?.messages?.fetch) return { status: 'gone' };
+  try {
+    const message = await channel.messages.fetch(vote.messageId);
+    return message?.edit ? { status: 'found', channel, message } : { status: 'gone' };
+  } catch (error) {
+    return isGone(error) ? { status: 'gone' } : { status: 'unavailable', error };
+  }
+}
+
+async function deferVoteClose(client, guildId, vote, error) {
+  const attempts = (Number(vote.closePending?.attempts) || 0) + 1;
+  const abandoned = attempts >= VOTE_CLOSE_MAX_ATTEMPTS;
+  await updateVote(client, guildId, vote.messageId, current => {
+    if (!current.closePending) return null;
+    return abandoned ? withoutClosePending(current) : { ...current, closePending: { attempts } };
+  }).catch(() => {});
+  const text = `[VOTE] Vote ${vote.messageId} could not be closed in Discord (attempt ${attempts}/${VOTE_CLOSE_MAX_ATTEMPTS}): ${error?.message || error}`;
+  if (abandoned) logger.error(`${text}. Giving up.`);
+  else logger.warn(text);
 }
 
 // The vote stays as it was, without buttons (owner's choice); a card gets its
 // result as its own message under it, with the winner's picture.
 async function closeVoteMessage(client, guild, vote) {
-  const channel = guild.channels?.cache?.get?.(vote.channelId);
-  const message = await channel?.messages?.fetch?.(vote.messageId).catch(() => null);
-  if (!message?.edit) return;
-  await message.edit(buildVoteMessage(vote)).catch(error => logger.warn('Could not close vote message:', error));
-  if (vote.layout !== 'preview') return;
-  // A tie: Cloudy picks one of the tied options at random and keeps it (owner's choice).
-  const tied = mostVoted(vote);
-  if (tied.length > 1 && !tied.includes(vote.tieWinner)) {
-    vote = { ...vote, tieWinner: tied[Math.floor(Math.random() * tied.length)] };
-    await saveVote(client, guild.id, vote).catch(() => {});
+  const located = await locateVoteMessage(guild, vote);
+  const finished = () => updateVote(client, guild.id, vote.messageId,
+    current => (current.closePending ? withoutClosePending(current) : null)).catch(() => null);
+  if (located.status === 'gone') {
+    await finished();
+    return;
   }
-  const files = await resultPictureFiles(client, vote).catch(() => []);
+  if (located.status === 'unavailable') {
+    await deferVoteClose(client, guild.id, vote, located.error);
+    return;
+  }
+  const { channel, message } = located;
+  try {
+    await message.edit(buildVoteMessage(vote));
+  } catch (error) {
+    if (isGone(error)) await finished();
+    else await deferVoteClose(client, guild.id, vote, error);
+    return;
+  }
+  // From here nothing is repeated: only the one check that takes the vote out
+  // of `closePending` posts its result, so a result is never posted twice.
+  const closed = await finished();
+  if (!closed || closed.layout !== 'preview') return;
+  const files = await resultPictureFiles(client, closed).catch(() => []);
   // The role tagged on the vote is tagged on its result too (owner's choice):
   // its own message, the reply to the vote, with the result right under it.
   // It is never removed by Cloudy (owner's choice).
-  const tag = voteTag(vote);
+  const tag = voteTag(closed);
   const tagMessage = tag
-    ? await message.reply({ content: tag, allowedMentions: voteMentions(vote) })
+    ? await message.reply({ content: tag, allowedMentions: voteMentions(closed) })
       .catch(error => { logger.warn('Could not tag the vote result:', error); return null; })
     : null;
-  const result = await (tagMessage ? channel.send.bind(channel) : message.reply.bind(message))({ ...buildVoteResultMessage(vote, files.map(file => file.name)), ...(files.length ? { files } : {}) })
+  const result = await (tagMessage ? channel.send.bind(channel) : message.reply.bind(message))({ ...buildVoteResultMessage(closed, files.map(file => file.name)), ...(files.length ? { files } : {}) })
     .catch(error => { logger.warn('Could not post the vote result:', error); return null; });
-  if (result) await saveVote(client, guild.id, { ...vote, resultMessageId: result.id }).catch(() => {});
+  if (result) {
+    await updateVote(client, guild.id, vote.messageId, current => ({ ...current, resultMessageId: result.id })).catch(() => {});
+  }
 }
 
 /** Whether a vote is still open (not ended and its time not passed). */
@@ -524,7 +616,7 @@ export async function endVoteNow(client, guild, messageId, now = Date.now()) {
     const current = votes[messageId];
     if (!current || current.ended) return null;
     const endedAt = current.endsAt && current.endsAt < now ? current.endsAt : now;
-    votes[messageId] = { ...current, ended: true, endedAt };
+    votes[messageId] = endedVote(current, endedAt);
     await writeVotes(client, guild.id, votes);
     return votes[messageId];
   });
