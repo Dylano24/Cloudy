@@ -174,4 +174,18 @@ Two things to know before approving:
 
 **Not ready, needs your decision first:** H (CI gate and deploy rhythm), I (rate limit), J (footer picture), K (wording for a hand-deleted case channel), draft PR #706.
 
+*Update: I, J and K were implemented later the same day; see section 10.*
+
 No claim of complete coverage is made: section 1 lists what was only tested and not re-read.
+
+## 10. Follow-up on the same day: three open points implemented
+
+After this report was written the owner asked for the open points to be implemented without further questions. Done on the same branch:
+
+- **I, request limits.** Each visitor now has their own budget (one proxy hop is trusted on Railway, so the visitor's own address is used), the Embed Builder's browser editor and hosted media have their own budgets (1200 and 600 per minute), every other endpoint keeps 100 per 15 minutes, and `/health` and `/ready` are never limited. If Railway should not pass the visitor's address as expected, the result is no worse than before the change. Not measured in production.
+- **J, vote footer.** The footer picture is now 315 pixels wide (`assets/vote-footer-compact.png`, made from the same master), the width a phone shows, so PC and phone show it at the same size. Text, colour and place are unchanged; on PC it is about 30% smaller than before and on phones slightly less sharp. The 450-pixel picture is kept; going back is one line (`VOTE_FOOTER_URL`). The new link was fetched successfully. **Not seen in Discord.**
+- **K, hand-deleted case channel.** Logged as closed with "Closed by: Unknown", never as the automatic deletion. An automatic deletion interrupted by a restart is still logged as "24-hour expiry".
+
+Not done: **H** is a Railway setting, not code, and draft PR **#706** changes an approved button layout.
+
+Final numbers for the branch: 2001 tests, 1998 passed, 0 failed, 3 skipped (the PostgreSQL integration tests, which passed separately against a local PostgreSQL 16). ESLint: 0 errors, 447 warnings.

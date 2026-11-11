@@ -138,6 +138,12 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Report numbers come from `nextReportNumber`: one atomic PostgreSQL statement per guild, never reused and never lower than a saved report or an archived staff report. The two archive channels used to recover that high-water mark exist only in Cloudy's own server; in every other server discord.js answers `GuildChannelUnowned` for them and they are skipped. Any other Discord failure still stops numbering.
 - The report moderation form checks permission first and only then validates the timeout duration (`1m`, `1h`, `1d`, `1w`, a bare number is minutes, at most 28 days). `/report file` needs a reason of at least three characters, like the "Cloudy report" form, and refuses before a number is reserved.
 
+- A report case channel that is already gone at the 24-hour mark was removed by hand in Discord: it is logged as closed ("Closed by: Unknown"), never as the automatic deletion. `expiryStartedAt` is saved before Cloudy removes a channel itself, so an automatic deletion interrupted by a restart is still logged as "24-hour expiry".
+
+## Web server
+
+- Request limits are per visitor and per kind of request (`src/utils/requestRateLimit.js`): the Embed Builder's browser editor 1200 per minute, hosted media 600 per minute, everything else the configured general limit (100 per 15 minutes). `GET /health` and `GET /ready` are never limited. On Railway one proxy hop is trusted so `req.ip` is the visitor's own address (`trustProxySetting`; elsewhere set `TRUST_PROXY_HOPS`).
+
 ## Media tools
 
 - ffmpeg, ffprobe, yt-dlp and gallery-dl are started with `withoutCredentials()` (`src/utils/childProcessEnvironment.js`): Cloudy's environment without the bot token, database address, API keys and other credential variables. Start every new media tool the same way.
