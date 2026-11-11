@@ -16,6 +16,7 @@ import { buildReportSubmittedEmbed } from '../../utils/reportSubmittedEmbed.js';
 import { withReportSubmittedNumber } from '../../utils/cloudyFooter.js';
 import { logger } from '../../utils/logger.js';
 import { buildReportActions } from '../../services/reportActionService.js';
+import { preserveReportAttachments } from '../../services/reportAttachmentService.js';
 import { setResponseLifetime } from '../../utils/responseLifetime.js';
 import { scheduleTicketReplyDeletion } from '../../utils/ticket/ticketBranding.js';
 
@@ -106,6 +107,8 @@ export default {
       return;
     }
 
+    // Copied right away: Discord removes the attachment once the message is deleted.
+    const preservedAttachments = preserveReportAttachments(message);
     const reportNumber = await nextReportNumber(client, interaction.guildId);
     const staffRoleId = reportStaffRole(interaction.guild, config);
     const logged = await logEvent({
@@ -148,7 +151,7 @@ export default {
       throw new Error('Cloudy report could not be delivered to the reports channel.');
     }
 
-    await registerReport(client, logged, { guildId: interaction.guildId, number: reportNumber, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id, reportedMessageText: message.content?.slice(0, 1024) });
+    await registerReport(client, logged, { guildId: interaction.guildId, number: reportNumber, reporterId: interaction.user.id, targetId: message.author.id, sourceChannelId: message.channelId, sourceMessageId: message.id, reportedMessageText: message.content?.slice(0, 1024), reportedAttachments: await preservedAttachments });
     setResponseLifetime(submitted, 120_000);
     await withReportSubmittedNumber(reportNumber, () => InteractionHelper.safeEditReply(submitted, {
       embeds: [buildReportSubmittedEmbed({ reportNumber, reportedMemberId: message.author.id, reportedMessageText: message.content, reason })],

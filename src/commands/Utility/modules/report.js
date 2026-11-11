@@ -7,6 +7,7 @@ import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
 import { logger } from '../../../utils/logger.js';
 import { buildReportActions } from '../../../services/reportActionService.js';
+import { preserveReportAttachments } from '../../../services/reportAttachmentService.js';
 import { setResponseLifetime } from '../../../utils/responseLifetime.js';
 import { scheduleTicketReplyDeletion } from '../../../utils/ticket/ticketBranding.js';
 
@@ -91,6 +92,7 @@ export default {
             );
         }
 
+        const preservedAttachments = reportedMessage ? preserveReportAttachments(reportedMessage) : Promise.resolve([]);
         const reportNumber = await nextReportNumber(client, guildId);
         const blockFields = [
             { name: 'Reason', value: reason },
@@ -125,7 +127,7 @@ export default {
         });
 
         if (!logged) throw new Error('The report could not be delivered to the reports channel.');
-        await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id, reportedMessageText: reportedMessage?.content?.slice(0, 1024) });
+        await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id, reportedMessageText: reportedMessage?.content?.slice(0, 1024), reportedAttachments: await preservedAttachments });
         setResponseLifetime(interaction, 120_000);
         await withReportSubmittedNumber(reportNumber, () => InteractionHelper.safeEditReply(interaction, {
             embeds: [buildReportSubmittedEmbed({ reportNumber, reportedMemberId: targetUser.id, reportedMessageText: reportedMessage?.content, reason })],
