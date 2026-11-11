@@ -1,5 +1,6 @@
 import { nextReportNumber, registerReport } from '../../../services/reportCaseService.js';
 import { buildReportSubmittedEmbed } from '../../../utils/reportSubmittedEmbed.js';
+import { withReportSubmittedNumber } from '../../../utils/cloudyFooter.js';
 import { logEvent, EVENT_TYPES } from '../../../services/loggingService.js';
 import { formatLogLine, resolveUserAuthor } from '../../../utils/logging/logEmbeds.js';
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
@@ -118,9 +119,9 @@ export default {
         if (!logged) throw new Error('The report could not be delivered to the reports channel.');
         await registerReport(client, logged, { guildId, number: reportNumber, reporterId: interaction.user.id, targetId: targetUser.id, sourceChannelId: reportedMessage?.channelId, sourceMessageId: reportedMessage?.id, reportedMessageText: reportedMessage?.content?.slice(0, 1024) });
         setResponseLifetime(interaction, 120_000);
-        await InteractionHelper.safeEditReply(interaction, {
+        await withReportSubmittedNumber(reportNumber, () => InteractionHelper.safeEditReply(interaction, {
             embeds: [buildReportSubmittedEmbed({ reportNumber, reportedMemberId: targetUser.id, reportedMessageText: reportedMessage?.content, reason })],
-        });
+        }));
 
         scheduleTicketReplyDeletion(interaction, 120_000);
         logger.info('Report submitted', {
