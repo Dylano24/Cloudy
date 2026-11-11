@@ -8,6 +8,7 @@ export const MUSIC_BUTTON_IDS = {
     VOL_DOWN: 'music_vol_down',
     VOL_UP: 'music_vol_up',
     QUEUE: 'music_queue',
+    PLAYLISTS: 'music_playlists',
     QUEUE_FIRST: 'music_queue_first',
     QUEUE_PREV: 'music_queue_prev',
     QUEUE_NEXT: 'music_queue_next',

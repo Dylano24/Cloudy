@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
+import { feedEmoji } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -50,6 +51,20 @@ export function formatMusicProgress(positionMs, lengthMs, steps = 12) {
     const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
     const filled = Math.round(fraction * steps);
     return '▰'.repeat(filled) + '▱'.repeat(steps - filled);
+}
+
+// A green progress bar of rounded pieces (owner's choice): green for the part
+// that has played, grey for the rest. Plain blocks show until the pieces are uploaded.
+export function musicProgressBar(positionMs, lengthMs, steps = 12) {
+    const length = Number(lengthMs);
+    if (!Number.isFinite(length) || length <= 0) return null;
+    const position = Number(positionMs);
+    const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
+    const filled = Math.round(fraction * steps);
+    return Array.from({ length: steps }, (_, index) => {
+        const end = index === 0 ? 'l' : index === steps - 1 ? 'r' : 'm';
+        return index < filled ? feedEmoji(`music_bar_${end}`) : feedEmoji(`bar_${end}e`);
+    }).join('');
 }
 
 export function buildMusicRequestEmbed(track, { playNow = false, queuePosition = 1 } = {}) {
@@ -142,19 +157,18 @@ export function buildNowPlayingEmbed(track, player, guildData) {
 
     const queued = player?.queue?.length || 0;
     const album = getAlbumName(track);
-    const progressBar = formatMusicProgress(player?.position || 0, track?.info?.length);
-    // The track's cover is the image; the Cloudy logo stays the thumbnail.
+    const progressBar = musicProgressBar(player?.position || 0, track?.info?.length);
+    // The track's cover is the image; the Cloudy logo stays the thumbnail. The
+    // green bar sits under the title on its own line, so it never wraps.
     return createEmbed({
         title: 'Now playing',
-        description: `**${track?.info?.title || 'Unknown track'}**`,
+        description: `**${track?.info?.title || 'Unknown track'}**\n\n${progressBar ? `${progressBar}\n` : ''}${position} / ${duration}`,
         color: 'primary',
         fields: [
             { name: 'Artist', value: track?.info?.author || 'Unknown', inline: true },
             ...(album ? [{ name: 'Album', value: String(album).slice(0, 1024), inline: true }] : []),
             { name: 'Requested by', value: requesterLabel, inline: true },
-            { name: 'Progress', value: `${progressBar ? `${progressBar}\n` : ''}${position} / ${duration}`, inline: true },
             { name: 'Status', value: player?.paused ? 'Paused' : 'Playing', inline: true },
-            { name: 'Volume', value: `${guildData?.volume ?? 75}%`, inline: true },
             { name: 'Loop', value: getLoopLabel(guildData?.loop), inline: true },
             { name: 'Queue', value: `${queued} ${queued === 1 ? 'track' : 'tracks'}`, inline: true },
         ],
@@ -199,8 +213,8 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
-    // Icons only, so the five controls stay in one row on a phone; Stop is the
-    // red button alone on the bottom row. No volume buttons (owner's choice):
+    // Icons only, so the five controls stay in one row on a phone; the bottom row
+    // has Playlists and, last, the red Stop button. No volume buttons (owner's choice):
     // /music volume still sets it, and the old button ids stay registered so a
     // player message from before still answers.
     const controls = new ActionRowBuilder().addComponents(
@@ -227,6 +241,11 @@ export function buildPlayerButtonRows(player, guildData) {
     );
 
     const stop = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
+            .setLabel('Playlists')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🎵'),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')
