@@ -578,7 +578,7 @@ test('startup updates both existing #89 Report created staff logs in place', asy
   const latest = await f.client.db.get(key);
   for (const [audience, entry] of Object.entries(latest.cases)) {
     assert.equal(entry.createdLogId, priorIds[audience]);
-    assert.equal(entry.reportLogPresentationV2, true);
+    assert.equal(entry.reportLogPresentationV3, true);
     const message = f.logs.messages.cache.get(entry.createdLogId);
     assert.equal(json(message.embeds[0]).title, audience === 'reporter'
       ? 'Report update' : 'Moderation update');
@@ -586,6 +586,39 @@ test('startup updates both existing #89 Report created staff logs in place', asy
   assert.equal(f.logs.messages.cache.size, messagesBefore, 'old staff logs are edited, not reposted');
   await restoreReportCaseTimers(f.client);
   assert.equal(f.logs.messages.cache.size, messagesBefore);
+});
+
+test('previously migrated report logs repair stale R103 footer without changing Report #110', async () => {
+  const f = fixture(); await f.register();
+  const record = await f.submit();
+  record.number = 110;
+  const key = reportKey(f.guild.id, record.messageId);
+  for (const [audience, entry] of Object.entries(record.cases)) {
+    entry.reportLogPresentationV2 = true; // prior deployment already ran
+    const prior = f.logs.messages.cache.get(entry.createdLogId);
+    const original = json(prior.embeds[0]);
+    prior.embeds = [{
+      ...original,
+      fields: original.fields.map(field => field.name === 'Report'
+        ? { ...field, value: '#110' } : field),
+      footer: { text: 'Cloudy Inc. • Moderation team • R103' },
+      thumbnail: undefined,
+    }];
+  }
+  await f.client.db.set(key, record);
+  const count = f.logs.messages.cache.size;
+  await restoreReportCaseTimers(f.client);
+  for (const [audience, entry] of Object.entries(record.cases)) {
+    const embed = json(f.logs.messages.cache.get(entry.createdLogId).embeds[0]);
+    assert.equal(embed.footer?.text, '© Cloudy Inc. • Quality. Innovation. Performance.');
+    assert.equal(embed.fields.find(field => field.name === 'Report')?.value, '#110');
+    assert.ok(embed.thumbnail?.url, 'report staff logs have consistent Cloudy C logo');
+    assert.equal(embed.color, 0xFFFFFF);
+    assert.equal(embed.title, audience === 'reporter' ? 'Report update' : 'Moderation update');
+  }
+  const latest = await f.client.db.get(key);
+  assert.ok(Object.values(latest.cases).every(entry => entry.reportLogPresentationV3));
+  assert.equal(f.logs.messages.cache.size, count, 'existing log messages are edited, not duplicated');
 });
 
 test('orphaned #89 Report created staff logs are corrected in place without a case record', async () => {
