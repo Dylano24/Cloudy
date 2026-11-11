@@ -19,7 +19,6 @@ const deployedNames = [
   "ban",
   "baseconvert",
   "beg",
-  "birthday",
   "blackjack",
   "botprofile",
   "buy",
@@ -56,10 +55,6 @@ const deployedNames = [
   "jointocreate",
   "kick",
   "leaderboard",
-  "level",
-  "leveladd",
-  "levelremove",
-  "levelset",
   "lock",
   "logging",
   "massban",
@@ -74,7 +69,6 @@ const deployedNames = [
   "purge",
   "queue",
   "randomuser",
-  "rank",
   "reactroles",
   "report",
   "rob",
@@ -113,7 +107,7 @@ const deployedNames = [
   "work"
 ];
 
-test('all 102 deployed routes (incl. /now, /wipe, /honeypot and /rustcommunity) survive removal of the 12 retired implementation files', async () => {
+test('all 96 deployed routes (incl. /now, /wipe, /honeypot and /rustcommunity) survive removal of the 12 retired implementation files', async () => {
   const client = {};
   await loadCommands(client);
   assert.deepEqual([...client.commands.keys()].sort(), deployedNames);
