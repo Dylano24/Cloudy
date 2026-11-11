@@ -565,7 +565,7 @@ async function markLogControlsCleaned(client, key, audience) {
 // Never repost or alter unrelated reports, audiences, fields or action details.
 async function backfillUnlinkedReport89Logs(client) {
   if (!client.channels?.fetch || !client.db?.get) return;
-  const key = 'global:report-log-89-title-backfill';
+  const key = 'global:report-log-89-title-backfill-v2';
   if (await client.db.get(key)) return;
   const logs = await client.channels.fetch(REPORT_LOG_CHANNEL_ID).catch(() => null);
   if (!logs?.messages?.fetch) return;
@@ -581,11 +581,12 @@ async function backfillUnlinkedReport89Logs(client) {
       const name = embed.fields.find(field => field.name === 'Audience')?.value;
       const audience = name === 'Reporter' ? 'reporter' : name === 'Reported member' ? 'target' : null;
       if (!audience) continue;
-      const expected = audience === 'reporter' ? 'Report n•89 update' : 'Moderation n•89 update';
-      if (embed.title === 'Report created') {
-        await message.edit({ embeds: [EmbedBuilder.from(embed).setTitle(expected)] });
-      } else if (embed.title !== expected) {
-        continue;
+      const expected = REPORT_LOG_TITLES[audience].created;
+      if (embed.title !== expected || embed.footer?.text !== CLOUDY_STANDARD_FOOTER) {
+        const revised = EmbedBuilder.from(embed).setTitle(expected);
+        revised.data.footer = { text: CLOUDY_STANDARD_FOOTER };
+        delete revised.data.timestamp;
+        await message.edit({ embeds: [revised] });
       }
       found.add(audience);
     }
