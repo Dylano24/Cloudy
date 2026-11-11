@@ -47,9 +47,11 @@ export function assertInVoice(member) {
 
 // A voice channel the bot cannot join (no Connect/Speak, or full) would leave
 // /play waiting for a connection that never comes.
-function assertBotCanJoin(interaction) {
+async function assertBotCanJoin(interaction) {
     const channel = interaction.member?.voice?.channel;
-    const me = interaction.guild?.members?.me;
+    const members = interaction.guild?.members;
+    // The bot's own member is fetched when it is not cached, so the check always runs.
+    const me = members?.me || await members?.fetchMe?.().catch(() => null);
     const permissions = me && channel?.permissionsFor?.(me);
     if (!permissions) return;
     if (!permissions.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak])) {
@@ -65,23 +67,63 @@ function assertBotCanJoin(interaction) {
     }
 }
 
-// Riffy waits for the voice connection and rejects when it never comes. Awaiting
-// it means no "Now playing" for a song that never started, and no stray rejection.
-async function startPlayback(player) {
-    let started;
+async function tryPlay(player) {
     try {
-        started = await player.play();
+        return (await player.play()) !== false;
     } catch (error) {
         logger.warn(`[MUSIC] Playback could not start: ${error?.message || error}`);
-        started = false;
+        return false;
     }
-    if (started !== false) return;
+}
+
+// What reached the player: whether Discord sent its voice details and whether the node took them.
+function describeVoice(player) {
+    const voice = player?.connection?.voice || {};
+    return `node=${player?.node?.name || '?'} nodeConnected=${Boolean(player?.node?.connected)}`
+        + ` session=${Boolean(voice.sessionId)} endpoint=${voice.endpoint ? String(voice.endpoint).split('.')[0] : 'none'}`
+        + ` token=${Boolean(voice.token)} establishing=${Boolean(player?.connection?.establishing)}`;
+}
+
+function dropPlayer(player) {
     try {
         player.queue?.clear?.();
         player.destroy();
     } catch {
         // already gone
     }
+}
+
+// Riffy waits for the voice connection and rejects when it never comes. Awaiting
+// it means no "Now playing" for a song that never started, and no stray rejection.
+// When Discord did send the voice details but this node could not use them (public
+// nodes are flaky), the other nodes get one try each before giving up.
+async function startPlayback(client, interaction, player) {
+    if (await tryPlay(player)) return player;
+    logger.warn(`[MUSIC] Voice connection failed in ${interaction.guild.id}: ${describeVoice(player)}`);
+
+    const voice = player.connection?.voice || {};
+    const detailsArrived = Boolean(voice.sessionId && voice.endpoint && voice.token);
+    const others = detailsArrived && typeof client.riffy?.createPlayer === 'function' && Array.isArray(client.riffy.leastUsedNodes)
+        ? client.riffy.leastUsedNodes.filter(node => node !== player.node)
+        : [];
+    const items = [...(player.queue || [])];
+    const options = {
+        guildId: interaction.guild.id,
+        voiceChannel: interaction.member.voice.channel.id,
+        textChannel: interaction.channel.id,
+        deaf: true,
+    };
+    let current = player;
+    for (const node of others) {
+        dropPlayer(current);
+        current = client.riffy.createPlayer(node, options);
+        current.setVolume?.(getGuildMusicData(interaction.guild.id).volume);
+        for (const item of items) current.queue.add(item);
+        if (await tryPlay(current)) return current;
+        logger.warn(`[MUSIC] Voice connection failed again in ${interaction.guild.id}: ${describeVoice(current)}`);
+    }
+
+    dropPlayer(current);
     throw new CloudyError(
         'Voice connection failed',
         ErrorTypes.NETWORK,
@@ -139,7 +181,7 @@ function isDuplicateTrack(player, track) {
 export async function joinVoiceChannel(client, interaction) {
     assertRiffyAvailable(client);
     assertInVoice(interaction.member);
-    if (!getPlayer(client, interaction.guild.id)) assertBotCanJoin(interaction);
+    if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
 
     const guildId = interaction.guild.id;
     const guildData = getGuildMusicData(guildId);
@@ -270,7 +312,7 @@ export async function inspectMusicLink(client, query, requester) {
 export async function playQuery(client, interaction, rawQuery) {
     assertRiffyAvailable(client);
     assertInVoice(interaction.member);
-    if (!getPlayer(client, interaction.guild.id)) assertBotCanJoin(interaction);
+    if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
 
     const { query, isLink } = await prepareMusicQuery(rawQuery);
     let player;
@@ -299,7 +341,7 @@ export async function playQuery(client, interaction, rawQuery) {
         }
 
         if (!player.playing && !player.paused) {
-            await startPlayback(player);
+            await startPlayback(client, interaction, player);
         }
 
         return {
@@ -336,7 +378,7 @@ export async function playQuery(client, interaction, rawQuery) {
         const queuePosition = player.queue.length;
 
         if (willPlayNow) {
-            await startPlayback(player);
+            await startPlayback(client, interaction, player);
         }
 
         return {

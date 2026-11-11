@@ -159,6 +159,12 @@ export function setupPlayerHandler(client) {
         };
     });
 
+    // The music node tells why its voice connection to Discord closed (4006 session
+    // invalid, 4014 disconnected, 4017 encryption required ...): keep it in the log.
+    client.riffy.on('socketClosed', (player, payload) => {
+        logger.warn(`[MUSIC] Voice connection closed in ${player?.guildId}: code ${payload?.code} ${payload?.reason || ''} (by remote: ${payload?.byRemote})`);
+    });
+
     client.riffy.on('trackStart', async (player, _track) => {
         try {
             const guildData = getGuildMusicData(player.guildId);
