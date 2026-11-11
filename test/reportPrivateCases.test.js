@@ -189,7 +189,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   for (const [audience, entry] of Object.entries(record.cases)) {
     assert.ok(entry.createdLogId);
     const created = f.logs.messages.cache.get(entry.createdLogId);
-    assert.equal(json(created.embeds[0]).title, audience === 'reporter' ? 'Report n•1 update' : 'Moderation n•1 update');
+    assert.equal(json(created.embeds[0]).title, audience === 'reporter' ? 'Report update' : 'Moderation update');
   }
   assert.equal(f.dms.length, 0);
 });
@@ -578,10 +578,10 @@ test('startup updates both existing #89 Report created staff logs in place', asy
   const latest = await f.client.db.get(key);
   for (const [audience, entry] of Object.entries(latest.cases)) {
     assert.equal(entry.createdLogId, priorIds[audience]);
-    assert.equal(entry.logTitlesUpgraded, true);
+    assert.equal(entry.reportLogPresentationV2, true);
     const message = f.logs.messages.cache.get(entry.createdLogId);
     assert.equal(json(message.embeds[0]).title, audience === 'reporter'
-      ? 'Report n•89 update' : 'Moderation n•89 update');
+      ? 'Report update' : 'Moderation update');
   }
   assert.equal(f.logs.messages.cache.size, messagesBefore, 'old staff logs are edited, not reposted');
   await restoreReportCaseTimers(f.client);
@@ -615,11 +615,11 @@ test('orphaned #89 Report created staff logs are corrected in place without a ca
   } };
 
   await restoreReportCaseTimers(f.client);
-  assert.equal(json(originals[0].embeds[0]).title, 'Report n•89 update');
-  assert.equal(json(originals[1].embeds[0]).title, 'Moderation n•89 update');
+  assert.equal(json(originals[0].embeds[0]).title, 'Report update');
+  assert.equal(json(originals[1].embeds[0]).title, 'Moderation update');
   assert.equal(unrelated.embeds[0].title, 'Report created');
   assert.equal(f.logs.messages.cache.size, messagesBefore);
-  assert.equal(await f.client.db.get('global:report-log-89-title-backfill'), true);
+  assert.equal(await f.client.db.get('global:report-log-89-title-backfill-v2'), true);
   await restoreReportCaseTimers(f.client);
   assert.equal(f.logs.messages.cache.size, messagesBefore);
 });
