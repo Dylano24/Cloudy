@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { buildNowPlayingReply } from '../../services/music/musicActions.js';
+import { deferMusicPublic } from '../../services/music/prefixSupport.js';
 
 export default {
     category: 'Music',
@@ -9,7 +10,7 @@ export default {
         .setDescription('Show the currently playing track'),
 
     async execute(interaction, config, client) {
-        await InteractionHelper.safeDefer(interaction);
+        await deferMusicPublic(interaction);
         const payload = buildNowPlayingReply(client, interaction.guild.id);
         await InteractionHelper.safeEditReply(interaction, payload);
     },
