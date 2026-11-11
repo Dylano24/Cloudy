@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Collection } from 'discord.js';
-import { playQuery, applyPause, applyResume, skipCurrentTrack } from '../src/services/music/musicActions.js';
+import { playQuery, applyPause, applyResume, skipCurrentTrack, destroyPlayerSession } from '../src/services/music/musicActions.js';
 import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/playerStore.js';
 import { refreshPlayerMessage, markTrackStarted, setupPlayerHandler, shutdownMusic } from '../src/services/music/playerHandler.js';
 import { livePlayerPosition } from '../src/services/music/musicEmbeds.js';
@@ -115,11 +115,13 @@ test('pausing freezes the bar where the song was, resuming continues from there'
 function panelFixture(guildId) {
   const sent = [];
   const edits = [];
+  const records = [];
   const channel = {
     id: 'panel-channel', isTextBased: () => true,
     messages: {
       cache: new Collection(),
       fetch: async () => ({ edit: async payload => { edits.push(payload); } }),
+      edit: async (id, payload) => { records.push({ id, title: payload.embeds[0].toJSON().title, components: payload.components }); },
       delete: async id => { channel.deleted.push(id); },
     },
     deleted: [],
@@ -131,7 +133,7 @@ function panelFixture(guildId) {
   player.textChannel = channel.id;
   player.guildId = guildId;
   const client = { channels: { cache: new Map([[channel.id, channel]]) }, riffy: { players: new Map([[guildId, player]]) } };
-  return { client, player, channel, sent, edits };
+  return { client, player, channel, sent, edits, records };
 }
 
 test('no player panel says Now playing before the node reports that the song started', async () => {
@@ -170,12 +172,12 @@ test('a song that cannot be streamed leaves no public message under the player',
   deleteGuildMusicData('reliability-error');
 });
 
-test('a restart removes the player panel and ends the session', async () => {
+test('a restart turns the player panel into the song\'s Stopped record and ends the session', async () => {
   const f = panelFixture('reliability-shutdown');
   markTrackStarted(f.player);
   await refreshPlayerMessage(f.client, 'reliability-shutdown');
   await shutdownMusic(f.client);
-  assert.deepEqual(f.channel.deleted, ['panel-1']);
+  assert.deepEqual(f.records.map(r => [r.id, r.title, r.components.length]), [['panel-1', 'Stopped', 0]], 'no dead buttons stay behind');
   assert.equal(f.player.destroyed, true);
   assert.equal(getGuildMusicData('reliability-shutdown').playerMessageId, null);
   deleteGuildMusicData('reliability-shutdown');
@@ -195,4 +197,86 @@ test('a node that keeps failing is retried with growing pauses, a rate-limited n
   assert.equal(node.reconnectTimeout, 10_000);
   riffy.emit('nodeDisconnect', node, { event: 4000, reason: 'Too many websocket connections attempt for this bot' });
   assert.equal(node.reconnectTimeout, 60_000);
+});
+
+// The real event wiring: Riffy events from Lavalink drive the panels.
+function liveFixture(guildId) {
+  const f = panelFixture(guildId);
+  const riffy = new EventEmitter();
+  riffy.players = f.client.riffy.players;
+  f.client.riffy = riffy;
+  setupPlayerHandler(f.client);
+  return f;
+}
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('a finished song stays as Played, a skipped one as Skipped, and the next song gets its own player', async () => {
+  const f = liveFixture('records-flow');
+  const first = f.player.current;
+  f.client.riffy.emit('trackStart', f.player, first);
+  await settle(); await settle();
+  assert.equal(f.sent.length, 1, 'one player panel for the first song');
+
+  // Skip: Riffy's stop() makes the node report the end with reason "stopped".
+  skipCurrentTrack(f.player, getGuildMusicData('records-flow'));
+  const second = song('second');
+  f.player.current = second;
+  f.client.riffy.emit('trackEnd', f.player, first, { reason: 'stopped' });
+  await settle(); await settle();
+  f.client.riffy.emit('trackStart', f.player, second);
+  await settle(); await settle();
+  assert.deepEqual(f.records.map(r => [r.id, r.title, r.components.length]), [['panel-1', 'Skipped', 0]]);
+  assert.equal(f.sent.length, 2, 'the next song has a new player panel under the record');
+
+  // The last song plays out: Riffy only emits queueEnd.
+  f.player.previous = second;
+  f.player.playing = false;
+  f.client.riffy.emit('queueEnd', f.player);
+  await settle(); await settle();
+  assert.deepEqual(f.records.map(r => r.title), ['Skipped', 'Played']);
+  assert.equal(getGuildMusicData('records-flow').playerMessageId, null);
+  deleteGuildMusicData('records-flow');
+});
+
+test('Stop keeps the song as Stopped; a song that could not be loaded shows Could not play', async () => {
+  const f = liveFixture('records-stop');
+  f.client.riffy.emit('trackStart', f.player, f.player.current);
+  await settle(); await settle();
+  await destroyPlayerSession(f.client, 'records-stop', f.player, getGuildMusicData('records-stop'));
+  assert.deepEqual(f.records.map(r => [r.title, r.components.length]), [['Stopped', 0]]);
+  assert.equal(f.player.destroyed, true);
+  deleteGuildMusicData('records-stop');
+
+  const g = liveFixture('records-failed');
+  g.client.riffy.emit('trackStart', g.player, g.player.current);
+  await settle(); await settle();
+  g.client.riffy.emit('trackEnd', g.player, g.player.current, { reason: 'loadFailed' });
+  await settle(); await settle();
+  assert.deepEqual(g.records.map(r => r.title), ['Could not play']);
+  deleteGuildMusicData('records-failed');
+});
+
+test('a song on repeat keeps its player panel', async () => {
+  const f = liveFixture('records-repeat');
+  f.client.riffy.emit('trackStart', f.player, f.player.current);
+  await settle(); await settle();
+  f.player.loop = 'track';
+  f.client.riffy.emit('trackEnd', f.player, f.player.current, { reason: 'finished' });
+  await settle(); await settle();
+  assert.equal(f.records.length, 0);
+  assert.equal(getGuildMusicData('records-repeat').playerMessageId, 'panel-1');
+  deleteGuildMusicData('records-repeat');
+});
+
+test('30 seconds after the queue ends the bot leaves, although Riffy keeps the last song as current', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = liveFixture('records-idle');
+  f.player.previous = f.player.current;
+  f.player.playing = false;
+  f.client.riffy.emit('queueEnd', f.player);
+  await settle(); await settle();
+  t.mock.timers.tick(30_000);
+  assert.equal(f.player.destroyed, true);
+  deleteGuildMusicData('records-idle');
 });
