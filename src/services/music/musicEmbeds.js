@@ -34,10 +34,12 @@ export function formatDuration(ms) {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function getTrackArtwork(track) {
+export function getTrackArtwork(track) {
     // Lavalink/Riffy may expose artwork in different metadata fields.
-    // Never invent an album cover when the source provides none.
+    // Never invent an album cover when the source provides none. The sharper
+    // copy of the same cover (musicArtwork.js) comes first.
     return [
+        track?.info?.cloudyArtworkUrl,
         track?.info?.artworkUrl,
         track?.info?.thumbnail,
         track?.info?.albumArt,
@@ -274,7 +276,7 @@ export function buildPlayerButtonRows(player, guildData) {
             .setEmoji(feedEmojiComponent('mc_previous')),
         new ButtonBuilder()
             .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
-            .setStyle(ButtonStyle.Success)
+            .setStyle(ButtonStyle.Secondary)
             .setEmoji(feedEmojiComponent(paused ? 'mc_play' : 'mc_pause')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SKIP)
@@ -299,7 +301,7 @@ export function buildPlayerButtonRows(player, guildData) {
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')
-            .setStyle(ButtonStyle.Danger)
+            .setStyle(ButtonStyle.Secondary)
             .setEmoji(feedEmojiComponent('mc_stop')),
     );
 
@@ -315,13 +317,17 @@ export function getQueuePageSize() {
 }
 
 // The player as one card like Spotify's Now Playing (owner's choice: the buttons
-// inside it): the cover on top (no ALT label), the title and the artist, the bar
-// with its knob, the duration and who asked for it, then the controls and the
-// Cloudy footer on one small white line (as on the vote card), with the white
-// side line. A record of an ended song says "Played", "Skipped", ... above the
-// title and has no bar and no buttons. No "Now playing" line and no logo.
+// inside it): the cover on top (no ALT label), the title and the artist, the
+// song's time on its own small line right above the bar, the bar with its knob,
+// the controls (all grey), "Requested by" under them after the white dot and
+// the Cloudy footer as Discord's smallest text (not bold, so it stays on one
+// line), with the white side line. A record of an ended song says "Played",
+// "Skipped", ... above the title and has no bar and no buttons. No "Now
+// playing" line and no logo.
 export const PLAYER_CARD_HEADINGS = ['Played', 'Skipped', 'Stopped', 'Could not play'];
-const PLAYER_CARD_FOOTER = `-# **${CLOUDY_FOOTER}**`;
+const PLAYER_CARD_FOOTER = `-# ${CLOUDY_FOOTER}`;
+// Cards posted before the footer became smaller.
+const PLAYER_CARD_FOOTERS = [PLAYER_CARD_FOOTER, `-# **${CLOUDY_FOOTER}**`];
 
 export function buildPlayerCard(track, player, guildData, { ended = null } = {}) {
     const info = track?.info || {};
@@ -333,10 +339,10 @@ export function buildPlayerCard(track, player, guildData, { ended = null } = {})
     if (cover) card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(cover)));
     card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
     const bar = ended ? null : musicProgressBar(livePlayerPosition(player), info.length);
-    if (bar) card.addTextDisplayComponents(text(bar));
-    const requester = info.requester?.username || info.requester?.tag || 'Unknown';
-    card.addTextDisplayComponents(text(`-# ${formatDuration(info.length)} · Requested by ${requester}`));
+    card.addTextDisplayComponents(text(`-# ${formatDuration(info.length)}${bar ? `\n${bar}` : ''}`));
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
+    const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
+    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
     card.addTextDisplayComponents(text(PLAYER_CARD_FOOTER));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
@@ -355,7 +361,7 @@ export function isPlayerCardMessage(message) {
         }
     };
     walk(message?.components);
-    if (!texts.includes(PLAYER_CARD_FOOTER)) return false;
+    if (!texts.some(content => PLAYER_CARD_FOOTERS.includes(content))) return false;
     const heading = new RegExp(`^-# (${PLAYER_CARD_HEADINGS.join('|')})\\n### `);
     return musicButtons || texts.some(content => heading.test(content));
 }

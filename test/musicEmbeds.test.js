@@ -162,8 +162,9 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
-  assert.ok(cardTexts(panels[0]).includes('-# **© Cloudy Inc. • Quality. Innovation. Performance.**'), 'the footer small and white, one line');
-  assert.ok(cardTexts(panels[0]).includes('-# 3:00 · Requested by Test user'));
+  assert.equal(cardTexts(panels[0]).at(-1), '-# © Cloudy Inc. • Quality. Innovation. Performance.', 'the footer in the smallest text, one line');
+  assert.equal(cardTexts(panels[0]).at(-2), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user', 'Requested by under the buttons after the white dot');
+  assert.match(cardTexts(panels[0])[1], /^-# 3:00\n/, 'the song time on the left right above the bar');
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
@@ -218,13 +219,26 @@ test('the player controls are in Spotify\'s order with Play/Pause in the middle;
   ]);
   assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
   assert.deepEqual(rows[0].map(button => button.emoji.name), ['🔀', '⏮️', '⏸️', '⏭️', '🔁'], 'standard emoji until the icons are uploaded');
-  assert.deepEqual(rows[0].map(button => button.style), [2, 2, 3, 2, 2], 'Play/Pause stands out in green');
+  assert.deepEqual(rows.flat().map(button => button.style), [2, 2, 2, 2, 2, 2, 2, 2], 'every button grey, also Play/Pause and Stop');
   assert.deepEqual(rows[1].map(button => button.label || button.emoji.name), ['📋', 'Add', 'Stop'], 'the saved playlists button says Add');
   assert.equal(rows[1][1].emoji.name, '🎵', 'with the music emoji');
   const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
   assert.equal(paused[0][2].custom_id, 'music_resume');
   assert.equal(paused[0][2].emoji.name, '▶️');
   assert.equal(paused[0][4].emoji.name, '🔂');
+});
+
+test('the card shows the sharpest cover: YouTube 1280x720 when it exists, SoundCloud 500x500', async () => {
+  const { bestArtworkUrl } = await import('../src/services/music/musicArtwork.js');
+  const asked = [];
+  const fetchImpl = async url => { asked.push(url); return { ok: url.endsWith('/hq720.jpg') }; };
+  assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/abcDEF12345/mqdefault.jpg', { fetchImpl }), 'https://i.ytimg.com/vi/abcDEF12345/hq720.jpg');
+  assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/abcDEF12345/hqdefault.jpg', { fetchImpl }), 'https://i.ytimg.com/vi/abcDEF12345/hq720.jpg', 'checked once per video');
+  assert.equal(asked.length, 2);
+  const none = async () => ({ ok: false });
+  assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/zzzzzz99999/mqdefault.jpg', { fetchImpl: none }), 'https://i.ytimg.com/vi/zzzzzz99999/mqdefault.jpg', 'the original when nothing sharper exists');
+  assert.equal(await bestArtworkUrl('https://i1.sndcdn.com/artworks-abc123-xyz-large.jpg'), 'https://i1.sndcdn.com/artworks-abc123-xyz-t500x500.jpg');
+  assert.equal(await bestArtworkUrl('https://i.scdn.co/image/ab67616d0000b273aa'), 'https://i.scdn.co/image/ab67616d0000b273aa', 'other covers stay as they are');
 });
 
 test('a button gets Cloudy\'s uploaded icon as an emoji object, else the standard emoji', async () => {

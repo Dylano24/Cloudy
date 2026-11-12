@@ -8,9 +8,11 @@ import { deleteMessageForMove } from '../deletionAttributionService.js';
 import { finishRequestMessage, lastFinishedTrack } from './musicRequestMessages.js';
 import {
     buildPlayerCard,
+    getTrackArtwork,
     isPlayerCardMessage,
     msUntilNextBarPiece,
 } from './musicEmbeds.js';
+import { sharpenTrackArtwork } from './musicArtwork.js';
 
 // The panel is refreshed when the bar reaches its next piece (owner's choice: no
 // delay), at least every 15 seconds, and never more often than every 2 seconds
@@ -381,6 +383,8 @@ export function setupPlayerHandler(client) {
                 guildData.idleTimeout = null;
             }
 
+            const started = track || player.current;
+            await sharpenTrackArtwork(started, getTrackArtwork(started));
             await refreshPlayerMessage(client, player.guildId);
             startUpdateInterval(client, player.guildId);
         } catch (error) {
