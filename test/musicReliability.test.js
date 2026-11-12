@@ -397,23 +397,39 @@ test('a new player plays at volume 100, the song\'s own sound that the node pass
   deleteGuildMusicData('quality-volume');
 });
 
-test('the timer and bar are refreshed every second while a song plays, every 15 seconds while paused', async () => {
-  const { msUntilNextSecond, musicBarPieces } = await import('../src/services/music/musicEmbeds.js');
+test('the timer is refreshed every second, a moment early, and catches up at once after a late edit', async () => {
+  const { msUntilNextSecond, musicBarPieces, songPosition } = await import('../src/services/music/musicEmbeds.js');
+  const { nextBarRefreshDelay, panelLead } = await import('../src/services/music/playerHandler.js');
   const { MUSIC_BAR_KNOB_PIECES } = await import('../src/services/feedEmojiService.js');
-  const { nextBarRefreshDelay } = await import('../src/services/music/playerHandler.js');
   const at = (position, extra = {}) => ({ current: song('x'), position, cloudyPositionAt: 1_000, paused: false, ...extra });
   assert.equal(msUntilNextSecond(at(10_300), 1_000), 700);
+  assert.equal(msUntilNextSecond(at(10_300), 1_000, null, 200), 500, 'sent earlier by the time an edit takes to show');
   assert.equal(msUntilNextSecond(at(10_000, { paused: true }), 1_000), null, 'nothing moves while paused');
   assert.equal(msUntilNextSecond(at(180_000), 1_000), null, 'the end of the song');
-  assert.equal(nextBarRefreshDelay(at(10_300), 1_000), 760, 'just after the next whole second');
-  assert.equal(nextBarRefreshDelay(at(10_800), 1_000), 1_260, 'never twice for the same second');
+  assert.equal(panelLead({}), 180, 'before anything is measured');
+  assert.equal(panelLead({ panelEditMs: 400 }), 240);
+  assert.equal(panelLead({ panelEditMs: 5_000 }), 500, 'never more than half a second');
+  const data = { panelEditMs: 400, shownSecond: 10 };
+  const player = at(10_300);
+  assert.equal(nextBarRefreshDelay(player, 1_000, data), 1_000 - 300 - 240 + 15);
+  data.shownSecond = 9;
+  assert.equal(nextBarRefreshDelay(player, 1_000, data), 40, 'the panel is behind: the next second goes at once, none is skipped');
+  data.panelFailedAt = 900;
+  assert.equal(nextBarRefreshDelay(player, 1_000, data), 2_000, 'a failed edit is tried again after 2 seconds');
   assert.equal(nextBarRefreshDelay(at(0, { paused: true }), 1_000), 15_000);
+  // Cloudy's own clock: a position report a little early or late changes nothing.
+  const clockData = {};
+  const live = at(10_000);
+  assert.equal(songPosition(live, clockData, 1_000), 10_000);
+  live.position = 10_700; live.cloudyPositionAt = 1_400;
+  assert.equal(songPosition(live, clockData, 1_500), 10_500, 'a report 0.3 s ahead is ignored');
+  live.position = 60_000; live.cloudyPositionAt = 1_600;
+  assert.equal(songPosition(live, clockData, 1_600), 60_000, 'a seek is followed at once');
   // The knob moves in 216 small steps: about every second for a 3-minute song.
   const bars = Array.from({ length: 181 }, (_, second) => musicBarPieces(second * 1_000, 180_000));
   const moves = new Set(bars.map(pieces => pieces.join(','))).size;
   assert.ok(moves >= 175, `the bar moves (almost) every second (${moves} of 181)`);
   assert.ok(bars.every(pieces => pieces.length === 14));
-  // Every knob piece the bar can show has a picture.
   const known = new Set(Object.entries(MUSIC_BAR_KNOB_PIECES).flatMap(([kind, [first, last]]) => {
     const keys = [];
     for (let d = first; d <= last; d += 8) keys.push(`mbar_${kind}_${d < 0 ? `n${-d}` : d}`);
@@ -424,24 +440,44 @@ test('the timer and bar are refreshed every second while a song plays, every 15 
   assert.equal(shown.size, known.size, 'and every picture is used');
 });
 
-test('the player panel is edited every second while the song plays', async t => {
+test('the player panel shows every second once, in order, while the song plays', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   const f = liveFixture('quality-bar');
   const flush = async () => { for (let i = 0; i < 6; i += 1) await settle(); };
   f.client.riffy.emit('trackStart', f.player, f.player.current);
   await flush();
   assert.equal(f.sent.length, 1);
-  t.mock.timers.tick(1_000);
-  await flush();
-  assert.equal(f.edits.length, 0, 'not before the first second is complete');
-  t.mock.timers.tick(100);
-  await flush();
-  assert.equal(f.edits.length, 1, 'the timer shows 0:01');
-  assert.match(cardTexts(f.edits[0]).join('\n'), /-# 0:01 \/ /);
-  for (let i = 0; i < 5; i += 1) { t.mock.timers.tick(1_000); await flush(); }
-  assert.equal(f.edits.length, 6, 'one edit per second');
-  assert.match(cardTexts(f.edits.at(-1)).join('\n'), /-# 0:06 \/ /);
+  for (let i = 0; i < 61; i += 1) { t.mock.timers.tick(100); await flush(); }
+  const seconds = f.edits.map(payload => /-# (\d+):(\d\d) \//.exec(cardTexts(payload).join('\n'))).map(match => Number(match[1]) * 60 + Number(match[2]));
+  assert.deepEqual(seconds, [1, 2, 3, 4, 5, 6], 'one edit per second, none skipped or shown twice');
   deleteGuildMusicData('quality-bar');
+});
+
+test('a click is answered after the timer edit that is still being sent, never before it', async () => {
+  const { musicButtonHandler } = await import('../src/handlers/musicButtons.js');
+  const f = panelFixture('click-order');
+  f.player.voiceChannel = 'voice';
+  markTrackStarted(f.player);
+  await refreshPlayerMessage(f.client, 'click-order');
+  const order = [];
+  let finishEdit;
+  f.channel.messages.fetch = async () => ({ edit: payload => new Promise(resolve => { finishEdit = () => { order.push(`tick:${cardButtons(payload)[2]}`); resolve(); }; }) });
+  getGuildMusicData('click-order').lastPanel = null;
+  const tick = refreshPlayerMessage(f.client, 'click-order');
+  await settle();
+  const click = {
+    customId: 'music_pause', guild: { id: 'click-order' }, user: { id: 'member' }, message: { id: 'panel-1' },
+    member: { voice: { channel: { id: 'voice' } } }, deferred: false, replied: false,
+    async update(payload) { this.replied = true; order.push(`click:${cardButtons(payload)[2]}`); },
+    async deferUpdate() { this.deferred = true; },
+  };
+  const answer = musicButtonHandler.execute(click, f.client);
+  await settle(); await settle();
+  assert.deepEqual(order, [], 'the answer waits for the edit in flight');
+  finishEdit();
+  await tick; await answer;
+  assert.deepEqual(order, ['tick:music_pause', 'click:music_resume'], 'the paused panel lands last, for everyone');
+  deleteGuildMusicData('click-order');
 });
 
 test('Pause, Resume and Loop on the player are answered with the new panel in one step', async () => {
