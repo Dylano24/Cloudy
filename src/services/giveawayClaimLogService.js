@@ -42,10 +42,9 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
   const number = Number(giveawayNumber || giveaway?.giveawayNumber);
   const validNumber = Number.isSafeInteger(number) && number > 0;
   const label = validNumber ? '#' + number : 'Go to giveaway';
-  // A closed or expired claim retains #N as text. While open, #N links to the
-  // original giveaway, using the same Discord message URL as before.
-  const canLink = event !== 'closed' && event !== 'expired'
-    && sourceChannelId && /^\d{17,20}$/.test(String(sourceChannelId));
+  // #N is a blue link to the original giveaway in every claim log, also
+  // after Close and the 24-hour deletion (owner's choice, like #giveaway-logs).
+  const canLink = sourceChannelId && /^\d{17,20}$/.test(String(sourceChannelId));
   const originalLink = canLink
     ? '[' + label + '](https://discord.com/channels/' + guildId + '/'
       + sourceChannelId + '/' + messageId + ')'
@@ -53,10 +52,11 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
   // Discord's :F format localizes the exact action time to the viewer.
   const stamp = new Date(occurredAt || Date.now()).getTime();
   const eventSeconds = Math.floor((Number.isFinite(stamp) ? stamp : Date.now()) / 1000);
+  // Giveaway and Prize first, then Claimed by (owner's choice; was "Member").
   const fields = [
-    { name: 'Member', value: '<@' + userId + '>', inline: false },
-    { name: 'Prize', value: safeValue(giveaway?.prize, 500), inline: true },
     { name: 'Giveaway', value: originalLink, inline: false },
+    { name: 'Prize', value: safeValue(giveaway?.prize, 500), inline: true },
+    { name: 'Claimed by', value: '<@' + userId + '>', inline: false },
   ];
   if (claimChannelId) {
     fields.push({
@@ -207,6 +207,7 @@ export async function refreshClosedGiveawayClaimLogChannels(client) {
 // After a claim channel closes, its mention resolves to #unknown in Discord.
 // Preserve its original numeric ID in *every* related audit entry (including
 // earlier Claim and Reveal entries), without changing any unrelated field.
+// The Giveaway #N link stays (owner's choice): the giveaway itself remains.
 const CLAIM_CHANNEL_ID_PATTERN = /^<#([0-9]{17,20})>(?: \(\x60[0-9]{17,20}\x60\))?$/;
 const LEGACY_EXPIRED_LOG_TITLE = 'Giveaway claim expired';
 // Expiry logs posted before the "Giveaway claim auto deletion" title keep
@@ -227,13 +228,6 @@ export function replaceClosedClaimChannelMentions(embed, closedChannelIds) {
     if (field.name === 'Private channel') {
       changed = true;
       return { ...field, value: '`' + matched[1] + '`' };
-    }
-    if (field.name === 'Giveaway') {
-      const link = /^\[(#[1-9]\d*)\]\(https:\/\/discord\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\)$/.exec(String(field.value || ''));
-      if (link) {
-        changed = true;
-        return { ...field, value: link[1] };
-      }
     }
     return field;
   });

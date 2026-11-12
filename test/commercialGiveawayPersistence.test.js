@@ -99,3 +99,30 @@ for (const rejectedWrite of [1, 2, 3]) {
     if (rejectedWrite === 3) assert.equal(saved.resultPending, undefined);
   });
 }
+
+// Owner's choice: a giveaway deleted with Manage > Delete is logged in the
+// Embed log (with the deleted giveaway itself), like the Embed Builder's Delete.
+test('giveaway Delete names the staff member and routes the removed messages to the Embed log', async () => {
+  const { resolveMessageDeleter } = await import('../src/services/deletionAttributionService.js');
+  const giveaway = { messageId: '123456789012345678', channelId: 'target', prize: 'Prize',
+    announcementIds: ['123456789012345679'] };
+  let stored = { [giveaway.messageId]: giveaway };
+  const guild = { id: 'giveaway-persistence-guild', channels: { cache: new Collection() } };
+  const removed = [];
+  const message = id => ({ id, guild, channelId: 'target', client: { user: { id: 'cloudy' } },
+    author: { id: 'cloudy', bot: true }, delete: async function() { removed.push(this); } });
+  const channel = { id: 'target', isTextBased: () => true, messages: { fetch: async id => message(id) } };
+  guild.channels.cache.set('target', channel);
+  const client = {
+    db: { get: async () => structuredClone(stored), set: async (key, value) => { stored = value; return true; } },
+    channels: { fetch: async () => channel },
+    guilds: { cache: new Collection(), fetch: async () => null },
+  };
+  await removeGiveaway(client, guild, giveaway.messageId, { deletedBy: { id: 'staff-1', bot: false } });
+  assert.deepEqual(removed.map(entry => entry.id), [giveaway.messageId, '123456789012345679']);
+  for (const entry of removed) {
+    const deletedBy = await resolveMessageDeleter(entry, { authorId: 'cloudy', authorBot: true });
+    assert.equal(deletedBy.source, 'embed-builder');
+    assert.equal(deletedBy.id, 'staff-1');
+  }
+});
