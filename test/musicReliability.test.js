@@ -370,3 +370,91 @@ test('a playlist added while a song plays shows in the player panel at once', as
   assert.equal(queueField.value, '3 tracks', 'not only after the next 15-second refresh');
   deleteGuildMusicData('reliability-playlist-now');
 });
+
+test('a new player plays at volume 100, the song\'s own sound that the node passes through unchanged', async () => {
+  const player = makePlayer();
+  const volumes = [];
+  player.setVolume = volume => { volumes.push(volume); };
+  const { client, interaction } = setup('quality-volume', player);
+  await playQuery(client, interaction, 'first');
+  assert.equal(getGuildMusicData('quality-volume').volume, 100);
+  assert.deepEqual([...new Set(volumes)], [100]);
+  deleteGuildMusicData('quality-volume');
+});
+
+test('the bar timer fires when the bar reaches its next piece, not up to 15 seconds later', async () => {
+  const { msUntilNextBarPiece } = await import('../src/services/music/musicEmbeds.js');
+  const { nextBarRefreshDelay } = await import('../src/services/music/playerHandler.js');
+  const at = (position, extra = {}) => ({ current: song('x'), position, cloudyPositionAt: 1_000, paused: false, ...extra });
+  assert.equal(msUntilNextBarPiece(at(0), 1_000), 9_000, 'a 3-minute song gets its first piece after 9 seconds');
+  assert.equal(msUntilNextBarPiece(at(10_000), 1_000), 17_000);
+  assert.equal(msUntilNextBarPiece(at(10_000, { paused: true }), 1_000), null, 'nothing moves while paused');
+  assert.equal(msUntilNextBarPiece(at(179_000), 1_000), null, 'a full bar');
+  assert.equal(nextBarRefreshDelay(at(0), 1_000), 9_250);
+  assert.equal(nextBarRefreshDelay(at(10_000), 1_000), 15_000, 'at least every 15 seconds');
+  assert.equal(nextBarRefreshDelay(at(8_990), 1_000), 2_000, 'never more often than every 2 seconds');
+  assert.equal(nextBarRefreshDelay(at(0, { paused: true }), 1_000), 15_000);
+});
+
+test('the player panel is edited exactly when the bar moves, and not in between', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const f = liveFixture('quality-bar');
+  const flush = async () => { for (let i = 0; i < 6; i += 1) await settle(); };
+  f.client.riffy.emit('trackStart', f.player, f.player.current);
+  await flush();
+  assert.equal(f.sent.length, 1);
+  t.mock.timers.tick(9_000);
+  await flush();
+  assert.equal(f.edits.length, 0, 'the first piece is not due yet');
+  t.mock.timers.tick(300);
+  await flush();
+  assert.equal(f.edits.length, 1, 'edited right when the first piece fills');
+  t.mock.timers.tick(15_000);
+  await flush();
+  assert.equal(f.edits.length, 1, 'the 15-second check sends nothing while the bar did not move');
+  t.mock.timers.tick(3_000);
+  await flush();
+  assert.equal(f.edits.length, 2, 'the second piece right on time');
+  deleteGuildMusicData('quality-bar');
+});
+
+test('Pause, Resume and Loop on the player are answered with the new panel in one step', async () => {
+  const { musicButtonHandler } = await import('../src/handlers/musicButtons.js');
+  const f = panelFixture('quality-click');
+  f.player.voiceChannel = 'voice';
+  f.player.queue.shuffle = () => {};
+  markTrackStarted(f.player);
+  await refreshPlayerMessage(f.client, 'quality-click');
+  assert.equal(f.sent.length, 1);
+  const answers = [];
+  const click = (customId, messageId = 'panel-1') => ({
+    customId, guild: { id: 'quality-click' }, user: { id: 'member' }, message: { id: messageId },
+    member: { voice: { channel: { id: 'voice' } } },
+    deferred: false, replied: false, deferrals: 0,
+    async update(payload) { this.replied = true; answers.push(payload); },
+    async deferUpdate() { this.deferred = true; this.deferrals += 1; },
+  });
+  const ids = payload => payload.components.flatMap(row => row.toJSON().components.map(button => button.custom_id));
+
+  const pause = click('music_pause');
+  await musicButtonHandler.execute(pause, f.client);
+  assert.deepEqual(f.player.pauses, [true]);
+  assert.equal(answers.length, 1);
+  assert.equal(pause.deferrals, 0, 'no acknowledgement before the answer');
+  assert.ok(ids(answers[0]).includes('music_resume'), 'the answer already shows Resume');
+  assert.equal(f.edits.length, 0, 'no second edit of the panel');
+
+  await musicButtonHandler.execute(click('music_resume'), f.client);
+  assert.equal(f.player.playing, true);
+  assert.ok(ids(answers[1]).includes('music_pause'));
+  await musicButtonHandler.execute(click('music_loop'), f.client);
+  assert.equal(getGuildMusicData('quality-click').loop, 'track');
+  assert.equal(answers.length, 3);
+  assert.equal(f.edits.length, 0);
+
+  const old = click('music_pause', 'some-old-message');
+  await musicButtonHandler.execute(old, f.client);
+  assert.equal(old.deferrals, 1, 'a click elsewhere is acknowledged');
+  assert.equal(f.edits.length, 1, 'and the panel itself is edited');
+  deleteGuildMusicData('quality-click');
+});

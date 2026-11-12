@@ -8,9 +8,15 @@ import {
     buildNowPlayingEmbed,
     buildPlayerButtonRows,
     buildMusicRequestEmbed,
+    msUntilNextBarPiece,
 } from './musicEmbeds.js';
 
+// The panel is refreshed when the bar reaches its next piece (owner's choice: no
+// delay), at least every 15 seconds, and never more often than every 2 seconds
+// (Discord allows 5 edits per 5 seconds in a channel).
 const UPDATE_INTERVAL_MS = 15 * 1000;
+const BAR_REFRESH_MIN_MS = 2_000;
+const BAR_REFRESH_MARGIN_MS = 250;
 const IDLE_DISCONNECT_MS = 30 * 1000;
 const SHUTDOWN_PANEL_REMOVAL_MS = 3_000;
 const playerRefreshJobs = new WeakMap();
@@ -182,17 +188,61 @@ export async function refreshPlayerMessage(client, guildId) {
         logger.error('Failed to refresh music player message:', error);
     }).finally(() => {
         if (playerRefreshJobs.get(guildData) === job) playerRefreshJobs.delete(guildData);
+        // Every refresh (timer, click, Resume, a new song in the queue) plans the
+        // next bar step from the song's position at that moment.
+        scheduleBarRefresh(client, guildId);
     });
     playerRefreshJobs.set(guildData, job);
     return job.promise;
 }
 
-function startUpdateInterval(client, guildId) {
+export function nextBarRefreshDelay(player, now = Date.now()) {
+    const untilPiece = msUntilNextBarPiece(player, now);
+    if (untilPiece === null) return UPDATE_INTERVAL_MS;
+    return Math.min(UPDATE_INTERVAL_MS, Math.max(BAR_REFRESH_MIN_MS, untilPiece + BAR_REFRESH_MARGIN_MS));
+}
+
+// Only while a song runs (startUpdateInterval at its start, cleared when it ends).
+function scheduleBarRefresh(client, guildId, { start = false } = {}) {
     const guildData = getGuildMusicData(guildId);
+    if (!start && !guildData.updateInterval) return;
     clearUpdateInterval(guildData);
-    guildData.updateInterval = setInterval(() => {
+    const timer = setTimeout(() => {
         refreshPlayerMessage(client, guildId);
-    }, UPDATE_INTERVAL_MS);
+    }, nextBarRefreshDelay(client.riffy?.players?.get(guildId)));
+    timer.unref?.();
+    guildData.updateInterval = timer;
+}
+
+function startUpdateInterval(client, guildId) {
+    scheduleBarRefresh(client, guildId, { start: true });
+}
+
+// A click on the player panel (Pause, Resume, Shuffle, Loop) is answered with the
+// new panel in one step: one Discord request instead of an acknowledgement and an
+// edit after it. A click on another message is acknowledged and the panel edited.
+export async function answerWithPlayerPanel(interaction, client, guildId) {
+    const guildData = getGuildMusicData(guildId);
+    const player = client.riffy?.players?.get(guildId);
+    const onPanel = Boolean(player?.current && guildData.playerMessageId)
+        && interaction.message?.id === guildData.playerMessageId;
+    if (onPanel) {
+        const embed = buildNowPlayingEmbed(player.current, player, guildData);
+        const components = buildPlayerButtonRows(player, guildData);
+        const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
+        const panel = JSON.stringify(payload);
+        try {
+            await interaction.update(payload);
+            guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
+            guildData.panelTrack = player.current;
+        } catch (error) {
+            logger.warn(`[MUSIC] Player click could not be answered with the panel: ${error?.message || error}`);
+        }
+    }
+    if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate().catch(() => {});
+    // Sends nothing when the panel already shows this; corrects a refresh that was
+    // being sent with the old state, and plans the next bar step.
+    return refreshPlayerMessage(client, guildId);
 }
 
 export function setupPlayerHandler(client) {

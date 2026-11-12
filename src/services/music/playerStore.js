@@ -6,7 +6,10 @@ export class GuildMusicData {
         this.playerChannelId = null;
         this.autoplay = false;
         this.loop = 'none';
-        this.volume = 75;
+        // 100 is the song's own sound: only then does the Lavalink node pass the
+        // original audio through unchanged. Any other volume made the node decode
+        // and encode every song again (lower quality, more load, more stutter).
+        this.volume = 100;
         this.shuffle = false;
         this.previousTracks = [];
         this.twentyFourSeven = false;

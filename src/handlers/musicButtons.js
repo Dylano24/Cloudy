@@ -12,10 +12,42 @@ import {
     playPreviousTrack,
 } from '../services/music/musicActions.js';
 import { canControlMusic, VOICE_CHANNEL_DENIAL } from '../services/music/permissions.js';
-import { refreshPlayerMessage } from '../services/music/playerHandler.js';
+import { refreshPlayerMessage, answerWithPlayerPanel } from '../services/music/playerHandler.js';
 import { openPlaylistPanel } from '../services/music/musicPlaylists.js';
 import { MUSIC_BUTTON_IDS } from '../services/music/musicEmbeds.js';
 import { replyUserError, ErrorTypes } from '../utils/errorHandler.js';
+
+// These change the player panel itself: the click is answered with the new panel
+// in one step (no acknowledgement first and an edit after it).
+const PANEL_BUTTONS = new Set([
+    MUSIC_BUTTON_IDS.PAUSE,
+    MUSIC_BUTTON_IDS.RESUME,
+    MUSIC_BUTTON_IDS.SHUFFLE,
+    MUSIC_BUTTON_IDS.LOOP,
+]);
+
+async function answerPanelButton(interaction, client, player, guildData) {
+    const guildId = interaction.guild.id;
+    switch (interaction.customId) {
+        case MUSIC_BUTTON_IDS.PAUSE:
+            await applyPause(client, guildId, { refresh: false });
+            break;
+        case MUSIC_BUTTON_IDS.RESUME:
+            await applyResume(client, guildId, { refresh: false });
+            break;
+        case MUSIC_BUTTON_IDS.SHUFFLE:
+            if (player.queue.length > 0) {
+                player.queue.shuffle();
+                guildData.shuffle = true;
+            }
+            break;
+        default: {
+            const next = guildData.loop === 'none' ? 'track' : guildData.loop === 'track' ? 'queue' : 'none';
+            await setLoopMode(client, interaction, next, { refresh: false });
+        }
+    }
+    await answerWithPlayerPanel(interaction, client, guildId);
+}
 
 async function handleMusicButton(interaction, client) {
     const player = getPlayer(client, interaction.guild.id);
@@ -97,16 +129,23 @@ async function handleMusicButton(interaction, client) {
         return replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: VOICE_CHANNEL_DENIAL });
     }
 
+    if (PANEL_BUTTONS.has(customId)) {
+        try {
+            await answerPanelButton(interaction, client, player, guildData);
+        } catch (error) {
+            await handleInteractionError(interaction, error, {
+                type: 'button',
+                customId: interaction.customId,
+                handler: 'music',
+            });
+        }
+        return;
+    }
+
     await interaction.deferUpdate();
 
     try {
         switch (customId) {
-            case MUSIC_BUTTON_IDS.PAUSE:
-                await applyPause(client, interaction.guild.id);
-                break;
-            case MUSIC_BUTTON_IDS.RESUME:
-                await applyResume(client, interaction.guild.id);
-                break;
             case MUSIC_BUTTON_IDS.PREVIOUS:
                 playPreviousTrack(player, guildData);
                 break;
@@ -116,19 +155,6 @@ async function handleMusicButton(interaction, client) {
             case MUSIC_BUTTON_IDS.STOP:
                 await destroyPlayerSession(client, interaction.guild.id, player, guildData);
                 break;
-            case MUSIC_BUTTON_IDS.SHUFFLE:
-                if (player.queue.length > 0) {
-                    player.queue.shuffle();
-                    guildData.shuffle = true;
-                    await refreshPlayerMessage(client, interaction.guild.id);
-                }
-                break;
-            case MUSIC_BUTTON_IDS.LOOP: {
-                const guildDataLoop = getGuildMusicData(interaction.guild.id);
-                const next = guildDataLoop.loop === 'none' ? 'track' : guildDataLoop.loop === 'track' ? 'queue' : 'none';
-                await setLoopMode(client, interaction, next);
-                break;
-            }
             case MUSIC_BUTTON_IDS.VOL_DOWN:
                 guildData.volume = Math.max(0, guildData.volume - 10);
                 player.setVolume(guildData.volume);

@@ -69,6 +69,18 @@ export function musicProgressBar(positionMs, lengthMs, steps = 10) {
     }).join('');
 }
 
+// Milliseconds until the bar shows its next piece (null while paused, without a
+// length or when it is full): the panel is refreshed at that moment, so the bar
+// never runs behind the song.
+export function msUntilNextBarPiece(player, now = Date.now(), steps = 10) {
+    const length = Number(player?.current?.info?.length);
+    if (!player?.current || player.paused || !Number.isFinite(length) || length <= 0) return null;
+    const position = livePlayerPosition(player, now);
+    const filled = Math.round(Math.max(0, Math.min(1, position / length)) * steps);
+    if (filled >= steps) return null;
+    return Math.max(0, ((filled + 0.5) * length) / steps - position);
+}
+
 // Where the song is now. The node reports the position every few seconds; in
 // between, the time since that report is added while the song plays (never while
 // paused), so the bar follows the music even when a report is late. A song that
