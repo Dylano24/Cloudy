@@ -440,10 +440,13 @@ export function playQuery(client, interaction, rawQuery, options = {}) {
     return withPlayLock(interaction?.guild?.id, () => runPlayQuery(client, interaction, rawQuery, options));
 }
 
-// The list item whose song plays now (paused counts), or null.
+// What plays now (paused counts), or null: the list item (or /play playlist) its
+// song came from, else the song itself.
 export function activeSource(player) {
     if (!player?.current || !(player.playing || player.paused)) return null;
-    return player.current.cloudySource || null;
+    if (player.current.cloudySource) return player.current.cloudySource;
+    const info = player.current.info || {};
+    return { url: info.uri || null, name: String(info.title || 'Unknown track').slice(0, 80), count: 1, kind: 'song' };
 }
 
 // Ends the song that plays now for Start (replace) and Remove in the list. Repeat
