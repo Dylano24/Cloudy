@@ -100,7 +100,7 @@ test('Add opens one form at once with the list, a song or playlist field, Start 
   let form = await open(client, ui);
   assert.equal(ui.log.root, null, 'no message before the form');
   assert.equal(form.title, 'Add to your list');
-  assert.match(form.components[0].content, /Your list is empty/);
+  assert.equal(form.components[0].content, `**Your list**\n${MAX_NOTE}\nYour list is empty. Add a song or a playlist below.`);
   assert.deepEqual(labels(form).map(label => [label.label, label.component.custom_id, label.component.required]),
     [['Add a song or playlist', 'add', false], ['Jam', 'jam', false]], 'an empty list has only the Add field and Jam');
 
@@ -109,7 +109,7 @@ test('Add opens one form at once with the list, a song or playlist field, Start 
   const firstId = form.custom_id;
   form = await open(client, ui);
   assert.notEqual(form.custom_id, firstId, 'every opening gets its own id');
-  assert.equal(form.components[0].content, `**Your list**\n${WHITE} Chill mix · 34 songs\n${WHITE} Blinding Lights · song`);
+  assert.equal(form.components[0].content, `**Your list**\n${MAX_NOTE}\n${WHITE} Chill mix · 34 songs\n${WHITE} Blinding Lights · song`);
   const [add, start, remove] = labels(form);
   assert.equal(add.label, 'Add a song or playlist');
   assert.deepEqual([start.label, start.component.custom_id, start.component.min_values, start.component.max_values, start.component.required],
@@ -215,7 +215,7 @@ test('a playlist started with /play shows in Add as Playing without being saved,
   const chill = await addPlaylist(client, 'g-active', { url: 'https://x/playlist-chill', name: 'Chill mix', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
 
   const form = await open(client, ui);
-  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs\n${MAX_NOTE}\n${WHITE} Chill mix · 2 songs`);
+  assert.equal(form.components[0].content, `**Your list**\n${MAX_NOTE}\n${DOT} Playing: Road trip · 2 songs\n${WHITE} Chill mix · 2 songs`);
   const [, start, remove] = labels(form);
   assert.deepEqual(start.component.options.map(option => option.label), ['Chill mix']);
   assert.deepEqual(remove.component.options.map(option => [option.value, option.label, option.emoji.name, option.description]),
@@ -230,7 +230,7 @@ test('a playlist started with /play shows in Add as Playing without being saved,
   // The node starts the first song of Chill mix: it is on top, and Road trip is gone.
   player.play();
   const next = await open(client, ui);
-  assert.equal(next.components[0].content, `**Your list**\n${DOT} Playing: Chill mix · 2 songs\n${MAX_NOTE}`);
+  assert.equal(next.components[0].content, `**Your list**\n${MAX_NOTE}\n${DOT} Playing: Chill mix · 2 songs`);
   assert.deepEqual(labels(next).slice(1).map(label => label.component.options.map(option => option.label)),
     [['Chill mix'], ['Chill mix'], ['Start a jam']]);
   deleteGuildMusicData('g-active');
@@ -255,7 +255,7 @@ test('Remove of what plays takes its songs out of the queue; with nothing left t
   const ui2 = fakeUi('g-remove-only');
   await playQuery(second.client, ui2.make('play', 'command'), 'https://open.spotify.com/playlist/road');
   const form = await open(second.client, ui2);
-  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs\n${MAX_NOTE}`);
+  assert.equal(form.components[0].content, `**Your list**\n${MAX_NOTE}\n${DOT} Playing: Road trip · 2 songs`);
   assert.deepEqual(labels(form).map(label => label.label), ['Add a song or playlist', 'Remove', 'Jam']);
   await submit(second.client, ui2, form, { remove: ['active'] });
   assert.equal(second.player.destroyed, true, 'nothing else to play: stopped like the Stop button');
@@ -283,7 +283,7 @@ test('a song played with /play shows on top as Playing, and Remove stops it', as
   await addPlaylist(client, 'g-plain', { url: 'https://x/playlist-1', name: 'One', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
   await playQuery(client, ui.make('play', 'command'), 'another song');
   const form = await open(client, ui);
-  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Song 9 · song\n${MAX_NOTE}\n${WHITE} One · 2 songs`);
+  assert.equal(form.components[0].content, `**Your list**\n${MAX_NOTE}\n${DOT} Playing: Song 9 · song\n${WHITE} One · 2 songs`);
   const remove = labels(form).find(label => label.label === 'Remove');
   assert.deepEqual(remove.component.options.map(option => [option.value, option.label, option.emoji.name, option.description]),
     [['active', 'Song 9', '🎶', 'song • playing'], [(await listPlaylists(client, 'g-plain'))[0].id, 'One', '🎵', '2 songs • Mila']]);
@@ -306,10 +306,10 @@ test('what waits in the queue shows as Queue with the blue dot, between Playing 
   const form = await open(client, ui);
   assert.equal(form.components[0].content, [
     '**Your list**',
+    MAX_NOTE,
     `${DOT} Playing: Road trip · 2 songs`,
     `${BLUE} Queue: Chill mix · 2 songs`,
     `${BLUE} Queue: Song 9 · song`,
-    MAX_NOTE,
     `${WHITE} Hosselen · song`,
   ].join('\n'));
   const [, start, remove] = labels(form);
@@ -380,11 +380,11 @@ test('a jam: everyone adds and the songs take turns per person; it ends with Sto
   form = await open(client, ui);
   assert.equal(form.components[0].content, [
     '**Your list**',
+    "-# Jam: everyone's songs take turns · max 10 in the queue",
     `${DOT} Playing: Song first song · song · Mila`,
     `${BLUE} Queue: Song sam one · song · Sam`,
     `${BLUE} Queue: Song mila one · song · Mila`,
     `${BLUE} Queue: Song mila two · song · Mila`,
-    "-# Jam: everyone's songs take turns · max 10 in the queue",
   ].join('\n'));
   const jamPicks = labels(form).at(-1).component;
   assert.equal(jamPicks.placeholder, 'Choose a song to play now');
@@ -404,4 +404,16 @@ test('a jam: everyone adds and the songs take turns per person; it ends with Sto
   await destroyPlayerSession(client, 'g-jam', player, getGuildMusicData('g-jam'));
   assert.equal(getGuildMusicData('g-jam').jam, null, 'Stop ends the jam');
   deleteGuildMusicData('g-jam');
+});
+
+test('every line of the list stays on one line: a long name is shortened', async () => {
+  const { client } = fakeBot();
+  const ui = fakeUi('g-long');
+  await addPlaylist(client, 'g-long', { url: 'https://x/long', name: 'The Most Beautiful Songs Of The Whole Summer 2026 Edition', count: 120, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
+  const form = await open(client, ui);
+  const line = form.components[0].content.split('\n').at(-1);
+  assert.equal(line, `${WHITE} The Most Beautiful Songs Of… · 120 songs`);
+  assert.ok(line.slice(WHITE.length + 1).length <= 40);
+  // The choices keep the whole name.
+  assert.equal(labels(form)[1].component.options[0].label, 'The Most Beautiful Songs Of The Whole Summer 2026 Edition');
 });
