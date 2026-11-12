@@ -8,6 +8,7 @@ import { createEmbed } from '../utils/embeds.js';
 const CLOUDY_C_LOGO_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@f2fc2ba3873d420bcdda0e3ea260cf5d312e528a/assets/cloudy-c-logo-auf-auf.gif';
 import { loadReport, publishReportOutcome, reportKey, withReportLock, validateReportDestinations } from './reportCaseService.js';
 import { rememberMessageDeleter } from './deletionAttributionService.js';
+import { REPORTED_MESSAGE_REASON } from '../utils/automodReason.js';
 import { hasCloudyOwnerMember } from './ownerRoleAccess.js';
 import { withCloudyFooter } from '../utils/cloudyFooter.js';
 import { CLOUDY_GREEN_COLOR } from '../utils/embedColorPolicy.js';
@@ -353,7 +354,7 @@ async function completeReportAction(interaction, client, report, action, userId,
 
       try {
         if (name === 'delete') {
-          rememberMessageDeleter(original, interaction.user);
+          rememberMessageDeleter(original, interaction.user, 'staff', { reason: REPORTED_MESSAGE_REASON });
           await original.delete();
         } else if (name === 'timeout') {
           await ModerationService.timeoutUser({

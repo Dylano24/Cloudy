@@ -195,8 +195,11 @@ export async function logDeletedMessage(message, options = {}) {
   const resolvedAuthorId = authorId;
   const created = createdTimestamp(message, snapshot);
 
+  // Reason (owner's choice): why Cloudy deleted it, e.g. "Message spam
+  // detected (AutoMod)" or "Reported message"; right under Deleted by/Type.
   const metaLines = [
     formatLogLine('Deleted by', deletedBy.label),
+    ...(deletedBy.reason ? [formatLogLine('Reason', deletedBy.reason)] : []),
     formatLogLine('Channel', channelMention(channelId)),
     formatLogLine('Message ID', `\`${message.id}\``),
     formatLogLine('Message author', resolvedAuthorId ? `<@${resolvedAuthorId}>` : 'Unknown'),

@@ -59,7 +59,7 @@ test('explicit staff and AutoMod deletion intents identify the real actor', asyn
   rememberMessageDeleter(message, { id: 'staff' });
   assert.deepEqual(await resolveMessageDeleter(message), { id: 'staff', label: '<@staff>', source: 'staff', type: DELETION_TYPES.staff, bot: false });
   rememberMessageDeleter(message, { id: 'cloudy' }, 'automod');
-  assert.deepEqual(await resolveMessageDeleter(message), { id: 'cloudy', label: '<@cloudy> (AutoMod)', source: 'automod', type: DELETION_TYPES.automod, bot: true });
+  assert.deepEqual(await resolveMessageDeleter(message), { id: 'cloudy', label: '<@cloudy>', source: 'automod', type: DELETION_TYPES.automod, bot: true });
 });
 
 test('a member deleting their own message is identified as the author', async () => {

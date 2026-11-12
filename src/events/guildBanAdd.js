@@ -29,7 +29,7 @@ export default {
         guildId: guild.id,
         eventType: EVENT_TYPES.MODERATION_BAN,
         data: {
-          title: 'Ban log',
+          title: 'Ban',
           color: getColor('red'),
           lines: [
             `**User:** ${user.toString()} (${user.tag})`,
