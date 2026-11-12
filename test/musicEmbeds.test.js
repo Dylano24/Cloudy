@@ -222,8 +222,12 @@ test('the player controls are in Spotify\'s order with Play/Pause in the middle;
     ['music_queue', 'music_playlists', 'music_stop'],
   ]);
   assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
-  assert.deepEqual(rows[0].map(button => button.emoji.name), ['🔀', '⏮️', '⏸️', '⏭️', '🔁'], 'standard emoji until the icons are uploaded');
+  assert.deepEqual(rows[0].map(button => button.emoji.name), ['🔀', '⏮️', '⏸️', '⏭️', '🔁'], 'standard emoji');
+  assert.ok(rows.flat().every(button => !button.emoji.id), 'never a custom emoji: the card is redrawn every second and Discord reloads custom emoji each time, so they blinked');
   assert.deepEqual(rows.flat().map(button => button.style), [2, 2, 2, 2, 2, 2, 2, 2], 'every button grey, also Play/Pause and Stop');
+  const modes = buildPlayerButtonRows({ paused: false }, { loop: 'queue', shuffle: true }).map(row => row.toJSON().components);
+  assert.deepEqual(modes[0].map(button => button.style), [3, 2, 2, 2, 3], 'a mode that is on (shuffle, repeat) is a green button');
+  assert.ok(modes.flat().every(button => !button.emoji.id));
   assert.deepEqual(rows[1].map(button => button.label || button.emoji.name), ['📋', 'Add', 'Stop'], 'the saved playlists button says Add');
   assert.equal(rows[1][1].emoji.name, '🎵', 'with the music emoji');
   const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
