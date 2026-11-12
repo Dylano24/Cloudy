@@ -613,7 +613,7 @@ export async function stopPlayback(client, interaction) {
     return successEmbed('Stopped', 'Playback stopped and the queue was cleared.');
 }
 
-export async function applyPause(client, guildId) {
+export async function applyPause(client, guildId, { refresh = true } = {}) {
     const player = getPlayer(client, guildId);
     if (!player?.current || player.paused) {
         return false;
@@ -623,11 +623,11 @@ export async function applyPause(client, guildId) {
     player.position = livePlayerPosition(player);
     player.cloudyPositionAt = Date.now();
     player.pause(true);
-    await refreshPlayerMessage(client, guildId);
+    if (refresh) await refreshPlayerMessage(client, guildId);
     return true;
 }
 
-export async function applyResume(client, guildId) {
+export async function applyResume(client, guildId, { refresh = true } = {}) {
     const player = getPlayer(client, guildId);
     if (!player?.current || !player.paused) {
         return false;
@@ -638,7 +638,7 @@ export async function applyResume(client, guildId) {
     // the song that was playing instead of queueing behind it.
     player.playing = true;
     player.cloudyPositionAt = Date.now();
-    await refreshPlayerMessage(client, guildId);
+    if (refresh) await refreshPlayerMessage(client, guildId);
     return true;
 }
 
@@ -684,7 +684,7 @@ export async function shuffleQueue(client, interaction) {
     return successEmbed('Shuffled', 'The queue has been shuffled.');
 }
 
-export async function setLoopMode(client, interaction, mode) {
+export async function setLoopMode(client, interaction, mode, { refresh = true } = {}) {
     const player = getPlayer(client, interaction.guild.id);
     if (!player) {
         throw new CloudyError('No player', ErrorTypes.USER_INPUT, 'No active music player.');
@@ -696,7 +696,7 @@ export async function setLoopMode(client, interaction, mode) {
     player.setLoop(mode);
 
     const labels = { none: 'Off', track: 'Track', queue: 'Queue' };
-    await refreshPlayerMessage(client, interaction.guild.id);
+    if (refresh) await refreshPlayerMessage(client, interaction.guild.id);
     return successEmbed('Loop updated', `Loop mode set to **${labels[mode] || mode}**.`);
 }
 
