@@ -113,20 +113,28 @@ test('pausing freezes the bar where the song was, resuming continues from there'
   deleteGuildMusicData('reliability-pause');
 });
 
+// The player is two messages: the card (cover, title, timer, bar) and, under it, the
+// controls (the buttons). `sent`/`edits` are the cards, `controlsSent`/`controlEdits`
+// the controls messages; ids count every message that is sent (panel-1 the first card,
+// panel-2 its controls, panel-3 the next card, ...).
 function panelFixture(guildId) {
   const sent = [];
   const edits = [];
+  const controlsSent = [];
+  const controlEdits = [];
   const records = [];
+  let total = 0;
+  const isControls = payload => cardButtons(payload).length > 0;
   const channel = {
     id: 'panel-channel', isTextBased: () => true,
     messages: {
       cache: new Collection(),
-      fetch: async () => ({ edit: async payload => { edits.push(payload); } }),
+      fetch: async () => ({ edit: async payload => { (isControls(payload) ? controlEdits : edits).push(payload); } }),
       edit: async (id, payload) => { records.push({ id, title: cardHeading(payload), components: cardButtons(payload) }); },
       delete: async id => { channel.deleted.push(id); },
     },
     deleted: [],
-    send: async payload => { sent.push(payload); return { id: `panel-${sent.length}` }; },
+    send: async payload => { total += 1; (isControls(payload) ? controlsSent : sent).push(payload); return { id: `panel-${total}` }; },
   };
   const player = makePlayer();
   player.current = song('x');
@@ -134,7 +142,7 @@ function panelFixture(guildId) {
   player.textChannel = channel.id;
   player.guildId = guildId;
   const client = { channels: { cache: new Map([[channel.id, channel]]) }, riffy: { players: new Map([[guildId, player]]) } };
-  return { client, player, channel, sent, edits, records };
+  return { client, player, channel, sent, edits, controlsSent, controlEdits, records };
 }
 
 test('no player panel says Now playing before the node reports that the song started', async () => {
@@ -155,10 +163,14 @@ test('a refresh that would show the same panel is not sent to Discord again', as
   await refreshPlayerMessage(f.client, 'reliability-unchanged');
   await refreshPlayerMessage(f.client, 'reliability-unchanged');
   assert.equal(f.sent.length, 1);
+  assert.equal(f.controlsSent.length, 1, 'the controls are posted once, under the card');
   assert.equal(f.edits.length, 0, 'nothing changed while paused');
+  assert.equal(f.controlEdits.length, 0, 'the buttons are not redrawn');
   f.player.paused = false;
   await refreshPlayerMessage(f.client, 'reliability-unchanged');
-  assert.equal(f.edits.length, 1, 'a real change is still shown');
+  assert.equal(f.edits.length, 0, 'the card shows the same second, so it is not sent again');
+  assert.equal(f.controlEdits.length, 1, 'a real change is still shown: Pause is back on the button');
+  assert.ok(cardButtons(f.controlEdits[0]).includes('music_pause'));
   deleteGuildMusicData('reliability-unchanged');
 });
 
@@ -179,7 +191,9 @@ test('a restart turns the player panel into the song\'s Stopped record and ends 
   await refreshPlayerMessage(f.client, 'reliability-shutdown');
   await shutdownMusic(f.client);
   assert.deepEqual(f.records.map(r => [r.id, r.title, r.components.length]), [['panel-1', 'Stopped', 0]], 'no dead buttons stay behind');
+  assert.deepEqual(f.channel.deleted, ['panel-2'], 'the controls under the card are removed');
   assert.equal(f.player.destroyed, true);
+  assert.equal(getGuildMusicData('reliability-shutdown').controlsMessageId, null);
   assert.equal(getGuildMusicData('reliability-shutdown').playerMessageId, null);
   deleteGuildMusicData('reliability-shutdown');
 });
@@ -218,6 +232,7 @@ test('a finished song stays as Played, a skipped one as Skipped, and the next so
   f.client.riffy.emit('trackStart', f.player, first);
   await settle(); await settle();
   assert.equal(f.sent.length, 1, 'one player panel for the first song');
+  assert.equal(f.controlsSent.length, 1, 'with its controls under it');
 
   // Skip: Riffy's stop() makes the node report the end with reason "stopped".
   skipCurrentTrack(f.player, getGuildMusicData('records-flow'));
@@ -228,7 +243,9 @@ test('a finished song stays as Played, a skipped one as Skipped, and the next so
   f.client.riffy.emit('trackStart', f.player, second);
   await settle(); await settle();
   assert.deepEqual(f.records.map(r => [r.id, r.title, r.components.length]), [['panel-1', 'Skipped', 0]]);
+  assert.deepEqual(f.channel.deleted, ['panel-2'], 'the record has no controls');
   assert.equal(f.sent.length, 2, 'the next song has a new player panel under the record');
+  assert.equal(f.controlsSent.length, 2, 'and new controls under that');
 
   // The last song plays out: Riffy only emits queueEnd.
   f.player.previous = second;
@@ -241,24 +258,29 @@ test('a finished song stays as Played, a skipped one as Skipped, and the next so
 });
 
 test('Stop leaves nothing old: the panel, the records and an old panel go; a song that could not be loaded shows Could not play', async () => {
-  const { buildNowPlayingEmbed, buildMusicRequestEmbed, buildMusicGuideEmbed } = await import('../src/services/music/musicEmbeds.js');
+  const { buildNowPlayingEmbed, buildMusicRequestEmbed, buildMusicGuideEmbed, buildPlayerCard, buildPlayerControls } = await import('../src/services/music/musicEmbeds.js');
   const f = liveFixture('records-stop');
   f.client.user = { id: 'cloudy' };
   f.client.riffy.emit('trackStart', f.player, f.player.current);
   await settle(); await settle();
   const removed = [];
   const message = (id, embed, author = 'cloudy') => ({ id, author: { id: author }, embeds: [embed], delete: async () => { removed.push(id); } });
+  const live = (id, payload, author = 'cloudy') => ({ id, author: { id: author }, embeds: [], components: payload.components, delete: async () => { removed.push(id); } });
+  const shows = { ...f.player, position: 5_000, cloudyPositionAt: 0 };
   const channelMessages = new Collection([
     ['panel-1', message('panel-1', buildNowPlayingEmbed(f.player.current, f.player, {}))],
     ['played', message('played', buildMusicRequestEmbed(song('earlier'), { playNow: true }).setTitle('Played'))],
     ['old-panel', message('old-panel', buildNowPlayingEmbed(song('old'), { paused: true, queue: [] }, {}))],
     ['guide', message('guide', buildMusicGuideEmbed())],
     ['member', message('member', buildNowPlayingEmbed(song('copy'), f.player, {}), 'someone')],
+    ['live-card', live('live-card', buildPlayerCard(f.player.current, shows, {}))],
+    ['live-controls', live('live-controls', buildPlayerControls(f.player.current, shows, {}))],
+    ['member-card', live('member-card', buildPlayerCard(f.player.current, shows, {}), 'someone')],
   ]);
   const fetchOne = f.channel.messages.fetch;
   f.channel.messages.fetch = async options => (options && typeof options === 'object' ? channelMessages : fetchOne(options));
   await destroyPlayerSession(f.client, 'records-stop', f.player, getGuildMusicData('records-stop'));
-  assert.deepEqual(removed.sort(), ['old-panel', 'panel-1', 'played'], 'only Cloudy\'s own player messages, the guide stays');
+  assert.deepEqual(removed.sort(), ['live-card', 'live-controls', 'old-panel', 'panel-1', 'played'], 'only Cloudy\'s own player messages (card, controls, records), the guide and members stay');
   assert.equal(f.player.destroyed, true);
   deleteGuildMusicData('records-stop');
 
@@ -453,7 +475,7 @@ test('the player panel shows every second once, in order, while the song plays',
   deleteGuildMusicData('quality-bar');
 });
 
-test('a click is answered after the timer edit that is still being sent, never before it', async () => {
+test('a click is answered after a controls edit that is still being sent, never before it', async () => {
   const { musicButtonHandler } = await import('../src/handlers/musicButtons.js');
   const f = panelFixture('click-order');
   f.player.voiceChannel = 'voice';
@@ -461,23 +483,54 @@ test('a click is answered after the timer edit that is still being sent, never b
   await refreshPlayerMessage(f.client, 'click-order');
   const order = [];
   let finishEdit;
-  f.channel.messages.fetch = async () => ({ edit: payload => new Promise(resolve => { finishEdit = () => { order.push(`tick:${cardButtons(payload)[2]}`); resolve(); }; }) });
-  getGuildMusicData('click-order').lastPanel = null;
+  // Only the controls edit is slow; a card edit (the timer) goes through at once.
+  f.channel.messages.fetch = async () => ({ edit: payload => {
+    if (!cardButtons(payload).length) return Promise.resolve();
+    return new Promise(resolve => { finishEdit = () => { order.push(`edit:${cardButtons(payload)[2]}`); resolve(); }; });
+  } });
+  getGuildMusicData('click-order').lastControls = null;
   const tick = refreshPlayerMessage(f.client, 'click-order');
   await settle();
   const click = {
-    customId: 'music_pause', guild: { id: 'click-order' }, user: { id: 'member' }, message: { id: 'panel-1' },
+    customId: 'music_pause', guild: { id: 'click-order' }, user: { id: 'member' }, message: { id: 'panel-2' },
     member: { voice: { channel: { id: 'voice' } } }, deferred: false, replied: false,
     async update(payload) { this.replied = true; order.push(`click:${cardButtons(payload)[2]}`); },
     async deferUpdate() { this.deferred = true; },
   };
   const answer = musicButtonHandler.execute(click, f.client);
   await settle(); await settle();
-  assert.deepEqual(order, [], 'the answer waits for the edit in flight');
+  assert.deepEqual(order, [], 'the answer waits for the controls edit in flight');
   finishEdit();
   await tick; await answer;
-  assert.deepEqual(order, ['tick:music_pause', 'click:music_resume'], 'the paused panel lands last, for everyone');
+  assert.deepEqual(order, ['edit:music_pause', 'click:music_resume'], 'the paused buttons land last, for everyone');
   deleteGuildMusicData('click-order');
+});
+
+test('a click is answered at once while a card edit (the timer) is still being sent', async () => {
+  const { musicButtonHandler } = await import('../src/handlers/musicButtons.js');
+  const f = panelFixture('click-timer');
+  f.player.voiceChannel = 'voice';
+  markTrackStarted(f.player);
+  await refreshPlayerMessage(f.client, 'click-timer');
+  let finishCard;
+  f.channel.messages.fetch = async () => ({ edit: payload => (cardButtons(payload).length ? Promise.resolve() : new Promise(resolve => { finishCard = resolve; })) });
+  getGuildMusicData('click-timer').lastPanel = null;
+  const tick = refreshPlayerMessage(f.client, 'click-timer');
+  await settle();
+  const answers = [];
+  const click = {
+    customId: 'music_pause', guild: { id: 'click-timer' }, user: { id: 'member' }, message: { id: 'panel-2' },
+    member: { voice: { channel: { id: 'voice' } } }, deferred: false, replied: false,
+    async update(payload) { this.replied = true; answers.push(payload); },
+    async deferUpdate() { this.deferred = true; },
+  };
+  const answer = musicButtonHandler.execute(click, f.client);
+  await settle(); await settle();
+  assert.equal(answers.length, 1, 'the click did not wait for the timer');
+  assert.ok(cardButtons(answers[0]).includes('music_resume'));
+  finishCard();
+  await answer; await tick;
+  deleteGuildMusicData('click-timer');
 });
 
 test('Pause, Resume and Loop on the player are answered with the new panel in one step', async () => {
@@ -489,7 +542,7 @@ test('Pause, Resume and Loop on the player are answered with the new panel in on
   await refreshPlayerMessage(f.client, 'quality-click');
   assert.equal(f.sent.length, 1);
   const answers = [];
-  const click = (customId, messageId = 'panel-1') => ({
+  const click = (customId, messageId = 'panel-2') => ({
     customId, guild: { id: 'quality-click' }, user: { id: 'member' }, message: { id: messageId },
     member: { voice: { channel: { id: 'voice' } } },
     deferred: false, replied: false, deferrals: 0,
@@ -505,6 +558,7 @@ test('Pause, Resume and Loop on the player are answered with the new panel in on
   assert.equal(pause.deferrals, 0, 'no acknowledgement before the answer');
   assert.ok(ids(answers[0]).includes('music_resume'), 'the answer already shows Resume');
   assert.equal(f.edits.length, 0, 'no second edit of the panel');
+  assert.equal(f.controlEdits.length, 0, 'and the buttons are not sent twice');
 
   await musicButtonHandler.execute(click('music_resume'), f.client);
   assert.equal(f.player.playing, true);
@@ -513,11 +567,13 @@ test('Pause, Resume and Loop on the player are answered with the new panel in on
   assert.equal(getGuildMusicData('quality-click').loop, 'track');
   assert.equal(answers.length, 3);
   assert.equal(f.edits.length, 0);
+  assert.equal(f.controlEdits.length, 0);
 
   const old = click('music_pause', 'some-old-message');
   await musicButtonHandler.execute(old, f.client);
   assert.equal(old.deferrals, 1, 'a click elsewhere is acknowledged');
-  assert.equal(f.edits.length, 1, 'and the panel itself is edited');
+  assert.equal(f.controlEdits.length, 1, 'and the buttons themselves are edited');
+  assert.ok(cardButtons(f.controlEdits[0]).includes('music_resume'));
   deleteGuildMusicData('quality-click');
 });
 

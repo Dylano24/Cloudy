@@ -2,8 +2,14 @@
 
 export class GuildMusicData {
     constructor() {
+        // The card (cover, title, timer, bar: redrawn every second) and, under it, the
+        // controls message (buttons: redrawn only when something on it changes).
         this.playerMessageId = null;
         this.playerChannelId = null;
+        this.controlsMessageId = null;
+        this.lastControls = null;
+        this.controlsHold = 0;
+        this.controlsWork = null;
         this.autoplay = false;
         this.loop = 'none';
         // 100 is the song's own sound: only then does the Lavalink node pass the
