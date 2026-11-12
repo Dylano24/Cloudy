@@ -13,7 +13,7 @@ import {
 } from '../services/music/musicActions.js';
 import { canControlMusic, VOICE_CHANNEL_DENIAL } from '../services/music/permissions.js';
 import { refreshPlayerMessage, answerWithPlayerPanel } from '../services/music/playerHandler.js';
-import { openPlaylistPanel } from '../services/music/musicPlaylists.js';
+import { openPlaylistPanel, openRemovePlaylistPanel } from '../services/music/musicPlaylists.js';
 import { MUSIC_BUTTON_IDS } from '../services/music/musicEmbeds.js';
 import { replyUserError, ErrorTypes } from '../utils/errorHandler.js';
 
@@ -58,6 +58,10 @@ async function handleMusicButton(interaction, client) {
     // checks the voice channel itself.
     if (customId === MUSIC_BUTTON_IDS.PLAYLISTS) {
         return openPlaylistPanel(interaction, client);
+    }
+
+    if (customId === MUSIC_BUTTON_IDS.REMOVE) {
+        return openRemovePlaylistPanel(interaction, client);
     }
 
     if (customId === MUSIC_BUTTON_IDS.QUEUE) {

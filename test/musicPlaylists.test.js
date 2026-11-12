@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import {
-  addPlaylist, listPlaylists, removePlaylist, openPlaylistPanel, handleMusicPlaylistControls,
+  addPlaylist, listPlaylists, removePlaylist, openPlaylistPanel, openRemovePlaylistPanel, handleMusicPlaylistControls,
 } from '../src/services/music/musicPlaylists.js';
 import { playQuery } from '../src/services/music/musicActions.js';
 import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/playerStore.js';
@@ -67,6 +67,11 @@ async function open(client, ui, extra = {}) {
   await openPlaylistPanel(ui.make('music_playlists', 'button', { reply: async payload => { ui.log.root = payload; }, ...extra }), client);
   return ui.log.modals.at(-1);
 }
+
+async function openRemove(client, ui, extra = {}) {
+  await openRemovePlaylistPanel(ui.make('music_remove', 'button', extra), client);
+  return ui.log.modals.at(-1);
+}
 function submit(client, ui, form, { add = '', start = [], remove = [], jam = [] } = {}, extra = {}) {
   const fields = {
     getTextInputValue: id => (id === 'add' ? add : ''),
@@ -97,6 +102,35 @@ test('the list lives only for the session, with limits, and only the owner or a 
   assert.equal((await removePlaylist(client, 'g-store', a.id, { userId: 'u2', canManage: true })).removed, true);
   assert.deepEqual(await removePlaylist(client, 'g-store', a.id, { userId: 'u1' }), { removed: false, reason: 'missing' });
   deleteGuildMusicData('g-store');
+});
+
+test('the - button opens Remove only and removes the active playlist using the existing flow', async () => {
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-minus-active');
+  await playQuery(client, ui.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  await playQuery(client, ui.make('play', 'command'), 'another song');
+  const form = await openRemove(client, ui);
+  assert.equal(form.title, 'Remove from your list');
+  assert.deepEqual(labels(form).map(label => label.label), ['Remove']);
+  const removeOptions = labels(form)[0].component.options;
+  assert.equal(removeOptions[0].value, 'active', 'the playing playlist is offered for removal');
+  assert.equal(removeOptions[0].label, 'Road trip');
+  assert.ok(removeOptions.some(option => option.label === 'Song 9'), 'the queue remains selectable');
+  assert.equal(ui.log.followUps.length, 0, 'the - click does not post a message');
+  await submit(client, ui, form, { remove: ['active'] });
+  assert.equal(notice(ui).description, '**Road trip** was removed.');
+  assert.equal(player.stops, 1);
+  assert.deepEqual(player.queue.map(track => track.info.title), ['Song 9']);
+  deleteGuildMusicData('g-minus-active');
+});
+
+test('the - button shows a private short-lived notice when nothing can be removed', async () => {
+  const { client } = fakeBot();
+  const ui = fakeUi('g-minus-empty');
+  await openRemovePlaylistPanel(ui.make('music_remove', 'button', { reply: async payload => { ui.log.root = payload; } }), client);
+  assert.equal(ui.log.modals.length, 0);
+  assert.match(ui.log.root.embeds[0].toJSON().description, /Nothing is available to remove/);
+  deleteGuildMusicData('g-minus-empty');
 });
 
 test('Stop ends the session: the list, the queue and the jam are gone', async () => {

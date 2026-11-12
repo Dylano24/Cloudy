@@ -206,7 +206,8 @@ export const PLAYER_BUTTON_SYMBOLS = Object.freeze({
     repeat: '\u21BB',
     repeatOne: '\u21BB1',
     queue: '\u2630',
-    add: '\u266B',
+    add: '+',
+    remove: '\u2212',
     stop: '\u25A0',
 });
 
@@ -226,7 +227,8 @@ const musicCommandsDescription = () => [
     `${PLAYER_BUTTON_SYMBOLS.next} Next song`,
     `${PLAYER_BUTTON_SYMBOLS.repeat} Repeat song or queue`,
     `${PLAYER_BUTTON_SYMBOLS.queue} Show the queue`,
-    `${PLAYER_BUTTON_SYMBOLS.add} Add, start or remove`,
+    `${PLAYER_BUTTON_SYMBOLS.add} Add or start a song`,
+    `${PLAYER_BUTTON_SYMBOLS.remove} Remove from the list`,
     `${PLAYER_BUTTON_SYMBOLS.stop} Stop and leave`,
 ].join('\n');
 
@@ -330,8 +332,8 @@ const padLabel = (label, spaces = 1) => `${WORD_JOINER}${THIN_SPACE.repeat(space
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
     // Like Spotify (owner's choice): Shuffle, Previous, Play/Pause, Next, Repeat in one
-    // row, grey, a mode that is on (shuffle, repeat) in green. The bottom row has Queue,
-    // Add (it opens the form at once) and, last, Stop. Text symbols only
+    // row, grey, a mode that is on (shuffle, repeat) in green. The bottom row has
+    // Queue, Add (+), Remove (-) and Stop. Text symbols only
     // (`PLAYER_BUTTON_SYMBOLS`): they never blink on the card's every-second redraw.
     // No volume buttons (owner's choice): /music volume still sets it, and the old
     // button ids stay registered so a player message from before still answers.
@@ -341,7 +343,7 @@ export function buildPlayerButtonRows(player, guildData) {
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
             .setStyle(modeStyle(guildData?.shuffle))
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.shuffle)),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.shuffle, 4)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PREVIOUS)
             .setStyle(ButtonStyle.Secondary)
@@ -357,25 +359,29 @@ export function buildPlayerButtonRows(player, guildData) {
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
             .setStyle(modeStyle(loop === 'track' || loop === 'queue'))
-            .setLabel(loop === 'track' ? padLabel(PLAYER_BUTTON_SYMBOLS.repeatOne) : padLabel(PLAYER_BUTTON_SYMBOLS.repeat, 2)),
+            .setLabel(loop === 'track' ? padLabel(PLAYER_BUTTON_SYMBOLS.repeatOne, 3) : padLabel(PLAYER_BUTTON_SYMBOLS.repeat, 5)),
     );
 
-    const stop = new ActionRowBuilder().addComponents(
+    const actions = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.queue)),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.queue, 4)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(`${PLAYER_BUTTON_SYMBOLS.add} Add`)),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.add, 6)),
+        new ButtonBuilder()
+            .setCustomId(MUSIC_BUTTON_IDS.REMOVE)
+            .setStyle(ButtonStyle.Secondary)
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.remove, 6)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(`${PLAYER_BUTTON_SYMBOLS.stop} Stop`)),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.stop, 6)),
     );
 
-    return [controls, stop];
+    return [controls, actions];
 }
 
 export function buildQueuePaginationRow(page, totalPages) {
