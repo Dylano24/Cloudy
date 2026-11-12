@@ -3,6 +3,8 @@
 import { logger } from '../../utils/logger.js';
 import { getGuildMusicData, clearUpdateInterval } from './playerStore.js';
 import { musicChannelFor } from './musicChannel.js';
+import { isPlayerPanelEmbed } from './musicPanelIdentity.js';
+import { deleteMessageForMove } from '../deletionAttributionService.js';
 import { finishRequestMessage, lastFinishedTrack } from './musicRequestMessages.js';
 import {
     buildNowPlayingEmbed,
@@ -29,6 +31,32 @@ export function markTrackStarted(player, track = player?.current) {
     if (player) {
         player.position = 0;
         player.cloudyPositionAt = Date.now();
+    }
+}
+
+// A song that Lavalink started and that has not ended yet: /play then always
+// queues behind it, also when Riffy's playing flag is wrong for a moment.
+export function isTrackRunning(player) {
+    return hasStarted(player);
+}
+
+// Closing the music leaves nothing old behind (owner's choice): the panel, the
+// Played/Skipped/Stopped records of the session and any panel left over from an
+// earlier session (a restart, an older version) are removed from the music
+// channel. A new session starts in a clean channel the same way. Only Cloudy's
+// own player messages; the guide and everything else stay. Removed like a move,
+// so the message logs stay quiet.
+const CLEAN_SCAN_LIMIT = 50;
+export async function clearPlayerMessages(client, guildId, extraChannelIds = []) {
+    const guild = client.guilds?.cache?.get?.(guildId);
+    const channelIds = new Set([musicChannelFor(guild)?.id, ...extraChannelIds].filter(Boolean));
+    for (const channelId of channelIds) {
+        const channel = client.channels?.cache?.get?.(channelId);
+        if (!channel?.messages?.fetch) continue;
+        const messages = await channel.messages.fetch({ limit: CLEAN_SCAN_LIMIT }).catch(() => null);
+        const own = [...(messages?.values?.() || [])].filter(message => message.author?.id === client.user?.id
+            && message.embeds?.some(isPlayerPanelEmbed));
+        await Promise.allSettled(own.map(message => deleteMessageForMove(message)));
     }
 }
 
@@ -144,6 +172,11 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
     }
 
     try {
+        // The first panel of a session: leftovers of an earlier one go first.
+        if (!guildData.sessionCleaned) {
+            guildData.sessionCleaned = true;
+            await clearPlayerMessages(client, channel.guild?.id || channel.guildId, [channel.id]).catch(() => {});
+        }
         const newMsg = await channel.send(payload);
         guildData.playerMessageId = newMsg.id;
         guildData.playerChannelId = channel.id;
@@ -366,6 +399,7 @@ export function setupPlayerHandler(client) {
         // A song on repeat is still playing.
         if (player?.loop === 'track' && reason === 'finished') return;
         void finishRequestMessage(client, track, reason === 'loadfailed' ? 'failed' : 'played');
+        if (startedTracks.get(player) === track) startedTracks.delete(player);
         const guildData = getGuildMusicData(player.guildId);
         const fallback = reason === 'finished' ? 'played' : reason === 'loadfailed' ? 'failed' : reason === 'stopped' ? 'skipped' : 'stopped';
         void retirePlayerPanel(client, player.guildId, track, endedOutcome(guildData, track, fallback), player);
@@ -378,6 +412,7 @@ export function setupPlayerHandler(client) {
             // Riffy emits only queueEnd (no trackEnd) for the very last song.
             const last = lastFinishedTrack(player);
             void finishRequestMessage(client, last);
+            startedTracks.delete(player);
             const guildData = getGuildMusicData(player.guildId);
             clearUpdateInterval(guildData);
 
@@ -406,7 +441,11 @@ export function setupPlayerHandler(client) {
         if (!retired) await deletePlayerPanel(client, guildData);
 
         guildData.previousTracks = [];
-        // The bot left the voice channel: the session ends with it, nothing is kept.
+        startedTracks.delete(player);
+        // The bot left the voice channel: the session ends with it, nothing is kept,
+        // also not its messages in the channel.
+        void clearPlayerMessages(client, player.guildId).catch(() => {});
+        guildData.sessionCleaned = false;
         guildData.jam = null;
         guildData.list = [];
         clearTimeout(guildData.jamHostTimer);
