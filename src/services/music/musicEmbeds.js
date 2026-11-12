@@ -6,7 +6,6 @@ import {
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
-    SectionBuilder,
     TextDisplayBuilder,
 } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
@@ -399,25 +398,13 @@ export function buildPlayerCard(track, player, guildData, { ended = null } = {})
     const length = Number(info.length);
     const timed = !info.isStream && Number.isFinite(length) && length > 0;
     // Above the buttons, where the time was (owner's choice): "Requested by" with the
-    // white dot and the display name, and the song's length on the right with the blue
-    // dot. Only a section can put something on the right of a line, and only a button
-    // can carry text there (`music_time`, a click does nothing). No running timer.
-    // A record of an ended song has no buttons at all (no dead buttons stay behind):
-    // there the length follows on the same line.
-    const requestedBy = `-# ${feedEmoji('dot')} Requested by ${requesterDisplayName(info)}`;
+    // white dot and the display name, then on the same line, without a button, the
+    // song's length with the blue dot (owner's choice: Discord can only put text on the
+    // right inside a button, so it follows on the same line). No running timer. A record
+    // of an ended song has the same line and no buttons at all.
     const songLength = timed ? formatClock(length) : 'Live';
-    if (ended) {
-        card.addTextDisplayComponents(text(`${requestedBy} · ${feedEmoji('report_blue')} ${songLength}`));
-    } else {
-        card.addSectionComponents(new SectionBuilder()
-            .addTextDisplayComponents(text(requestedBy))
-            .setButtonAccessory(new ButtonBuilder()
-                .setCustomId(MUSIC_BUTTON_IDS.TIME)
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji(feedEmojiComponent('report_blue'))
-                .setLabel(songLength)));
-        card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
-    }
+    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requesterDisplayName(info)} · ${feedEmoji('report_blue')} ${songLength}`));
+    if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     // Both the live card and a record end with the footer picture.
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(PLAYER_FOOTER_PICTURE_URL)));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
