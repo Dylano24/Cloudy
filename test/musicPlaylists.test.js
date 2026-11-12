@@ -77,6 +77,7 @@ const labels = form => form.components.filter(item => item.type === 18);
 const notice = ui => ui.log.edits.at(-1).embeds[0].toJSON();
 const DOT = '<a:glowing_dot_green:1567760480439771286>';
 const WHITE = '<:W87205667glowingdotwhite:1543291335036108830>';
+const BLUE = '🔵'; // Cloudy's blue dot before it is uploaded
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 test('songs and playlists are saved per server with limits, and only the owner or a moderator removes one', async () => {
@@ -292,4 +293,37 @@ test('a song played with /play shows on top as Playing, and Remove stops it', as
   assert.equal(player.destroyed, true, 'nothing else to play');
   assert.equal((await listPlaylists(client, 'g-plain')).length, 1, 'the list itself is unchanged');
   deleteGuildMusicData('g-plain');
+});
+
+test('what waits in the queue shows as Queue with the blue dot, between Playing and the rest', async () => {
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-queue');
+  await addPlaylist(client, 'g-queue', { url: 'https://x/playlist-chill', name: 'Chill mix', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
+  await addPlaylist(client, 'g-queue', { url: 'https://x/hosselen', name: 'Hosselen', count: 1, kind: 'song', ownerId: 'owner', ownerName: 'Mila' });
+  await playQuery(client, ui.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  await playQuery(client, ui.make('play', 'command'), 'https://x/playlist-chill');
+  await playQuery(client, ui.make('play', 'command'), 'another song');
+
+  const form = await open(client, ui);
+  assert.equal(form.components[0].content, [
+    '**Your list**',
+    `${DOT} Playing: Road trip · 2 songs`,
+    `${BLUE} Queue: Chill mix · 2 songs`,
+    `${BLUE} Queue: Song 9 · song`,
+    `${WHITE} Hosselen · song`,
+  ].join('\n'));
+  const [, start, remove] = labels(form);
+  assert.deepEqual(start.component.options.map(option => option.label), ['Chill mix', 'Hosselen']);
+  assert.deepEqual(remove.component.options.map(option => [option.label, option.description]), [
+    ['Road trip', '2 songs • playing'], ['Chill mix', '2 songs • queue'], ['Song 9', 'song • queue'], ['Hosselen', 'song • Mila'],
+  ]);
+
+  // Remove of a song that waits in the queue takes only that song out.
+  const song9 = remove.component.options[2].value;
+  assert.match(song9, /^q:[0-9a-f]{16}$/);
+  await submit(client, ui, form, { remove: [song9] });
+  assert.equal(notice(ui).description, '**Song 9** was removed.');
+  assert.deepEqual(player.queue.map(song => song.info.title), ['Song 2', 'Song 1', 'Song 2']);
+  assert.equal(player.stops, 0, 'what plays keeps playing');
+  deleteGuildMusicData('g-queue');
 });

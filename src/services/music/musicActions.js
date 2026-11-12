@@ -440,13 +440,33 @@ export function playQuery(client, interaction, rawQuery, options = {}) {
     return withPlayLock(interaction?.guild?.id, () => runPlayQuery(client, interaction, rawQuery, options));
 }
 
-// What plays now (paused counts), or null: the list item (or /play playlist) its
-// song came from, else the song itself.
+// Where a song came from: the list item (or /play playlist), else the song itself.
+function sourceOfTrack(track) {
+    if (track?.cloudySource) return track.cloudySource;
+    const info = track?.info || {};
+    return { url: info.uri || null, name: String(info.title || 'Unknown track').slice(0, 80), count: 1, kind: 'song' };
+}
+const sourceUrlOf = track => sourceOfTrack(track).url;
+
+// What plays now (paused counts), or null.
 export function activeSource(player) {
     if (!player?.current || !(player.playing || player.paused)) return null;
-    if (player.current.cloudySource) return player.current.cloudySource;
-    const info = player.current.info || {};
-    return { url: info.uri || null, name: String(info.title || 'Unknown track').slice(0, 80), count: 1, kind: 'song' };
+    return sourceOfTrack(player.current);
+}
+
+// What waits in the queue, once per list item or song, in queue order; the rest
+// of what plays now is not counted.
+export function queuedSources(player) {
+    const playing = activeSource(player)?.url;
+    const seen = new Set(playing ? [playing] : []);
+    const sources = [];
+    for (const track of player?.queue || []) {
+        const source = sourceOfTrack(track);
+        if (!source.url || seen.has(source.url)) continue;
+        seen.add(source.url);
+        sources.push(source);
+    }
+    return sources;
 }
 
 // Ends the song that plays now for Start (replace) and Remove in the list. Repeat
@@ -496,7 +516,7 @@ export function replaceQueue(client, interaction, rawQuery, options = {}) {
 export async function removeSourceFromQueue(client, guildId, url, member) {
     const player = getPlayer(client, guildId);
     if (!player || !url) return false;
-    const fromSource = track => track?.cloudySource?.url === url;
+    const fromSource = track => sourceUrlOf(track) === url;
     const playing = activeSource(player)?.url === url;
     const queued = [...player.queue].some(fromSource);
     if (!playing && !queued) return false;
