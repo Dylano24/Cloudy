@@ -1,8 +1,10 @@
 // Approved Cloudy music player design: fixed, silver-white 128px control glyphs.
+// Shuffle v2 (owner's choice: the first arrow looked odd): two lines that cross
+// with a gap, like Spotify's, and the repeat icon's arrowheads.
 // The simulated preview backgrounds are not included: Discord owns the button chrome.
 export const MUSIC_CONTROL_ART_KEYS = Object.freeze(["shuffle","previous","pause","next","repeat","queue","add","remove","stop","play","repeat_one"]);
 const SHAPES = Object.freeze({
-  "shuffle": "<path d=\"M-26 -17 H-17 C-5 -17 0 -6 10 7 C17 17 21 17 27 17\"/><path d=\"M17 8 L27 17 L17 26\"/><path d=\"M-26 17 H-17 C-4 17 1 5 11 -8 C17 -17 21 -17 27 -17\"/><path d=\"M17 -26 L27 -17 L17 -8\"/>",
+  "shuffle": "<defs><mask id=\"shuffle-gap\" maskUnits=\"userSpaceOnUse\" x=\"-42\" y=\"-42\" width=\"84\" height=\"84\"><rect x=\"-42\" y=\"-42\" width=\"84\" height=\"84\" fill=\"#fff\" stroke=\"none\"/><path d=\"M-26 -15 H-14 C-4 -15 4 15 14 15 H24.5\" stroke=\"#000\" stroke-width=\"13\" stroke-linecap=\"butt\"/></mask></defs><path d=\"M-26 15 H-14 C-4 15 4 -15 14 -15 H24.5\" mask=\"url(#shuffle-gap)\"/><path d=\"M17.5 -22.5 L25 -15 L17.5 -7.5\"/><path d=\"M-26 -15 H-14 C-4 -15 4 15 14 15 H24.5\"/><path d=\"M17.5 7.5 L25 15 L17.5 22.5\"/>",
   "previous": "<rect x=\"-29\" y=\"-26\" width=\"7\" height=\"52\" rx=\"2.5\" fill=\"url(#steel)\" stroke=\"none\"/><path d=\"M19 -24 L-18 0 L19 24 Z\" fill=\"url(#steel)\" stroke=\"none\"/>",
   "pause": "<rect x=\"-18\" y=\"-26\" width=\"11\" height=\"52\" rx=\"3\" fill=\"url(#steel)\" stroke=\"none\"/><rect x=\"7\" y=\"-26\" width=\"11\" height=\"52\" rx=\"3\" fill=\"url(#steel)\" stroke=\"none\"/>",
   "next": "<path d=\"M-19 -24 L18 0 L-19 24 Z\" fill=\"url(#steel)\" stroke=\"none\"/><rect x=\"22\" y=\"-26\" width=\"7\" height=\"52\" rx=\"2.5\" fill=\"url(#steel)\" stroke=\"none\"/>",
