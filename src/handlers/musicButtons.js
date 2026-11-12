@@ -10,6 +10,7 @@ import {
     applyResume,
     skipCurrentTrack,
     playPreviousTrack,
+    arrangeJamQueue,
 } from '../services/music/musicActions.js';
 import { canControlMusic, VOICE_CHANNEL_DENIAL } from '../services/music/permissions.js';
 import { refreshPlayerMessage, answerWithPlayerPanel } from '../services/music/playerHandler.js';
@@ -38,6 +39,8 @@ async function answerPanelButton(interaction, client, player, guildData) {
         case MUSIC_BUTTON_IDS.SHUFFLE:
             if (player.queue.length > 0) {
                 player.queue.shuffle();
+                // In a jam the turns stay (who goes first and each person's own order are mixed).
+                if (guildData.jam) arrangeJamQueue(player);
                 guildData.shuffle = true;
             }
             break;

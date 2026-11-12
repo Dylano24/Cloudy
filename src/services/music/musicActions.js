@@ -447,11 +447,13 @@ function sourceOfTrack(track) {
     return { url: info.uri || null, name: String(info.title || 'Unknown track').slice(0, 80), count: 1, kind: 'song' };
 }
 const sourceUrlOf = track => sourceOfTrack(track).url;
+const requesterOf = track => track?.info?.requester?.id || null;
+const requesterName = track => String(track?.info?.requester?.username || '').slice(0, 40) || null;
 
-// What plays now (paused counts), or null.
+// What plays now (paused counts), or null; `by` is who added it.
 export function activeSource(player) {
     if (!player?.current || !(player.playing || player.paused)) return null;
-    return sourceOfTrack(player.current);
+    return { ...sourceOfTrack(player.current), by: requesterName(player.current) };
 }
 
 // At most 10 songs or playlists wait in the queue (owner's choice); a playlist
@@ -469,7 +471,7 @@ export function queuedSources(player) {
         const source = sourceOfTrack(track);
         if (!source.url || seen.has(source.url)) continue;
         seen.add(source.url);
-        sources.push(source);
+        sources.push({ ...source, by: requesterName(track) });
     }
     return sources;
 }
@@ -486,6 +488,56 @@ function endCurrentTrack(player, guildData, outcome) {
         player.pause(false);
         player.playing = true;
         guildData.autoPaused = false;
+    }
+}
+
+// Jam (owner's choice: "samen een wachtrij"): everyone in the voice channel adds
+// songs and they take turns, one song per person at a time, in the order people
+// first added something; whoever's song plays now waits until the others had a
+// turn. Started and ended in the Add form; Stop and the bot leaving end it.
+export function isJamOn(guildId) {
+    return Boolean(getGuildMusicData(guildId).jam);
+}
+
+export function arrangeJamQueue(player) {
+    const tracks = [...(player?.queue || [])];
+    if (tracks.length < 2) return;
+    const turns = new Map();
+    for (const track of tracks) {
+        const who = requesterOf(track) || 'unknown';
+        if (!turns.has(who)) turns.set(who, []);
+        turns.get(who).push(track);
+    }
+    const order = [...turns.keys()];
+    const playing = requesterOf(player.current);
+    if (playing && order.length > 1 && order[0] === playing) order.push(order.shift());
+    const arranged = [];
+    while (arranged.length < tracks.length) {
+        for (const who of order) {
+            const next = turns.get(who).shift();
+            if (next) arranged.push(next);
+        }
+    }
+    player.queue.clear();
+    for (const track of arranged) player.queue.add(track);
+}
+
+// Start or end the jam. Who is in the bot's voice channel may do it; without a
+// player anyone in a voice channel (the first /play then joins them).
+export async function setJam(client, interaction, on) {
+    const guildId = interaction.guild.id;
+    const player = getPlayer(client, guildId);
+    if (player) assertCanControl(interaction.member, player);
+    else assertInVoice(interaction.member);
+    const guildData = getGuildMusicData(guildId);
+    if (!on) {
+        guildData.jam = null;
+        return;
+    }
+    guildData.jam = { startedBy: interaction.user.id, startedAt: Date.now() };
+    if (player) {
+        arrangeJamQueue(player);
+        await refreshPlayerMessage(client, guildId);
     }
 }
 
@@ -574,6 +626,7 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
             track.cloudySource = playlist;
             player.queue.add(track);
         }
+        if (isJamOn(interaction.guild.id)) arrangeJamQueue(player);
 
         if (!player.playing && !player.paused) {
             await startPlayback(client, interaction, player);
@@ -586,6 +639,7 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
                 'Playlist added',
                 `**${playlistInfo?.name || 'Playlist'}**\nAdded ${tracks.length} track(s).`,
             ),
+            added: { name: playlist.name, count: tracks.length, kind: 'playlist' },
         };
     }
 
@@ -605,7 +659,8 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
 
         const willPlayNow = !player.playing && !player.paused;
         player.queue.add(track);
-        const queuePosition = player.queue.length;
+        if (isJamOn(interaction.guild.id)) arrangeJamQueue(player);
+        const queuePosition = player.queue.indexOf(track) + 1 || player.queue.length;
 
         if (willPlayNow) {
             await startPlayback(client, interaction, player);
@@ -619,6 +674,7 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
             }),
             // Only a song that starts at once says "Now playing" and needs updating later.
             track: willPlayNow ? track : null,
+            added: { name: String(track.info.title || 'Unknown track').slice(0, 80), count: 1, kind: 'song' },
         };
     }
 
@@ -793,6 +849,8 @@ export async function shuffleQueue(client, interaction) {
     }
     assertCanControl(interaction.member, player);
     player.queue.shuffle();
+    // In a jam a shuffle mixes who goes first and each person's own songs, but keeps the turns.
+    if (isJamOn(interaction.guild.id)) arrangeJamQueue(player);
     getGuildMusicData(interaction.guild.id).shuffle = true;
     await refreshPlayerMessage(client, interaction.guild.id);
     return successEmbed('Shuffled', 'The queue has been shuffled.');
@@ -966,6 +1024,7 @@ export async function destroyPlayerSession(client, guildId, player, guildData, {
     }
 
     guildData.previousTracks = [];
+    guildData.jam = null;
     guildData.stopConfirmPending = null;
     guildData.autoPaused = false;
     guildData.queuePages?.clear();
