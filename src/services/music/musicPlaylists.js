@@ -126,14 +126,13 @@ function itemSelect(customId, items, placeholder, multiple) {
 export function buildListModal(items) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name, or a song or playlist link');
-  const labels = [new LabelBuilder().setLabel('Add a song or playlist')
-    .setDescription('A song name, or a link from Spotify, YouTube, Apple Music, SoundCloud ...')
-    .setTextInputComponent(add)];
+  // No help lines under the fields (owner's choice: too much text).
+  const labels = [new LabelBuilder().setLabel('Add a song or playlist').setTextInputComponent(add)];
   if (items?.length) {
     labels.push(
-      new LabelBuilder().setLabel('Start').setDescription('Play one from your list now')
+      new LabelBuilder().setLabel('Start')
         .setStringSelectMenuComponent(itemSelect('start', items, 'Choose what to play', false)),
-      new LabelBuilder().setLabel('Remove').setDescription('Remove from your list')
+      new LabelBuilder().setLabel('Remove')
         .setStringSelectMenuComponent(itemSelect('remove', items, 'Choose what to remove', true)),
     );
   }
