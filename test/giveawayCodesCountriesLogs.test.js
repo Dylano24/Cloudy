@@ -225,7 +225,9 @@ test('created log shows number, prize, host, channel, winners, code and dates', 
   const log = buildGiveawayCreatedLog(GUILD, giveaway({ hostId: 'staff-1', codeType: 'kit' }), 7);
   const embed = log.embeds[0];
   assert.equal(embed.title, 'Giveaway created');
-  assert.equal(embed.color, 0x00C49D);
+  // Side lines (owner's choice): Giveaway created white, Giveaway ended black.
+  assert.equal(embed.color, 0xFFFFFF);
+  assert.equal(buildGiveawayEndedLog(GUILD, giveaway({ endedAt: new Date().toISOString() }), [], 7).embeds[0].color, 0x010101);
   assert.deepEqual(embed.fields.map(field => field.name), ['Giveaway', 'Prize', 'Hosted by', 'Channel', 'Winners', 'Code', 'Ends', 'Date']);
   assert.equal(embed.fields[5].value, 'Generated kit code');
   assert.deepEqual(log.allowedMentions, { parse: [] });

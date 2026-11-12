@@ -789,7 +789,9 @@ export async function setGiveawayTimer(client, guild, messageId, durationMs) {
 }
 
 // Delete: the record first (so the automatic end never announces it), then
-// the giveaway message and its winner announcements.
+// the giveaway message and its winner announcements. They are logged in the
+// Embed log with the deleted giveaway itself (owner's choice), like the Embed
+// Builder's Delete ('embed-builder' deletion source).
 export async function removeGiveaway(client, guild, messageId, { deletedBy } = {}) {
     const guildId = guild?.id;
     const giveaway = await Mutex.runExclusive(lockKey(messageId), async () => {
@@ -802,7 +804,7 @@ export async function removeGiveaway(client, guild, messageId, { deletedBy } = {
         for (const id of ids) {
             const message = await fetchGiveawayMessage(channel, id);
             if (!message) continue;
-            if (deletedBy) rememberMessageDeleter(message, deletedBy);
+            if (deletedBy) rememberMessageDeleter(message, deletedBy, 'embed-builder');
             await message.delete().catch(() => {});
         }
         return current;

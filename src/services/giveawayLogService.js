@@ -36,6 +36,11 @@ function giveawayLink(guildId, giveaway, number) {
     : label;
 }
 
+// Side lines (owner's choice): Giveaway created white, Giveaway ended black.
+// Discord shows colour 0 as no colour, so black is 0x010101.
+const GIVEAWAY_CREATED_COLOR = 0xFFFFFF;
+const GIVEAWAY_ENDED_COLOR = 0x010101;
+
 const field = (name, value) => ({ name, value: String(value || 'Not specified').slice(0, 1024), inline: false });
 
 function logEmbed(title, color, fields) {
@@ -50,7 +55,7 @@ function logEmbed(title, color, fields) {
 
 export function buildGiveawayCreatedLog(guildId, giveaway, number = null) {
   return {
-    embeds: [logEmbed('Giveaway created', 0x00C49D, [
+    embeds: [logEmbed('Giveaway created', GIVEAWAY_CREATED_COLOR, [
       field('Giveaway', giveawayLink(guildId, giveaway, number)),
       field('Prize', giveaway.prize),
       field('Hosted by', giveaway.hostId ? `<@${giveaway.hostId}>` : null),
@@ -67,7 +72,7 @@ export function buildGiveawayCreatedLog(guildId, giveaway, number = null) {
 export function buildGiveawayEndedLog(guildId, giveaway, winners = [], number = null) {
   const endedBy = giveaway.endedBy && giveaway.endedBy !== 'automatic' ? `<@${giveaway.endedBy}>` : 'Automatic';
   return {
-    embeds: [logEmbed('Giveaway ended', 0xFFFFFF, [
+    embeds: [logEmbed('Giveaway ended', GIVEAWAY_ENDED_COLOR, [
       field('Giveaway', giveawayLink(guildId, giveaway, number)),
       field('Prize', giveaway.prize),
       field('Ended by', endedBy),

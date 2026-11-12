@@ -49,7 +49,7 @@ test('giveaway numbers increase by guild, survive deletion/restart and are stabl
   assert.equal(await getOrCreateGiveawayNumber(anotherClient, guildId, '156000000000000005'), 3);
 });
 
-test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N with no URL', () => {
+test('every claim log links #N to the exact giveaway, Giveaway and Prize first, then Claimed by', () => {
   for (const event of ['opened', 'revealed']) {
     const embed = base(event, 7);
     assert.equal(field(embed, 'Giveaway'), '[#7](' + originalLink(first) + ')');
@@ -61,10 +61,16 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
   }
   for (const event of ['closed', 'expired']) {
     const embed = base(event, 7);
-    assert.equal(field(embed, 'Giveaway'), '#7');
+    // The giveaway itself stays, so #N stays a blue link (owner's choice).
+    assert.equal(field(embed, 'Giveaway'), '[#7](' + originalLink(first) + ')');
     assert.equal(field(embed, 'Private channel'), '`' + privateChannel + '`');
     assert.equal(field(embed, 'Date'), '<t:1793754780:F>');
-    assert.doesNotMatch(JSON.stringify(embed), /discord\.com\/channels/);
+  }
+  for (const event of ['opened', 'revealed', 'closed', 'expired']) {
+    const names = base(event).fields.map(item => item.name);
+    assert.deepEqual(names.slice(0, 4), ['Giveaway', 'Prize', 'Claimed by', 'Private channel']);
+    assert.equal(field(base(event), 'Claimed by'), '<@' + winner + '>');
+    assert.equal(names.includes('Member'), false);
   }
   for (const event of ['opened', 'revealed', 'closed', 'expired']) {
     assert.equal(base(event).fields.some(field => field.name === 'Action'), false,
@@ -76,11 +82,11 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
   assert.equal(base('expired').color, 0x7A1712, 'automatic expiry uses the standard Cloudy red line');
 });
 
-test('Close strips prior Claim/Reveal links only for that private claim, not other winners', () => {
+test('Close turns prior Claim/Reveal channel mentions into the ID only for that private claim and keeps the #N link', () => {
   const opened = base('opened', 2);
   const result = replaceClosedClaimChannelMentions(opened, new Set([privateChannel]));
   assert.equal(result.changed, true);
-  assert.equal(field(result.embed, 'Giveaway'), '#2');
+  assert.equal(field(result.embed, 'Giveaway'), '[#2](' + originalLink(first) + ')');
   assert.equal(field(result.embed, 'Private channel'), '`' + privateChannel + '`');
   assert.equal(field(result.embed, 'Date'), field(opened, 'Date'));
   assert.equal(result.embed.color, opened.color);
