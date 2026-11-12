@@ -65,38 +65,54 @@ export function formatMusicProgress(positionMs, lengthMs, steps = 12) {
 }
 
 // A progress bar of rounded pieces (owner's choice): white for the part that has
-// played, grey for the rest, the same pieces as the vote bar. Ten pieces: twelve
-// wrapped to a second line in Discord on a PC. Plain blocks show until the pieces
-// are uploaded.
-// 14 pieces: as wide as the row of five buttons under it (owner's choice).
+// played, grey for the rest, the same pieces as the vote bar, and a white knob
+// where the song is, like Spotify. 14 pieces: as wide as the row of five buttons
+// under it (owner's choice). The knob moves in 216 small steps (about one per
+// second for a song of 3 to 4 minutes; owner's choice: the bar moves every
+// second): see `mbar_*` in feedEmojiService.js. Plain blocks show until the
+// pieces are uploaded.
 export const MUSIC_BAR_STEPS = 14;
+const BAR_PIECE_PX = 128;
+const KNOB_FIRST_PX = 36;
+const KNOB_STEP_PX = 8;
+const KNOB_PLACES = 215;
+const KNOB_REACH_PX = 30;
+const SECOND_MS = 1_000;
 
-export function musicProgressBar(positionMs, lengthMs, steps = MUSIC_BAR_STEPS) {
+/** The emoji keys of the bar's 14 pieces for this moment of the song. */
+export function musicBarPieces(positionMs, lengthMs) {
     const length = Number(lengthMs);
     if (!Number.isFinite(length) || length <= 0) return null;
     const position = Number(positionMs);
     const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
-    const filled = Math.round(fraction * steps);
-    // Like Spotify (owner's choice): a white knob where the song is now.
-    const knobAt = Math.min(filled, steps - 1);
-    const knob = index => (index === 0 ? 'bar_lk' : index < steps - 1 ? 'bar_mk' : filled >= steps ? 'bar_rkf' : 'bar_rk');
-    return Array.from({ length: steps }, (_, index) => {
-        if (index === knobAt) return feedEmoji(knob(index));
-        const end = index === 0 ? 'l' : index === steps - 1 ? 'r' : 'm';
-        return feedEmoji(`bar_${end}${index < filled ? 'f' : 'e'}`);
-    }).join('');
+    const knob = KNOB_FIRST_PX + KNOB_STEP_PX * Math.round(fraction * KNOB_PLACES);
+    return Array.from({ length: MUSIC_BAR_STEPS }, (_, index) => {
+        const kind = index === 0 ? 'l' : index === MUSIC_BAR_STEPS - 1 ? 'r' : 'm';
+        const offset = knob - index * BAR_PIECE_PX;
+        if (offset <= -KNOB_REACH_PX) return `bar_${kind}e`;
+        if (offset >= BAR_PIECE_PX + KNOB_REACH_PX) return `bar_${kind}f`;
+        return `mbar_${kind}_${offset < 0 ? `n${-offset}` : offset}`;
+    });
 }
 
-// Milliseconds until the bar shows its next piece (null while paused, without a
-// length or when it is full): the panel is refreshed at that moment, so the bar
-// never runs behind the song.
-export function msUntilNextBarPiece(player, now = Date.now(), steps = MUSIC_BAR_STEPS) {
+export function musicProgressBar(positionMs, lengthMs) {
+    return musicBarPieces(positionMs, lengthMs)?.map(key => feedEmoji(key)).join('') ?? null;
+}
+
+// Milliseconds until the song reaches its next whole second (null while paused,
+// without a length or at the end): the panel's timer and bar are refreshed then.
+export function msUntilNextSecond(player, now = Date.now()) {
     const length = Number(player?.current?.info?.length);
     if (!player?.current || player.paused || !Number.isFinite(length) || length <= 0) return null;
     const position = livePlayerPosition(player, now);
-    const filled = Math.round(Math.max(0, Math.min(1, position / length)) * steps);
-    if (filled >= steps) return null;
-    return Math.max(0, ((filled + 0.5) * length) / steps - position);
+    if (position >= length) return null;
+    return SECOND_MS - (position % SECOND_MS);
+}
+
+/** m:ss (or h:mm:ss), also for 0. */
+export function formatClock(ms) {
+    const value = Number(ms);
+    return Number.isFinite(value) && value >= 1_000 ? formatDuration(value) : '0:00';
 }
 
 // Where the song is now. The node reports the position every few seconds; in
@@ -318,32 +334,56 @@ export function getQueuePageSize() {
 
 // The player as one card like Spotify's Now Playing (owner's choice: the buttons
 // inside it): the cover on top (no ALT label), the title and the artist, the
-// song's time on its own small line right above the bar, the bar with its knob,
-// the controls (all grey), "Requested by" under them after the white dot and
-// the Cloudy footer as Discord's smallest text (not bold, so it stays on one
-// line), with the white side line. A record of an ended song says "Played",
-// "Skipped", ... above the title and has no bar and no buttons. No "Now
-// playing" line and no logo.
+// timer (where the song is / its length, every second) on its own small line on
+// the left right above the bar, the bar with its knob, the controls (all grey),
+// "Requested by" under them after the white dot and the Cloudy footer. A record
+// of an ended song says "Played", "Skipped", ... above the title, shows only the
+// song's length and has no bar and no buttons. No "Now playing" line and no logo.
 export const PLAYER_CARD_HEADINGS = ['Played', 'Skipped', 'Stopped', 'Could not play'];
-const PLAYER_CARD_FOOTER = `-# ${CLOUDY_FOOTER}`;
-// Cards posted before the footer became smaller.
-const PLAYER_CARD_FOOTERS = [PLAYER_CARD_FOOTER, `-# **${CLOUDY_FOOTER}**`];
+// The footer small, white and on one line on every phone (owner's choice): the
+// smallest text Discord has (-#) is grey and wraps on a phone, so it is a thin
+// picture (assets/music-footer.png, 450 px, the text over 86% of it) on a fixed
+// link: a phone shrinks it to the card, so it always fits. No description, so no
+// ALT label.
+export const PLAYER_CARD_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@0c7c11e1fe8a2e71e0c259aa7c0e9d8d8bfbe41b/assets/music-footer.png';
+// Cards posted with the footer as text.
+const PLAYER_CARD_TEXT_FOOTERS = [`-# ${CLOUDY_FOOTER}`, `-# **${CLOUDY_FOOTER}**`];
+// The node reports the position every few seconds; a report a little behind
+// Cloudy's own count never makes the timer go back a second.
+const TIMER_SETTLE_MS = 2_500;
+
+function shownPosition(player, guildData, track) {
+    let position = livePlayerPosition(player);
+    const last = guildData?.shownPosition;
+    if (last?.track === track && !player?.paused && position < last.ms && last.ms - position < TIMER_SETTLE_MS) position = last.ms;
+    if (guildData) guildData.shownPosition = { track, ms: position };
+    return position;
+}
 
 export function buildPlayerCard(track, player, guildData, { ended = null } = {}) {
     const info = track?.info || {};
     const text = content => new TextDisplayBuilder().setContent(content);
+    const picture = url => new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(url));
     const title = String(info.title || 'Unknown track').replace(/\n/g, ' ').slice(0, 200);
     const artist = String(info.author || 'Unknown artist').replace(/\n/g, ' ').slice(0, 200);
     const card = new ContainerBuilder().setAccentColor(0xFFFFFF);
     const cover = getTrackArtwork(track);
-    if (cover) card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(cover)));
+    if (cover) card.addMediaGalleryComponents(picture(cover));
     card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
-    const bar = ended ? null : musicProgressBar(livePlayerPosition(player), info.length);
-    card.addTextDisplayComponents(text(`-# ${formatDuration(info.length)}${bar ? `\n${bar}` : ''}`));
+    const length = Number(info.length);
+    const timed = !info.isStream && Number.isFinite(length) && length > 0;
+    if (!timed) {
+        card.addTextDisplayComponents(text('-# Live'));
+    } else if (ended) {
+        card.addTextDisplayComponents(text(`-# ${formatClock(length)}`));
+    } else {
+        const position = Math.min(shownPosition(player, guildData, track), length);
+        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
+    }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
     card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
-    card.addTextDisplayComponents(text(PLAYER_CARD_FOOTER));
+    card.addMediaGalleryComponents(picture(PLAYER_CARD_FOOTER_URL));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
@@ -352,16 +392,18 @@ export function buildPlayerCard(track, player, guildData, { ended = null } = {})
 export function isPlayerCardMessage(message) {
     const texts = [];
     let musicButtons = false;
+    let footer = false;
     const walk = items => {
         for (const item of items || []) {
             const data = item?.toJSON ? item.toJSON() : item?.data || item;
             if (typeof data?.content === 'string') texts.push(data.content);
+            if ((data?.items || []).some(entry => (entry?.media?.url || entry?.url) === PLAYER_CARD_FOOTER_URL)) footer = true;
             if (String(data?.custom_id || data?.customId || '').startsWith('music_')) musicButtons = true;
             walk(data?.components);
         }
     };
     walk(message?.components);
-    if (!texts.some(content => PLAYER_CARD_FOOTERS.includes(content))) return false;
+    if (!footer && !texts.some(content => PLAYER_CARD_TEXT_FOOTERS.includes(content))) return false;
     const heading = new RegExp(`^-# (${PLAYER_CARD_HEADINGS.join('|')})\\n### `);
     return musicButtons || texts.some(content => heading.test(content));
 }

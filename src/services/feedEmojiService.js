@@ -134,8 +134,21 @@ for (const [key, fallback] of [
 }
 // The repeat icons were drawn bigger (owner's choice): new names, so they upload again.
 for (const key of ['mc_repeat', 'mc_repeat_on', 'mc_repeat_one']) BASE_EMOJIS[key].name = `cloudy_${key}2`;
-for (const piece of ['lk', 'mk', 'rk', 'rkf']) {
-  BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/music-icons/bar_${piece}.png`, fallback: '●' };
+// The bar's knob moves in small steps (owner's choice: the bar moves every
+// second): the whole bar of 14 pieces (128 px each) is drawn with the knob at
+// x = 36 + 8k and cut into pieces; a piece depends only on its kind (first,
+// middle, last) and where the knob is relative to it (d px), so 56 pictures in
+// assets/music-icons/bar cover every place (`mbar_<kind>_<d>`, n = minus).
+export const MUSIC_BAR_KNOB_PIECES = Object.freeze({ l: [36, 156], m: [-28, 156], r: [-28, 92] });
+for (const [kind, [first, last]] of Object.entries(MUSIC_BAR_KNOB_PIECES)) {
+  for (let d = first; d <= last; d += 8) {
+    const label = `${kind}_${d < 0 ? `n${-d}` : d}`;
+    BASE_EMOJIS[`mbar_${label}`] = {
+      name: `cmb_${label}`,
+      file: `../../assets/music-icons/bar/${label}.png`,
+      fallback: d < 0 ? '▱' : d >= 128 ? '▰' : '●',
+    };
+  }
 }
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();

@@ -10,17 +10,19 @@ import {
     buildPlayerCard,
     getTrackArtwork,
     isPlayerCardMessage,
-    msUntilNextBarPiece,
+    msUntilNextSecond,
 } from './musicEmbeds.js';
 import { sharpenTrackArtwork } from './musicArtwork.js';
 
-// The panel is refreshed when the bar reaches its next piece (owner's choice: no
-// delay), at least every 15 seconds, and never more often than every 2 seconds
-// (Discord allows 5 edits per 5 seconds in a channel).
+// The panel's timer and bar are refreshed every second while a song plays
+// (owner's choice: a real-time timer), just after the song reaches its next
+// whole second; every 15 seconds while paused. One edit at a time: the next is
+// planned when the previous one is done.
 const UPDATE_INTERVAL_MS = 15 * 1000;
-const BAR_REFRESH_MIN_MS = 2_000;
-const BAR_REFRESH_MARGIN_MS = 250;
+const TICK_MARGIN_MS = 60;
+const TICK_MIN_MS = 500;
 const IDLE_DISCONNECT_MS = 30 * 1000;
+const CLICK_WAIT_MS = 1_500;
 const SHUTDOWN_PANEL_REMOVAL_MS = 3_000;
 const playerRefreshJobs = new WeakMap();
 // The track Lavalink last reported as started (TrackStartEvent), per player.
@@ -229,9 +231,10 @@ export async function refreshPlayerMessage(client, guildId) {
 }
 
 export function nextBarRefreshDelay(player, now = Date.now()) {
-    const untilPiece = msUntilNextBarPiece(player, now);
-    if (untilPiece === null) return UPDATE_INTERVAL_MS;
-    return Math.min(UPDATE_INTERVAL_MS, Math.max(BAR_REFRESH_MIN_MS, untilPiece + BAR_REFRESH_MARGIN_MS));
+    const untilSecond = msUntilNextSecond(player, now);
+    if (untilSecond === null) return UPDATE_INTERVAL_MS;
+    const wait = untilSecond + TICK_MARGIN_MS;
+    return wait < TICK_MIN_MS ? wait + 1_000 : wait;
 }
 
 // Only while a song runs (startUpdateInterval at its start, cleared when it ends).
@@ -259,6 +262,10 @@ export async function answerWithPlayerPanel(interaction, client, guildId) {
     const onPanel = Boolean(player?.current && guildData.playerMessageId)
         && interaction.message?.id === guildData.playerMessageId;
     if (onPanel) {
+        // An edit of the timer that is still being sent was built before this
+        // click: it goes first, so it never shows the old state after the answer.
+        const running = playerRefreshJobs.get(guildData)?.promise;
+        if (running) await Promise.race([running.catch(() => {}), new Promise(resolve => setTimeout(resolve, CLICK_WAIT_MS).unref?.())]);
         const payload = buildPlayerCard(player.current, player, guildData);
         const panel = JSON.stringify(payload);
         try {

@@ -20,7 +20,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   assert.equal(embed.title, 'Now playing');
   // The progress bar sits in the text on its own line, ten pieces with a knob where the song is (like Spotify),
   // and there is no "position / length" text (plain blocks until the pieces are uploaded).
-  assert.equal(embed.description, '**Song**\n\n▰▰▰▰▰●▱▱▱▱▱▱▱▱');
+  assert.equal(embed.description, '**Song**\n\n▰▰▰▰●▱▱▱▱▱▱▱▱▱');
   assert.equal(buildNowPlayingEmbed({ info: { ...track.info, length: 0 } }, { position: 0, queue: [] }, {}).toJSON().description, '**Song**');
   assert.match(embed.thumbnail.url, /cloudy-c-logo/);
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
@@ -162,9 +162,12 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
-  assert.equal(cardTexts(panels[0]).at(-1), '-# © Cloudy Inc. • Quality. Innovation. Performance.', 'the footer in the smallest text, one line');
-  assert.equal(cardTexts(panels[0]).at(-2), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user', 'Requested by under the buttons after the white dot');
-  assert.match(cardTexts(panels[0])[1], /^-# 3:00\n/, 'the song time on the left right above the bar');
+  assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user', 'Requested by under the buttons after the white dot');
+  assert.match(cardTexts(panels[0])[1], /^-# 0:00 \/ 3:00\n/, 'the timer on the left right above the bar');
+  const last = panels[0].components[0].toJSON().components.at(-1);
+  assert.equal(last.type, 12, 'the footer is a picture, so it is small, white and on one line');
+  assert.match(last.items[0].media.url, /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/music-footer\.png$/);
+  assert.equal(last.items[0].description, undefined, 'no ALT label');
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
@@ -228,17 +231,22 @@ test('the player controls are in Spotify\'s order with Play/Pause in the middle;
   assert.equal(paused[0][4].emoji.name, '🔂');
 });
 
-test('the card shows the sharpest cover: YouTube 1280x720 when it exists, SoundCloud 500x500', async () => {
-  const { bestArtworkUrl } = await import('../src/services/music/musicArtwork.js');
+test('the card shows the sharpest copy of the cover, however the song was added', async () => {
+  const { bestArtworkUrl, sharperArtworkCandidates } = await import('../src/services/music/musicArtwork.js');
   const asked = [];
-  const fetchImpl = async url => { asked.push(url); return { ok: url.endsWith('/hq720.jpg') }; };
+  const fetchImpl = async url => { asked.push(url); return { ok: url.endsWith('/hq720.jpg'), headers: new Map([['content-type', 'image/jpeg']]) }; };
   assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/abcDEF12345/mqdefault.jpg', { fetchImpl }), 'https://i.ytimg.com/vi/abcDEF12345/hq720.jpg');
-  assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/abcDEF12345/hqdefault.jpg', { fetchImpl }), 'https://i.ytimg.com/vi/abcDEF12345/hq720.jpg', 'checked once per video');
-  assert.equal(asked.length, 2);
+  assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/abcDEF12345/mqdefault.jpg', { fetchImpl }), 'https://i.ytimg.com/vi/abcDEF12345/hq720.jpg', 'checked once');
+  assert.equal(asked.length, 2, 'both large copies checked at once, the first time only');
   const none = async () => ({ ok: false });
   assert.equal(await bestArtworkUrl('https://i.ytimg.com/vi/zzzzzz99999/mqdefault.jpg', { fetchImpl: none }), 'https://i.ytimg.com/vi/zzzzzz99999/mqdefault.jpg', 'the original when nothing sharper exists');
-  assert.equal(await bestArtworkUrl('https://i1.sndcdn.com/artworks-abc123-xyz-large.jpg'), 'https://i1.sndcdn.com/artworks-abc123-xyz-t500x500.jpg');
-  assert.equal(await bestArtworkUrl('https://i.scdn.co/image/ab67616d0000b273aa'), 'https://i.scdn.co/image/ab67616d0000b273aa', 'other covers stay as they are');
+  assert.deepEqual(sharperArtworkCandidates('https://lh3.googleusercontent.com/abc_DEF-1=w120-h120-l90-rj'), ['https://lh3.googleusercontent.com/abc_DEF-1=w1200-h1200-l90-rj'], 'YouTube Music');
+  assert.deepEqual(sharperArtworkCandidates('https://i.scdn.co/image/ab67616d00001e02ff00aa'), ['https://i.scdn.co/image/ab67616d0000b273ff00aa'], 'Spotify 640 px');
+  assert.deepEqual(sharperArtworkCandidates('https://i1.sndcdn.com/artworks-abc123-xyz-large.jpg'), ['https://i1.sndcdn.com/artworks-abc123-xyz-t500x500.jpg'], 'SoundCloud');
+  assert.deepEqual(sharperArtworkCandidates('https://is1-ssl.mzstatic.com/image/thumb/Music/v4/aa/source/100x100bb.jpg'), ['https://is1-ssl.mzstatic.com/image/thumb/Music/v4/aa/source/1000x1000bb.jpg'], 'Apple Music');
+  assert.deepEqual(sharperArtworkCandidates('https://e-cdns-images.dzcdn.net/images/cover/0a1b/250x250-000000-80-0-0.jpg'), ['https://e-cdns-images.dzcdn.net/images/cover/0a1b/1000x1000-000000-80-0-0.jpg'], 'Deezer');
+  assert.deepEqual(sharperArtworkCandidates('https://i.scdn.co/image/ab67616d0000b273aa'), [], 'already the large copy');
+  assert.deepEqual(sharperArtworkCandidates('https://example.com/cover.jpg'), [], 'other hosts are never asked');
 });
 
 test('a button gets Cloudy\'s uploaded icon as an emoji object, else the standard emoji', async () => {

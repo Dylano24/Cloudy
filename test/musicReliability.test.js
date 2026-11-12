@@ -397,43 +397,50 @@ test('a new player plays at volume 100, the song\'s own sound that the node pass
   deleteGuildMusicData('quality-volume');
 });
 
-test('the bar timer fires when the bar reaches its next piece, not up to 15 seconds later', async () => {
-  const { msUntilNextBarPiece } = await import('../src/services/music/musicEmbeds.js');
+test('the timer and bar are refreshed every second while a song plays, every 15 seconds while paused', async () => {
+  const { msUntilNextSecond, musicBarPieces } = await import('../src/services/music/musicEmbeds.js');
+  const { MUSIC_BAR_KNOB_PIECES } = await import('../src/services/feedEmojiService.js');
   const { nextBarRefreshDelay } = await import('../src/services/music/playerHandler.js');
   const at = (position, extra = {}) => ({ current: song('x'), position, cloudyPositionAt: 1_000, paused: false, ...extra });
-  // Fourteen pieces: a 3-minute song moves one piece every 180/14 seconds.
-  const piece = 180_000 / 14;
-  assert.equal(Math.round(msUntilNextBarPiece(at(0), 1_000)), Math.round(piece / 2), 'the first piece after half a piece');
-  assert.equal(Math.round(msUntilNextBarPiece(at(10_000), 1_000)), Math.round(piece * 1.5 - 10_000));
-  assert.equal(msUntilNextBarPiece(at(10_000, { paused: true }), 1_000), null, 'nothing moves while paused');
-  assert.equal(msUntilNextBarPiece(at(179_000), 1_000), null, 'a full bar');
-  assert.equal(Math.round(nextBarRefreshDelay(at(0), 1_000)), Math.round(piece / 2 + 250));
-  const long = { info: { title: 'long', length: 600_000 } };
-  assert.equal(nextBarRefreshDelay(at(30_000, { current: long }), 1_000), 15_000, 'at least every 15 seconds');
-  assert.equal(nextBarRefreshDelay(at(piece / 2 - 10), 1_000), 2_000, 'never more often than every 2 seconds');
+  assert.equal(msUntilNextSecond(at(10_300), 1_000), 700);
+  assert.equal(msUntilNextSecond(at(10_000, { paused: true }), 1_000), null, 'nothing moves while paused');
+  assert.equal(msUntilNextSecond(at(180_000), 1_000), null, 'the end of the song');
+  assert.equal(nextBarRefreshDelay(at(10_300), 1_000), 760, 'just after the next whole second');
+  assert.equal(nextBarRefreshDelay(at(10_800), 1_000), 1_260, 'never twice for the same second');
   assert.equal(nextBarRefreshDelay(at(0, { paused: true }), 1_000), 15_000);
+  // The knob moves in 216 small steps: about every second for a 3-minute song.
+  const bars = Array.from({ length: 181 }, (_, second) => musicBarPieces(second * 1_000, 180_000));
+  const moves = new Set(bars.map(pieces => pieces.join(','))).size;
+  assert.ok(moves >= 175, `the bar moves (almost) every second (${moves} of 181)`);
+  assert.ok(bars.every(pieces => pieces.length === 14));
+  // Every knob piece the bar can show has a picture.
+  const known = new Set(Object.entries(MUSIC_BAR_KNOB_PIECES).flatMap(([kind, [first, last]]) => {
+    const keys = [];
+    for (let d = first; d <= last; d += 8) keys.push(`mbar_${kind}_${d < 0 ? `n${-d}` : d}`);
+    return keys;
+  }));
+  const shown = new Set(Array.from({ length: 2_001 }, (_, i) => musicBarPieces(i, 2_000)).flat().filter(key => key.startsWith('mbar_')));
+  assert.deepEqual([...shown].filter(key => !known.has(key)), []);
+  assert.equal(shown.size, known.size, 'and every picture is used');
 });
 
-test('the player panel is edited exactly when the bar moves, and not in between', async t => {
+test('the player panel is edited every second while the song plays', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   const f = liveFixture('quality-bar');
   const flush = async () => { for (let i = 0; i < 6; i += 1) await settle(); };
   f.client.riffy.emit('trackStart', f.player, f.player.current);
   await flush();
   assert.equal(f.sent.length, 1);
-  // Fourteen pieces of 180/14 s: the first at about 6.4 s, the second at about 19.3 s.
-  t.mock.timers.tick(6_400);
+  t.mock.timers.tick(1_000);
   await flush();
-  assert.equal(f.edits.length, 0, 'the first piece is not due yet');
-  t.mock.timers.tick(300);
+  assert.equal(f.edits.length, 0, 'not before the first second is complete');
+  t.mock.timers.tick(100);
   await flush();
-  assert.equal(f.edits.length, 1, 'edited right when the first piece fills');
-  t.mock.timers.tick(12_500);
-  await flush();
-  assert.equal(f.edits.length, 1, 'nothing is sent while the bar did not move');
-  t.mock.timers.tick(400);
-  await flush();
-  assert.equal(f.edits.length, 2, 'the second piece right on time');
+  assert.equal(f.edits.length, 1, 'the timer shows 0:01');
+  assert.match(cardTexts(f.edits[0]).join('\n'), /-# 0:01 \/ /);
+  for (let i = 0; i < 5; i += 1) { t.mock.timers.tick(1_000); await flush(); }
+  assert.equal(f.edits.length, 6, 'one edit per second');
+  assert.match(cardTexts(f.edits.at(-1)).join('\n'), /-# 0:06 \/ /);
   deleteGuildMusicData('quality-bar');
 });
 
