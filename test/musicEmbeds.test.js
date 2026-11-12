@@ -259,6 +259,16 @@ test('the approved silver music artwork contains all nine control icons plus Pla
     assert.ok(!/<animate|<image|data:|<script/i.test(art), key + ' must be a static vector with no remote dependencies');
   }
   assert.equal(musicControlSvg('not-a-music-icon'), null);
+  const { musicControlPng } = await import('../src/services/music/musicControlPngData.js');
+  for (const key of MUSIC_CONTROL_ART_KEYS) {
+    const image = musicControlPng(key);
+    assert.ok(Buffer.isBuffer(image), key + ' is ready for Discord application emoji upload');
+    assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', key + ' has a PNG header');
+    assert.equal(image.readUInt32BE(16), 64);
+    assert.equal(image.readUInt32BE(20), 64);
+    assert.ok(image.length < 256 * 1024, key + ' stays below Discord\'s emoji size limit');
+  }
+  assert.equal(musicControlPng('not-a-music-icon'), null);
 });
 
 test('the card shows the sharpest copy of the cover, however the song was added', async () => {
