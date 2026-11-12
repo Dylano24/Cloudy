@@ -165,19 +165,18 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
-  // Monospace digits (owner's choice), so the "/" never moves: '-# 0:00 / 3:00'.
-  assert.equal(cardTexts(panels[0])[1], '-# \u{1D7F6}:\u{1D7F6}\u{1D7F6} / \u{1D7F9}:\u{1D7F6}\u{1D7F6}', 'only the timer, no bar (owner\'s choice)');
-  // No "Requested by" on the live card (owner's choice, for now); the footer is one fixed
-  // picture under the buttons, so it never blinks when the card is redrawn every second.
-  assert.ok(!cardTexts(panels[0]).some(text => text.includes('Requested by')));
-  assert.ok(!cardTexts(panels[0]).some(text => /<a?:\w+:\d+>/.test(text)), 'no custom emoji in the card\'s text');
+  // Only the song's length (owner's choice: no running timer, no bar).
+  assert.equal(cardTexts(panels[0])[1], '-# 3:00', 'only the song\'s length');
+  // "Requested by" after the white dot, under the buttons (owner's choice), then the footer picture.
+  assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user');
   const parts = panels[0].components[0].toJSON().components;
   const pictures = parts.filter(part => part.type === 12);
   assert.equal(pictures.length, 2, 'the cover and the footer');
   assert.equal(parts.at(-1).type, 12, 'the card ends with the footer picture');
   assert.equal(parts.at(-1).items[0].media.url, PLAYER_FOOTER_PICTURE_URL);
   assert.equal(parts.at(-1).items[0].description, undefined, 'no ALT label');
-  assert.equal(parts.at(-2).type, 1, 'right under the buttons');
+  assert.equal(parts.at(-2).type, 10, 'Requested by right above the footer');
+  assert.equal(parts.at(-3).type, 1, 'and right under the buttons');
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_remove', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
@@ -223,29 +222,32 @@ test('/music guide also shows the compact embed with its Commands button', async
   assert.equal(replies[0].components[0].toJSON().components[0].custom_id, 'dedicated_commands:music');
 });
 
-test('the player controls keep Play/Pause centered with Queue, +, -, and Stop below', async () => {
+test('the player buttons are the original white icons without text, with + and - below', async () => {
   const { buildPlayerButtonRows } = await import('../src/services/music/musicEmbeds.js');
   const rows = buildPlayerButtonRows({ paused: false }, { loop: 'none' }).map(row => row.toJSON().components);
   assert.deepEqual(rows.map(row => row.map(button => button.custom_id)), [
     ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop'],
     ['music_queue', 'music_playlists', 'music_remove', 'music_stop'],
   ]);
-  // Before the approved application emojis finish uploading, the original
-  // text-only controls remain functional and free of invisible/empty buttons.
-  const bare = label => label.replace(/[\u2060\u2009]/g, '');
-  assert.ok(rows.flat().every(button => !button.emoji), 'no emoji on any button, custom or standard');
-  assert.deepEqual(rows[0].map(button => bare(button.label)), ['\u292E', '\u2759\u25C0\uFE0E', '\u23F8\uFE0E', '\u25B6\uFE0E\u2759', '\u21BB'], 'the symbols the owner picked');
-  assert.deepEqual(rows[1].map(button => bare(button.label)), ['\u2630', '+', '\u2212', '\u25A0'], 'the action buttons contain only symbols');
-  assert.ok(rows.flat().every(button => button.label.startsWith('\u2060') && button.label.endsWith('\u2060')), 'invisible ends keep the widening spaces');
-  assert.deepEqual(rows.flat().map(button => button.style), [2, 2, 2, 2, 2, 2, 2, 2, 2], 'every button grey, also Play/Pause and Stop');
+  // Owner's choice: back to the first buttons, but without text. Until Cloudy's own
+  // icons are uploaded the standard emoji show.
+  assert.ok(rows.flat().every(button => button.emoji && !button.label), 'an icon only, no text');
+  assert.deepEqual(rows.flat().map(button => button.emoji.name), ['🔀', '⏮️', '⏸️', '⏭️', '🔁', '📋', '➕', '➖', '⏹️']);
+  assert.deepEqual(rows.flat().map(button => button.style), [2, 2, 2, 2, 2, 2, 2, 2, 2], 'every button grey');
   const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track', shuffle: true }).map(row => row.toJSON().components);
   assert.equal(paused[0][2].custom_id, 'music_resume');
-  assert.equal(bare(paused[0][2].label), '\u25B6\uFE0E');
-  assert.equal(bare(paused[0][4].label), '\u21BB1', 'repeat this song');
-  assert.deepEqual(paused[0].map(button => button.style), [3, 2, 2, 2, 3], 'a mode that is on (shuffle, repeat) is a green button');
-  const queueLoop = buildPlayerButtonRows({ paused: false }, { loop: 'queue' }).map(row => row.toJSON().components);
-  assert.equal(queueLoop[0][4].style, 3);
-  assert.equal(bare(queueLoop[0][4].label), '\u21BB');
+  assert.equal(paused[0][2].emoji.name, '▶️');
+  assert.equal(paused[0][4].emoji.name, '🔂', 'repeat this song');
+});
+
+test('the + and - icons are drawn in the white style of the other player icons', async () => {
+  const { readFile } = await import('node:fs/promises');
+  for (const name of ['mc_plus', 'mc_minus']) {
+    const image = await readFile(new URL(`../assets/music-icons/${name}.png`, import.meta.url));
+    assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', name + ' is a PNG');
+    assert.equal(image.readUInt32BE(16), 128);
+    assert.equal(image.readUInt32BE(20), 128);
+  }
 });
 
 test('the approved silver music artwork contains all nine control icons plus Play and Repeat one', async () => {
@@ -317,22 +319,6 @@ test('the footer picture is the 14 footer pieces side by side, and the player ca
   assert.equal(isPlayerCardMessage(asMessage(record)), true, 'and its records');
   assert.ok(cardTexts(record).some(text => text.includes('Requested by Test user')), 'a record keeps Requested by');
   assert.equal(JSON.stringify(live).split(url).length - 1, 1, 'one footer picture on the live card');
-});
-
-test('the live timer keeps its "/" in one place: every digit is equally wide', async () => {
-  const { fixedWidthDigits, formatClock } = await import('../src/services/music/musicEmbeds.js');
-  const line = seconds => fixedWidthDigits(`${formatClock(seconds * 1000)} / ${formatClock(278_000)}`);
-  assert.equal(line(44), '\u{1D7F6}:\u{1D7FA}\u{1D7FA} / \u{1D7FA}:\u{1D7F9}\u{1D7FE}', '0:44 / 4:38');
-  const slashAt = text => [...text].indexOf('/');
-  // Every second from 1:00 to 9:59 puts the "/" after the same number of characters, all
-  // of them monospace digits or the same separators, so its place never changes.
-  const places = new Set();
-  for (let second = 60; second < 600; second++) {
-    const text = line(second);
-    assert.ok(![...text].some(char => /[0-9]/.test(char)), 'no proportional digit left');
-    places.add(slashAt(text));
-  }
-  assert.deepEqual([...places], [5]);
 });
 
 test('the redrawn shuffle icon is uploaded as a new emoji (v2); the other icons keep theirs', async t => {

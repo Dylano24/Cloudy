@@ -33,8 +33,3 @@ export function cardCover(payload) {
   walk(payload?.components, data => { if (data?.type === 12 && !url) url = data.items?.[0]?.media?.url || null; });
   return url;
 }
-
-// The card's timer uses Unicode monospace digits (fixedWidthDigits); read them as 0-9.
-export function plainDigits(text) {
-  return String(text).replace(/[\u{1D7F6}-\u{1D7FF}]/gu, digit => String(digit.codePointAt(0) - 0x1D7F6));
-}

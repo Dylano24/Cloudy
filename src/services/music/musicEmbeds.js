@@ -11,7 +11,7 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
-import { feedEmoji, feedEmojiReady, feedEmojiComponent } from '../feedEmojiService.js';
+import { feedEmoji, feedEmojiComponent } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -133,13 +133,6 @@ export function msUntilNextSecond(player, now = Date.now(), guildData = null, le
     if (shown >= length) return null;
     if (Number.isInteger(guildData?.shownSecond) && guildData.shownSecond < Math.floor(shown / SECOND_MS)) return 0;
     return SECOND_MS - (shown % SECOND_MS);
-}
-
-// The live timer's digits (owner's choice): Unicode's monospace digits, all exactly
-// as wide, so the "/" never moves when a second changes. Discord's own font has
-// narrow and wide digits ("0:41 / 4:38" was narrower than "0:44 / 4:38").
-export function fixedWidthDigits(text) {
-    return String(text).replace(/[0-9]/g, digit => String.fromCodePoint(0x1D7F6 + Number(digit)));
 }
 
 /** m:ss (or h:mm:ss), also for 0. */
@@ -328,42 +321,33 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
     });
 }
 
-// Labels are a fallback only while the new application emojis are uploading.
-// Word-joiners keep fallback padding consistent on mobile Discord.
-const WORD_JOINER = '\u2060';
-const THIN_SPACE = '\u2009';
-const padLabel = (label, spaces = 1) => `${WORD_JOINER}${THIN_SPACE.repeat(spaces)}${label}${THIN_SPACE.repeat(spaces)}${WORD_JOINER}`;
-
-// Use a single uploaded silver glyph as the entire button content. Unlike
-// platform fonts, these render at the same size and match the approved preview.
-// The old text symbols remain a safe fallback while application emojis upload.
-function musicIconButton(customId, style, icon, fallback, spaces = 1) {
-    const button = new ButtonBuilder().setCustomId(customId).setStyle(style);
-    const emojiKey = `mc_button_${icon}`;
-    if (feedEmojiReady(emojiKey)) return button.setEmoji(feedEmojiComponent(emojiKey));
-    return button.setLabel(padLabel(fallback, spaces));
-}
+// The original Cloudy buttons (owner's choice: "back to how it was first, but without
+// text"): Cloudy's own white icons on grey (`assets/music-icons`, application emojis
+// `cloudy_mc_*`), the icon only, the mode that is on as its own icon (shuffle on,
+// repeat on, repeat one). Bottom row: Queue, + (Add), − (Remove) and Stop, + and −
+// drawn in the same white style (`mc_plus`, `mc_minus`). The standard emoji show
+// until the icons are uploaded. The card is no longer redrawn every second (only the
+// song's length, no running timer), so the icons do not blink.
+const iconButton = (customId, key) => new ButtonBuilder()
+    .setCustomId(customId)
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji(feedEmojiComponent(key));
 
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
     const loop = guildData?.loop || 'none';
-    const modeStyle = on => (on ? ButtonStyle.Success : ButtonStyle.Secondary);
     const controls = new ActionRowBuilder().addComponents(
-        musicIconButton(MUSIC_BUTTON_IDS.SHUFFLE, modeStyle(guildData?.shuffle), 'shuffle', PLAYER_BUTTON_SYMBOLS.shuffle, 4),
-        musicIconButton(MUSIC_BUTTON_IDS.PREVIOUS, ButtonStyle.Secondary, 'previous', PLAYER_BUTTON_SYMBOLS.previous, 0),
-        musicIconButton(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE,
-            ButtonStyle.Secondary, paused ? 'play' : 'pause',
-            paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause),
-        musicIconButton(MUSIC_BUTTON_IDS.SKIP, ButtonStyle.Secondary, 'next', PLAYER_BUTTON_SYMBOLS.next, 0),
-        musicIconButton(MUSIC_BUTTON_IDS.LOOP, modeStyle(loop === 'track' || loop === 'queue'),
-            loop === 'track' ? 'repeat_one' : 'repeat',
-            loop === 'track' ? PLAYER_BUTTON_SYMBOLS.repeatOne : PLAYER_BUTTON_SYMBOLS.repeat, loop === 'track' ? 3 : 5),
+        iconButton(MUSIC_BUTTON_IDS.SHUFFLE, guildData?.shuffle ? 'mc_shuffle_on' : 'mc_shuffle'),
+        iconButton(MUSIC_BUTTON_IDS.PREVIOUS, 'mc_previous'),
+        iconButton(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE, paused ? 'mc_play' : 'mc_pause'),
+        iconButton(MUSIC_BUTTON_IDS.SKIP, 'mc_next'),
+        iconButton(MUSIC_BUTTON_IDS.LOOP, loop === 'track' ? 'mc_repeat_one' : loop === 'queue' ? 'mc_repeat_on' : 'mc_repeat'),
     );
     const actions = new ActionRowBuilder().addComponents(
-        musicIconButton(MUSIC_BUTTON_IDS.QUEUE, ButtonStyle.Secondary, 'queue', PLAYER_BUTTON_SYMBOLS.queue, 4),
-        musicIconButton(MUSIC_BUTTON_IDS.PLAYLISTS, ButtonStyle.Secondary, 'add', PLAYER_BUTTON_SYMBOLS.add, 6),
-        musicIconButton(MUSIC_BUTTON_IDS.REMOVE, ButtonStyle.Secondary, 'remove', PLAYER_BUTTON_SYMBOLS.remove, 6),
-        musicIconButton(MUSIC_BUTTON_IDS.STOP, ButtonStyle.Secondary, 'stop', PLAYER_BUTTON_SYMBOLS.stop, 6),
+        iconButton(MUSIC_BUTTON_IDS.QUEUE, 'mc_queue'),
+        iconButton(MUSIC_BUTTON_IDS.PLAYLISTS, 'mc_plus'),
+        iconButton(MUSIC_BUTTON_IDS.REMOVE, 'mc_minus'),
+        iconButton(MUSIC_BUTTON_IDS.STOP, 'mc_stop'),
     );
     return [controls, actions];
 }
@@ -398,22 +382,7 @@ const PLAYER_CARD_FOOTER_MARKS = [CLOUDY_FOOTER, ':cft_1:'];
 // emoji footer blinked; a picture whose link never changes stays put, like the cover.
 export const PLAYER_FOOTER_PICTURE_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@da41ebfa0c912ffe1582a559b88d35fcf95467a5/assets/music-footer-line.png';
 const PLAYER_CARD_FOOTER_URLS = new Set([PLAYER_CARD_FOOTER_URL, PLAYER_FOOTER_PICTURE_URL]);
-// A pause or resume never shows the timer a second back: an edit shows the next
-// second a moment early (`lead`), and the node's own position can be that bit behind.
-const TIMER_HOLD_MS = 1_200;
-
-
-function timerPosition(player, guildData, lead) {
-    let position = songPosition(player, guildData) + (player?.paused ? 0 : lead);
-    const shown = guildData?.shownSecond;
-    if (Number.isInteger(shown) && guildData.shownTrack === player?.current) {
-        const held = shown * SECOND_MS;
-        if (position < held && held - position < TIMER_HOLD_MS) position = held;
-    }
-    return position;
-}
-
-export function buildPlayerCard(track, player, guildData, { ended = null, lead = 0 } = {}) {
+export function buildPlayerCard(track, player, guildData, { ended = null } = {}) {
     const info = track?.info || {};
     const text = content => new TextDisplayBuilder().setContent(content);
     const title = String(info.title || 'Unknown track').replace(/\n/g, ' ').slice(0, 200);
@@ -424,22 +393,14 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
     card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
     const length = Number(info.length);
     const timed = !info.isStream && Number.isFinite(length) && length > 0;
-    if (!timed) {
-        card.addTextDisplayComponents(text('-# Live'));
-    } else if (ended) {
-        card.addTextDisplayComponents(text(`-# ${formatClock(length)}`));
-    } else {
-        const position = Math.min(timerPosition(player, guildData, lead), length);
-        if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
-        // Only the timer, no bar (owner's choice: the bar's emoji pieces glitched; the
-        // /now playing embed keeps its bar).
-        card.addTextDisplayComponents(text(`-# ${fixedWidthDigits(`${formatClock(position)} / ${formatClock(length)}`)}`));
-    }
+    // Only the song's length (owner's choice: no running timer, no bar), on the live
+    // card and on a record; the /now playing embed keeps its bar.
+    card.addTextDisplayComponents(text(timed ? `-# ${formatClock(length)}` : '-# Live'));
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
-    // The live card has no "Requested by" (owner's choice, for now: its dot emoji blinked
-    // on the every-second redraw); a record keeps it. Both end with the footer picture.
-    if (ended) card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
+    // "Requested by" after the white dot (owner's choice), under the buttons; a record
+    // keeps it too. Both end with the footer picture.
+    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(PLAYER_FOOTER_PICTURE_URL)));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
