@@ -11,7 +11,8 @@ export const MUSIC_BUTTON_IDS = {
     QUEUE: 'music_queue',
     PLAYLISTS: 'music_playlists',
     REMOVE: 'music_remove',
-    // The song's length on the right of the card (owner's choice); a click does nothing.
+    // The song's length was a button on cards posted before #816; a click on such an old
+    // card does nothing.
     TIME: 'music_time',
     QUEUE_FIRST: 'music_queue_first',
     QUEUE_PREV: 'music_queue_prev',
