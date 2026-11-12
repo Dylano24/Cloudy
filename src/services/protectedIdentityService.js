@@ -180,7 +180,7 @@ export async function enforceProtectedIdentityMessage(message) {
         value: message.content,
     };
 
-    rememberMessageDeleter(message, message.client.user, 'automod');
+    rememberMessageDeleter(message, message.client.user, 'automod', { reason: automodReasonText('Blocked identity detected') });
     await message.delete().catch(() => {});
     return banDetectedMember(member, detection, 'Message');
 }
@@ -212,4 +212,5 @@ export async function scanProtectedIdentities(client) {
     return { scanned: members.size, detected };
 }
 import { rememberMessageDeleter } from './deletionAttributionService.js';
+import { automodReasonText } from '../utils/automodReason.js';
 

@@ -205,7 +205,9 @@ test('ending a giveaway without a code logs the end and the winner country with 
   assert.equal(country.embeds[0].title, 'Giveaway winner country');
   assert.equal(country.content, `<@&${OWNER_ROLE}>`);
   assert.deepEqual(country.allowedMentions, { parse: [], roles: [OWNER_ROLE] });
-  assert.equal(country.embeds[0].fields.find(field => field.name === 'Winner').value, '<@member-1>: France');
+  // The country sits under the winner as its own field (owner's choice).
+  assert.deepEqual(country.embeds[0].fields.map(field => [field.name, field.value]).slice(2, 4),
+    [['Winner', '<@member-1>'], ['Country', 'France']]);
   for (const log of w.logs) {
     assert.deepEqual(log.embeds[0].thumbnail, { url: CLOUDY_C_LOGO_URL });
     assert.equal(log.embeds[0].footer.text, GIVEAWAY_CLAIM_LOG_FOOTER);
@@ -229,8 +231,9 @@ test('created log shows number, prize, host, channel, winners, code and dates', 
   assert.deepEqual(log.allowedMentions, { parse: [] });
   assert.equal(buildGiveawayEndedLog(GUILD, giveaway({ endedAt: new Date().toISOString() }), [], 7).embeds[0]
     .fields.find(field => field.name === 'Winners').value, 'No valid entries');
-  assert.equal(buildGiveawayWinnerCountryLog(GUILD, giveaway(), ['a', 'b'], { number: 7 }).embeds[0]
-    .fields.find(field => field.name === 'Winners').value, '<@a>: Not provided\n<@b>: Not provided');
+  assert.deepEqual(buildGiveawayWinnerCountryLog(GUILD, giveaway(), ['a', 'b'], { number: 7 }).embeds[0]
+    .fields.map(field => [field.name, field.value]).filter(([name]) => ['Winner', 'Country'].includes(name)),
+    [['Winner', '<@a>'], ['Country', 'Not provided'], ['Winner', '<@b>'], ['Country', 'Not provided']]);
 });
 
 test('Code in Manage changes the Enter button of an active giveaway', async () => {

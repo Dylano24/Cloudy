@@ -92,10 +92,12 @@ test('deleted human, moderator and bot messages route by author, including bulk 
   assert.match(sent.at(-1).embed.description, /Deleted by:.*<@member>\n> \*\*Type:\*\* Member/);
 
   const automatic = message('member', { id: 'automod-message' });
-  rememberMessageDeleter(automatic, client.user, 'automod');
+  rememberMessageDeleter(automatic, client.user, 'automod', { reason: 'Message spam detected (AutoMod)' });
   await logDeletedMessage(automatic);
   assert.equal(sent.at(-1).id, AUTOMOD_LOG_CHANNEL_ID);
-  assert.match(JSON.stringify(sent.at(-1).embed), /Deleted by.*<@bot>.*AutoMod/s);
+  // Deleted by names only Cloudy (owner's choice); "(AutoMod)" is on the Reason line.
+  assert.match(sent.at(-1).embed.description, /\*\*Deleted by:\*\* <@bot>\n/);
+  assert.match(sent.at(-1).embed.description, /\*\*Reason:\*\* Message spam detected \(AutoMod\)/);
   // Type is the remover: AutoMod is Cloudy, a bot.
   assert.match(sent.at(-1).embed.description, /\*\*Type:\*\* Bot/);
   assert.doesNotMatch(sent.at(-1).embed.description, /Author type|Removed by AutoMod/);

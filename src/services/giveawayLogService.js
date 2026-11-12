@@ -79,7 +79,10 @@ export function buildGiveawayEndedLog(guildId, giveaway, winners = [], number = 
   };
 }
 
-// Winners only; the Owner role is tagged (owner's choice).
+// Winners only; the Owner role is tagged (owner's choice). Each winner has
+// its country right under it as its own "Country" field (owner's choice),
+// never "@Lano: Afghanistan" on one line. At most 10 winners, so the
+// Winner/Country pairs always fit Discord's 25 fields.
 export function buildGiveawayWinnerCountryLog(guildId, giveaway, winners = [], { number = null, ownerRoleId = null } = {}) {
   const countries = giveaway.participantCountries || {};
   return {
@@ -87,8 +90,10 @@ export function buildGiveawayWinnerCountryLog(guildId, giveaway, winners = [], {
     embeds: [logEmbed('Giveaway winner country', 0xFFFFFF, [
       field('Giveaway', giveawayLink(guildId, giveaway, number)),
       field('Prize', giveaway.prize),
-      field(winners.length === 1 ? 'Winner' : 'Winners',
-        winners.map(id => `<@${id}>: ${countries[id] || 'Not provided'}`).join('\n')),
+      ...winners.slice(0, 11).flatMap(id => [
+        field('Winner', `<@${id}>`),
+        field('Country', countries[id] || 'Not provided'),
+      ]),
       field('Date', `<t:${unix(Date.now())}:F>`),
     ])],
     allowedMentions: { parse: [], roles: ownerRoleId ? [ownerRoleId] : [] },

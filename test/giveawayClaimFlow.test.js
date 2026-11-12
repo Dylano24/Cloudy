@@ -554,14 +554,14 @@ test('24-hour automatic channel expiry removes success notice and sends expirati
   await flushClaimLogs();
   assert.equal(channel.deleted, true);
   assert.equal(success.deletedReplies, 1);
-  const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway auto expiry');
+  const expired = w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim auto deletion');
   assert.equal(expired.length, 1);
   assert.equal(expired[0].embeds[0].fields.some(field => field.name === 'Action'), false);
   assert.equal(expired[0].embeds[0].color, 0x7A1712);
   assert.match(JSON.stringify(expired[0]), new RegExp(channel.id));
   await cleanupExpiredGiveawayClaims(w.client);
   await flushClaimLogs();
-  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway auto expiry').length, 1);
+  assert.equal(w.logs.filter(entry => entry.embeds[0].title === 'Giveaway claim auto deletion').length, 1);
 });
 
 test('log channel send failure never prevents Claim, Reveal or Close', async () => {
@@ -845,7 +845,7 @@ test('automatic 24-hour expiry converts every previous channel mention to its ID
   await drainAuditActions();
   assert.equal(channel.deleted, true);
   assert.deepEqual(archive.map(loggedValue), Array(3).fill('`' + channel.id + '`'));
-  assert.equal(archive[2].embeds[0].title, 'Giveaway auto expiry');
+  assert.equal(archive[2].embeds[0].title, 'Giveaway claim auto deletion');
   assert.equal(archive[2].embeds[0].fields.some(field => field.name === 'Action'), false);
   assert.equal(archive[2].embeds[0].timestamp, undefined);
   assert.deepEqual(archive.map(entry => entry.edits.length), [1, 1, 0]);
@@ -947,7 +947,7 @@ test('the log service exposes only the three requested claim stages and automati
     ['opened', 'Giveaway claim opened'],
     ['revealed', 'Giveaway code revealed'],
     ['closed', 'Giveaway claim closed'],
-    ['expired', 'Giveaway auto expiry'],
+    ['expired', 'Giveaway claim auto deletion'],
   ]) {
     const embed = buildGiveawayClaimLog({ ...base, event }).embeds[0];
     assert.equal(embed.title, title);

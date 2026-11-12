@@ -26,7 +26,8 @@ const EVENTS = Object.freeze({
   opened: { title: 'Giveaway claim opened', color: 0x00C49D, action: 'Claim' },
   revealed: { title: 'Giveaway code revealed', color: 0xFFFFFF, action: 'Reveal my code' },
   closed: { title: 'Giveaway claim closed', color: CLOUDY_TICKET_CLOSED_COLOR, action: 'Close' },
-  expired: { title: 'Giveaway auto expiry', color: CLOUDY_RED_COLOR, action: 'giveaway auto expiry' },
+  // Title (owner's choice): "Giveaway claim auto deletion".
+  expired: { title: 'Giveaway claim auto deletion', color: CLOUDY_RED_COLOR, action: 'giveaway auto expiry' },
 });
 
 function safeValue(value, limit = 1024) {
@@ -208,7 +209,10 @@ export async function refreshClosedGiveawayClaimLogChannels(client) {
 // earlier Claim and Reveal entries), without changing any unrelated field.
 const CLAIM_CHANNEL_ID_PATTERN = /^<#([0-9]{17,20})>(?: \(\x60[0-9]{17,20}\x60\))?$/;
 const LEGACY_EXPIRED_LOG_TITLE = 'Giveaway claim expired';
-const claimLogTitles = new Set([...Object.values(EVENTS).map(event => event.title), LEGACY_EXPIRED_LOG_TITLE]);
+// Expiry logs posted before the "Giveaway claim auto deletion" title keep
+// their title and are still recognised as claim logs.
+const PREVIOUS_EXPIRED_LOG_TITLE = 'Giveaway auto expiry';
+const claimLogTitles = new Set([...Object.values(EVENTS).map(event => event.title), LEGACY_EXPIRED_LOG_TITLE, PREVIOUS_EXPIRED_LOG_TITLE]);
 
 export function replaceClosedClaimChannelMentions(embed, closedChannelIds) {
   const data = embed?.toJSON?.() || { ...(embed || {}) };
