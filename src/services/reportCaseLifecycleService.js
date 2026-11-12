@@ -315,8 +315,10 @@ function reportSectionText(value) {
 // gap as in the Server wiped post (`SMALL_GAP` in gameFeedService.js).
 export const REPORT_SMALL_GAP = '-# \u200b';
 
-// Only compact the gaps highlighted in the report notification.
-// Preserve the gap after the intro and every other section.
+// The owner's spacing for every report message people see (not the staff logs): the
+// sections of a notice sit right under each other, and wherever a gap is wanted it is a
+// SMALL gap (an empty line in small text), never a full empty line. Runs on new notices
+// and fixes active ones at startup, once.
 function compactHighlightedReportGaps(description) {
   return String(description || '')
     .replace(/(\*\*Reported member\*\*\n[\s\S]*?)\n\n(?=\*\*Reported message\*\*\n)/, '$1\n')
@@ -324,8 +326,12 @@ function compactHighlightedReportGaps(description) {
     // Only moderation notices contain these three adjoining sections.
     .replace(/(\*\*Review outcome\*\*\n[\s\S]*?)\n\n(?=\*\*Moderation action\*\*\n)/, '$1\n')
     .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n')
-    // Restore this gap on both new and previously compacted Discord messages.
-    .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n')
+    // Moderation update: a small gap between the reason and Auto-close (was a full empty line).
+    .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n+(?:-# \u200b\n+)?(?=\*\*Auto-close\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`)
+    // Moderation update: a small gap under its opening sentence, and between "...at this
+    // time." (no action taken) and Auto-close.
+    .replace(/(and has been reviewed\.)\n+(?:-# \u200b\n+)?(?=\*\*Reported message\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`)
+    .replace(/(at this time\.)\n+(?:-# \u200b\n+)?(?=\*\*Auto-close\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`)
     // Reporter notice (owner's choice, highlighted: "less space", not none): a small-text
     // empty line between the outcome text and the thanks, and between the thanks and
     // Auto-close, also on existing notices (a full empty line or none is replaced).
@@ -335,7 +341,7 @@ function compactHighlightedReportGaps(description) {
     // that sentence and Reported member, and between the outcome and its explanation.
     .replace(/(Reviewed)\n+(?:-# \u200b\n+)?(?=Your report has been reviewed)/, `$1\n${REPORT_SMALL_GAP}\n`)
     .replace(/(by our moderation team\.)\n+(?:-# \u200b\n+)?(?=\*\*Reported member\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`)
-    .replace(/(Action taken|No action taken)\n+(?:-# \u200b\n+)?(?=Appropriate action has been taken|No further action was deemed necessary)/, `$1\n${REPORT_SMALL_GAP}\n`);
+    .replace(/(Action taken|No action taken)\n+(?:-# \u200b\n+)?(?=Appropriate action has been taken|No further action was deemed necessary|After reviewing the report)/, `$1\n${REPORT_SMALL_GAP}\n`);
 }
 
 function reportNoticeDescription(intro, fields) {
