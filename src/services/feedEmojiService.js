@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { logger } from '../utils/logger.js';
 import { runLocalCommand } from './cloudyFeedVideoClip.js';
+import { musicControlPng } from './music/musicControlPngData.js';
 
 const BASE_EMOJIS = {
   online: { name: 'glowing_dot_green', id: '1567760480439771286', fallback: '<a:glowing_dot_green:1567760480439771286>' },
@@ -131,6 +132,20 @@ for (const [key, fallback] of [
   ['mc_repeat_one', '🔂'], ['mc_queue', '📋'], ['mc_stop', '⏹️'], ['mc_note', '🎵'],
 ]) {
   BASE_EMOJIS[key] = { name: `cloudy_${key}`, file: `../../assets/music-icons/${key}.png`, fallback };
+}
+// The approved silver-white music button glyphs are static application emojis.
+// Their names are versioned: old player emojis are kept for older messages.
+// Application emojis work across both Dylano and Cloudy Inc without using guild slots.
+for (const [key, fallback] of [
+  ['shuffle', '⤨'], ['previous', '◀'], ['pause', 'Ⅱ'], ['play', '▶'],
+  ['next', '▶'], ['repeat', '↻'], ['repeat_one', '↻1'],
+  ['queue', '☰'], ['add', '+'], ['remove', '−'], ['stop', '■'],
+]) {
+  BASE_EMOJIS[`mc_button_${key}`] = {
+    name: `cmusic_${key}_v1`,
+    musicControlArt: key,
+    fallback,
+  };
 }
 // The repeat icons were drawn bigger (owner's choice): new names, so they upload again.
 for (const key of ['mc_repeat', 'mc_repeat_on', 'mc_repeat_one']) BASE_EMOJIS[key].name = `cloudy_${key}2`;
@@ -291,9 +306,11 @@ export async function ensureFeedEmojis(client) {
       if (!own && emoji.byNameOnly) own = [...(client.emojis?.cache?.values?.() || [])].find(item => names.includes(item.name));
       if (!own && emoji.byNameOnly) { missing.push(emoji.name); continue; }
       if (!own) {
-        let image = emoji.file
-          ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
-          : await download(emoji.id);
+        let image = emoji.musicControlArt
+          ? musicControlPng(emoji.musicControlArt)
+          : emoji.file
+            ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
+            : await download(emoji.id);
         if (!image) { failed.push(`${emoji.name} (no picture)`); continue; }
         if (emoji.shrink) image = await shrinkEmojiImage(image).catch(() => image);
         if (emoji.crop) image = await cropEmojiImage(image, emoji.crop).catch(() => image);
