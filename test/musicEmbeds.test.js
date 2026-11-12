@@ -20,7 +20,7 @@ test('now playing: sentence-case title, Cloudy logo and footer, cover art as ima
   assert.equal(embed.title, 'Now playing');
   // The progress bar sits in the text on its own line, ten pieces with a knob where the song is (like Spotify),
   // and there is no "position / length" text (plain blocks until the pieces are uploaded).
-  assert.equal(embed.description, '**Song**\n\n▰▰▰●▱▱▱▱▱▱');
+  assert.equal(embed.description, '**Song**\n\n▰▰▰▰▰●▱▱▱▱▱▱▱▱');
   assert.equal(buildNowPlayingEmbed({ info: { ...track.info, length: 0 } }, { position: 0, queue: [] }, {}).toJSON().description, '**Song**');
   assert.match(embed.thumbnail.url, /cloudy-c-logo/);
   assert.equal(embed.image.url, 'https://i.ytimg.com/vi/x/hq.jpg');
@@ -160,7 +160,9 @@ test('/play shows only the persistent player and cleans up its private acknowled
   // One card like Spotify's: cover on top, title and artist, bar, duration and the buttons inside it.
   assert.equal(panels[0].flags, MessageFlags.IsComponentsV2);
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
-  assert.equal(cardHeading(panels[0]), 'Now playing');
+  assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
+  assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
+  assert.ok(cardTexts(panels[0]).includes('-# **© Cloudy Inc. • Quality. Innovation. Performance.**'), 'the footer small and white, one line');
   assert.ok(cardTexts(panels[0]).includes('-# 3:00 · Requested by Test user'));
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
