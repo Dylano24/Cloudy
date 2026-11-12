@@ -16,6 +16,7 @@ import {
 import { clearPlayerMessages, isTrackRunning, refreshPlayerMessage, markTrackEnding } from './playerHandler.js';
 import { prepareMusicQuery } from './musicLinks.js';
 import { clearBadNode, isBadNode, isRecentlyBadNode, markNodeBad } from './musicNodeHealth.js';
+import { PRIVATE_NODE_NAME } from '../../config/music/lavalink.js';
 import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
 
@@ -131,12 +132,13 @@ function markNodeGood(node) {
     lastGoodNodeName = node.name;
 }
 
-// The connected nodes: the last one that worked first, those that recently failed last.
-function orderedNodes(client) {
+// The connected nodes: Cloudy's own server first (owner's choice), then the last one
+// that worked, those that recently failed last.
+export function orderedNodes(client) {
     const nodes = Array.isArray(client.riffy?.leastUsedNodes) ? [...client.riffy.leastUsedNodes] : [];
     const good = nodes.filter(node => !isBadNode(node));
-    const preferred = good.filter(node => node?.name && node.name === lastGoodNodeName);
-    return [...preferred, ...good.filter(node => !preferred.includes(node)), ...nodes.filter(isBadNode)];
+    const rank = node => (node?.name === PRIVATE_NODE_NAME ? 0 : node?.name && node.name === lastGoodNodeName ? 1 : 2);
+    return [...good.sort((a, b) => rank(a) - rank(b)), ...nodes.filter(isBadNode)];
 }
 
 function createVoicePlayer(client, options, node = null) {

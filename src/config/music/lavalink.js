@@ -53,7 +53,33 @@ function loadNodesFromFile() {
     }
 }
 
+// Cloudy's own Lavalink server (owner's choice: a private music server in the
+// Railway project, reached over the private network). It is used first; the public
+// nodes stay as backup. Only when both its host and password are set.
+export const PRIVATE_NODE_NAME = process.env.LAVALINK_PRIVATE_NAME?.trim() || 'Cloudy';
+
+function privateNode() {
+    const host = process.env.LAVALINK_PRIVATE_HOST?.trim();
+    const password = process.env.LAVALINK_PRIVATE_PASSWORD;
+    if (!host || !password) {
+        return null;
+    }
+    return {
+        host,
+        port: Number(process.env.LAVALINK_PRIVATE_PORT || 2333),
+        password,
+        secure: parseBoolean(process.env.LAVALINK_PRIVATE_SECURE, false),
+        name: PRIVATE_NODE_NAME,
+    };
+}
+
 export function getLavalinkNodes() {
+    const own = privateNode();
+    const others = sharedNodes();
+    return own ? [own, ...others.filter(node => node?.name !== own.name)] : others;
+}
+
+function sharedNodes() {
     const fromJson = parseNodesFromEnv();
     if (fromJson?.length) {
         return fromJson;

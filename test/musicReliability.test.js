@@ -7,7 +7,7 @@ import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/p
 import { refreshPlayerMessage, markTrackStarted, setupPlayerHandler, shutdownMusic } from '../src/services/music/playerHandler.js';
 import { livePlayerPosition } from '../src/services/music/musicEmbeds.js';
 import { applyNodeReconnectBackoff } from '../src/services/music/riffySetup.js';
-import { cardButtons, cardHeading, cardTexts, plainDigits } from './helpers/playerCard.js';
+import { cardButtons, cardHeading, cardTexts } from './helpers/playerCard.js';
 
 const song = title => ({ info: { title, author: 'Artist', uri: `https://example.com/${title}`, length: 180_000 } });
 
@@ -440,7 +440,7 @@ test('the timer is refreshed every second, a moment early, and catches up at onc
   assert.equal(shown.size, known.size, 'and every picture is used');
 });
 
-test('the player panel shows every second once, in order, while the song plays', async t => {
+test('while a song plays the card shows only its length and is not redrawn every second', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   const f = liveFixture('quality-bar');
   const flush = async () => { for (let i = 0; i < 6; i += 1) await settle(); };
@@ -448,8 +448,10 @@ test('the player panel shows every second once, in order, while the song plays',
   await flush();
   assert.equal(f.sent.length, 1);
   for (let i = 0; i < 61; i += 1) { t.mock.timers.tick(100); await flush(); }
-  const seconds = f.edits.map(payload => /-# (\d+):(\d\d) \//.exec(plainDigits(cardTexts(payload).join('\n')))).map(match => Number(match[1]) * 60 + Number(match[2]));
-  assert.deepEqual(seconds, [1, 2, 3, 4, 5, 6], 'one edit per second, none skipped or shown twice');
+  // Owner's choice: no running timer, so nothing changes while the song plays and the
+  // card's icons are never redrawn (no blinking).
+  assert.equal(f.edits.length, 0, 'no edit while the song simply plays');
+  assert.ok(!cardTexts(f.sent[0]).some(text => / \/ /.test(text)), 'no "0:42 / 3:56" timer');
   deleteGuildMusicData('quality-bar');
 });
 
@@ -579,24 +581,47 @@ test('two reports in a row without a voice connection mark the node, so the next
   deleteGuildMusicData('no-sound');
 });
 
-test('with Discord answering at varying speed (150-700 ms, sometimes 1.4 s) every second is shown once, in order, none skipped or repeated', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
-  const f = liveFixture('jitter-timer');
-  let seed = 7;
-  const random = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
-  const shown = [];
-  const slowEdit = async payload => {
-    await new Promise(resolve => setTimeout(resolve, random() < 0.05 ? 1_400 : 150 + random() * 550));
-    shown.push(payload);
-  };
-  f.channel.messages.fetch = async () => ({ edit: slowEdit });
-  f.channel.send = async payload => { await slowEdit(payload); return { id: 'panel-1' }; };
-  const flush = async () => { for (let i = 0; i < 8; i += 1) await settle(); };
-  f.client.riffy.emit('trackStart', f.player, f.player.current);
-  await flush();
-  for (let i = 0; i < 1_200; i += 1) { t.mock.timers.tick(50); await flush(); }
-  const seconds = shown.map(payload => /-# (\d+):(\d\d) \//.exec(plainDigits(cardTexts(payload).join('\n')))).filter(Boolean).map(match => Number(match[1]) * 60 + Number(match[2]));
-  assert.ok(seconds.length >= 58, `about one edit per second over a minute (${seconds.length})`);
-  for (let i = 1; i < seconds.length; i += 1) assert.equal(seconds[i] - seconds[i - 1], 1, `second ${seconds[i - 1]} is followed by ${seconds[i]}`);
-  deleteGuildMusicData('jitter-timer');
+
+test('Cloudy\'s own music server goes first, the public nodes stay as backup', async () => {
+  const { getLavalinkNodes, PRIVATE_NODE_NAME } = await import('../src/config/music/lavalink.js');
+  const { orderedNodes } = await import('../src/services/music/musicActions.js');
+  const { markNodeBad, clearBadNode } = await import('../src/services/music/musicNodeHealth.js');
+  const saved = { ...process.env };
+  try {
+    delete process.env.LAVALINK_PRIVATE_HOST;
+    const shared = getLavalinkNodes();
+    assert.ok(!shared.some(node => node.name === PRIVATE_NODE_NAME), 'without its settings nothing changes');
+    process.env.LAVALINK_PRIVATE_HOST = 'lavalink.railway.internal';
+    process.env.LAVALINK_PRIVATE_PASSWORD = 'test-password';
+    const nodes = getLavalinkNodes();
+    assert.deepEqual(nodes[0], { host: 'lavalink.railway.internal', port: 2333, password: 'test-password', secure: false, name: PRIVATE_NODE_NAME });
+    assert.deepEqual(nodes.slice(1).map(node => node.name), shared.map(node => node.name), 'the public nodes follow');
+  } finally {
+    for (const key of ['LAVALINK_PRIVATE_HOST', 'LAVALINK_PRIVATE_PASSWORD']) {
+      if (key in saved) process.env[key] = saved[key]; else delete process.env[key];
+    }
+  }
+  const own = { name: PRIVATE_NODE_NAME };
+  const nodes = [{ name: 'Serenetia' }, own, { name: 'MilloHost' }];
+  const client = { riffy: { leastUsedNodes: nodes } };
+  assert.equal(orderedNodes(client)[0], own, 'the own server first, also when Riffy counts fewer requests elsewhere');
+  markNodeBad(own);
+  assert.equal(orderedNodes(client).at(-1), own, 'after a failure it goes last for a while');
+  clearBadNode(own);
+});
+
+test('a song the own server cannot stream sends the next songs to the public nodes', async () => {
+  const { PRIVATE_NODE_NAME } = await import('../src/config/music/lavalink.js');
+  const { isBadNode, clearBadNode } = await import('../src/services/music/musicNodeHealth.js');
+  const f = liveFixture('own-node-error');
+  const own = { name: PRIVATE_NODE_NAME };
+  const shared = { name: 'Serenetia' };
+  f.player.node = shared;
+  f.client.riffy.emit('trackError', f.player, f.player.current, { exception: { message: 'This video is private' } });
+  assert.equal(isBadNode(shared), false, 'a public node keeps its old rules');
+  f.player.node = own;
+  f.client.riffy.emit('trackError', f.player, f.player.current, { exception: { message: 'All clients failed to load the item.' } });
+  assert.equal(isBadNode(own), true);
+  clearBadNode(own);
+  deleteGuildMusicData('own-node-error');
 });

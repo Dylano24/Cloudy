@@ -130,6 +130,8 @@ for (const [key, fallback] of [
   ['mc_play', '▶️'], ['mc_pause', '⏸️'], ['mc_previous', '⏮️'], ['mc_next', '⏭️'],
   ['mc_shuffle', '🔀'], ['mc_shuffle_on', '🔀'], ['mc_repeat', '🔁'], ['mc_repeat_on', '🔁'],
   ['mc_repeat_one', '🔂'], ['mc_queue', '📋'], ['mc_stop', '⏹️'], ['mc_note', '🎵'],
+  // + (Add) and − (Remove) in the same white style as the other player icons.
+  ['mc_plus', '➕'], ['mc_minus', '➖'],
 ]) {
   BASE_EMOJIS[key] = { name: `cloudy_${key}`, file: `../../assets/music-icons/${key}.png`, fallback };
 }
