@@ -385,7 +385,19 @@ test('a jam: everyone adds and the songs take turns per person; it ends with Sto
     `${BLUE} Queue: Song mila two · song · Mila`,
     "-# Jam: everyone's songs take turns · max 10 in the queue",
   ].join('\n'));
-  assert.deepEqual(labels(form).at(-1).component.options.map(option => option.value), ['end']);
+  const jamPicks = labels(form).at(-1).component;
+  assert.equal(jamPicks.placeholder, 'Choose a song to play now');
+  assert.deepEqual(jamPicks.options.map(option => [option.label, option.description]),
+    [['Song sam one', 'Sam'], ['Song mila one', 'Mila'], ['Song mila two', 'Mila'], ['End the jam', undefined]]);
+
+  // Choosing a song in the Jam field plays it at once; the others keep their place.
+  const stopsBefore = player.stops;
+  const editsBefore = ui.log.edits.length;
+  await submit(client, ui, form, { jam: [jamPicks.options[2].value] });
+  assert.deepEqual(player.queue.map(t => t.info.title), ['Song mila two', 'Song sam one', 'Song mila one']);
+  assert.equal(player.stops, stopsBefore + 1, 'the song that played is skipped');
+  assert.equal(getGuildMusicData('g-jam').endingTrack.outcome, 'skipped');
+  assert.equal(ui.log.edits.length, editsBefore, 'no message: the player shows it');
 
   await destroyPlayerSession(client, 'g-jam', player, getGuildMusicData('g-jam'));
   assert.equal(getGuildMusicData('g-jam').jam, null, 'Stop ends the jam');

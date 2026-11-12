@@ -22,8 +22,8 @@ import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import {
-  MAX_QUEUE_ITEMS, activeSource, assertCanControl, getPlayer, inspectMusicLink, isJamOn, playQuery, queuedSources,
-  removeSourceFromQueue, replaceQueue, setJam,
+  MAX_QUEUE_ITEMS, activeSource, assertCanControl, getPlayer, inspectMusicLink, isJamOn, playQuery, playQueuedNow,
+  queuedSources, removeSourceFromQueue, replaceQueue, setJam, trackPickKey,
 } from './musicActions.js';
 import { prepareMusicQuery } from './musicLinks.js';
 
@@ -184,7 +184,7 @@ function itemSelect(customId, options, placeholder) {
 // Queue, the rest), a field to add a song or playlist, Start (plays the chosen one
 // in place of what plays now) and Remove, in the same order as the list. Every
 // opening gets its own id. `items` null means the list could not be read.
-export function buildListModal(items, active = null, queued = [], jam = false) {
+export function buildListModal(items, active = null, queued = [], jam = false, tracks = []) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
   // No help lines under the fields (owner's choice: too much text). In a jam the
@@ -204,10 +204,18 @@ export function buildListModal(items, active = null, queued = [], jam = false) {
     labels.push(new LabelBuilder().setLabel('Remove')
       .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove')));
   }
-  labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', [jam
-    ? { label: 'End the jam', value: 'end', emoji: { name: '⏹️' } }
-    : { label: 'Start a jam', value: 'start', description: "Everyone's songs take turns", emoji: { name: '🎉' } }],
-  jam ? 'Jam is on' : 'Start a jam')));
+  // In a jam this field also lists the songs in the queue (owner's choice): one
+  // chosen plays at once. Its last choice ends the jam.
+  const picks = jam ? [...(tracks || [])].slice(0, MAX_PLAYLISTS - 1).map((track, index) => ({
+    label: String(track?.info?.title || 'Unknown track').replace(/\*/g, '').slice(0, 100),
+    description: String(track?.info?.requester?.username || 'Unknown').slice(0, 100),
+    value: trackPickKey(track, index),
+    emoji: { name: '🎶' },
+  })) : [];
+  labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', jam
+    ? [...picks, { label: 'End the jam', value: 'end', emoji: { name: '⏹️' } }]
+    : [{ label: 'Start a jam', value: 'start', description: "Everyone's songs take turns", emoji: { name: '🎉' } }],
+  jam ? (picks.length ? 'Choose a song to play now' : 'Jam is on') : 'Start a jam')));
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued, jam)))
     .addLabelComponents(...labels);
@@ -260,7 +268,7 @@ async function listForForm(client, guildId) {
 export async function openPlaylistPanel(interaction, client) {
   const items = await listForForm(client, interaction.guildId);
   const player = getPlayer(client, interaction.guildId);
-  await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player), isJamOn(interaction.guildId)));
+  await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player), isJamOn(interaction.guildId), player?.queue));
 }
 
 // The songs of a list item carry it, so Add can show it as active.
@@ -326,7 +334,9 @@ async function handleListForm(interaction, client, state) {
     await interaction.deferUpdate().catch(() => {});
     return;
   }
-  if (!removeIds.length && !raw && !jamChoice) {
+  // A song chosen in the Jam field, like Start, shows nothing: the player shows it.
+  const pick = String(jamChoice || '').startsWith('t:') ? jamChoice : null;
+  if (!removeIds.length && !raw && (!jamChoice || pick)) {
     await interaction.deferUpdate();
     state.quiet = true;
   } else {
@@ -402,6 +412,14 @@ async function handleListForm(interaction, client, state) {
       // In a jam it waits for this member's turn; otherwise it replaces what plays.
       if (jam) await playQuery(client, interaction, item.url, { source: sourceOf(item) });
       else await replaceQueue(client, interaction, item.url, { source: sourceOf(item) });
+    } catch (error) {
+      fail(userMessageOf(error));
+    }
+  }
+
+  if (pick) {
+    try {
+      playQueuedNow(client, interaction, pick);
     } catch (error) {
       fail(userMessageOf(error));
     }
