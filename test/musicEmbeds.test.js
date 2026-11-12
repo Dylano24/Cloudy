@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { cardButtons, cardCover, cardHeading, cardTexts } from './helpers/playerCard.js';
 import assert from 'node:assert/strict';
 import { ChannelType, Collection, MessageFlags } from 'discord.js';
 import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
@@ -156,10 +157,13 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(publicReply, null, 'no duplicate /play announcement is posted');
   assert.equal(deletedReply, true, 'the temporary acknowledgement is deleted');
   assert.equal(panels.length, 1, 'exactly one public player panel is posted');
-  assert.equal(panels[0].embeds[0].toJSON().image.url, track.info.artworkUrl);
-  assert.equal(panels[0].embeds[0].toJSON().title, 'Now playing');
-  assert.equal(panels[0].embeds[0].toJSON().fields.find(f => f.name === 'Duration').value, '3:00');
-  assert.equal(panels[0].components.length, 2);
+  // One card like Spotify's: cover on top, title and artist, bar, duration and the buttons inside it.
+  assert.equal(panels[0].flags, MessageFlags.IsComponentsV2);
+  assert.equal(cardCover(panels[0]), track.info.artworkUrl);
+  assert.equal(cardHeading(panels[0]), 'Now playing');
+  assert.ok(cardTexts(panels[0]).includes('-# 3:00 · Requested by Test user'));
+  assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
+  assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
   assert.equal(queue.length, 0);
   deleteGuildMusicData('test-music-server');
