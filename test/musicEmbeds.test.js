@@ -56,7 +56,7 @@ test('a new player panel goes to #music; an existing panel keeps its message', a
   const data = getGuildMusicData(guildId);
   data.playerChannelId = general.id;
   await refreshPlayerMessage(client, guildId);
-  assert.deepEqual(sent.map(entry => entry.channel), ['🎧│music', '🎧│music'], 'the card and its controls, both in #music');
+  assert.deepEqual(sent.map(entry => entry.channel), ['🎧│music']);
   assert.equal(data.playerChannelId, music.id);
   assert.deepEqual(sent[0].payload.allowedMentions, { parse: [] });
   deleteGuildMusicData(guildId);
@@ -132,7 +132,7 @@ test('/play shows only the persistent player and cleans up its private acknowled
     id: 'music-channel', name: '🎧│music', type: ChannelType.GuildText,
     isTextBased: () => true,
     messages: { cache: new Collection() },
-    send: async payload => { panels.push(payload); return { id: `live-player-${panels.length}` }; },
+    send: async payload => { panels.push(payload); return { id: 'live-player-1' }; },
   };
   const client = {
     channels: { cache: new Collection([[musicChannel.id, musicChannel]]) },
@@ -156,27 +156,22 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(deferOptions.flags, MessageFlags.Ephemeral, 'the slash acknowledgement is not public');
   assert.equal(publicReply, null, 'no duplicate /play announcement is posted');
   assert.equal(deletedReply, true, 'the temporary acknowledgement is deleted');
-  assert.equal(panels.length, 2, 'one public player: the card and, under it, its controls');
-  // The card (redrawn every second): cover on top, title and artist, timer and bar. No buttons, so Discord
-  // never loads their icons again on a tick.
+  assert.equal(panels.length, 1, 'exactly one public player panel is posted');
+  // One card like Spotify's: cover on top, title and artist, bar, duration and the buttons inside it.
   assert.equal(panels[0].flags, MessageFlags.IsComponentsV2);
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
+  // Requested by under the buttons after the white dot, the footer on the line under it
+  // (14 emoji pieces once uploaded, as wide as the bar; until then the footer text).
+  assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user\n-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
   assert.match(cardTexts(panels[0])[1], /^-# 0:00 \/ 3:00\n/, 'the timer on the left right above the bar');
   const parts = panels[0].components[0].toJSON().components;
   assert.equal(parts.filter(part => part.type === 12).length, 1, 'only the cover is a picture');
-  assert.equal(parts.at(-1).type, 10, 'the card ends with the timer and the bar');
-  assert.deepEqual(cardButtons(panels[0]), [], 'no buttons on the card');
+  assert.equal(parts.at(-1).type, 10, 'the card ends with the footer text');
+  assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
+  assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
-  // The controls (redrawn only when something on them changes): the buttons, Requested by after the white dot and
-  // the footer on the line under it (14 emoji pieces once uploaded, as wide as the bar; until then the footer text).
-  assert.equal(panels[1].flags, MessageFlags.IsComponentsV2);
-  assert.deepEqual(cardButtons(panels[1]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
-  assert.equal(cardTexts(panels[1]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user\n-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
-  assert.equal(panels[1].components.length, 1);
-  assert.equal(panels[1].components[0].toJSON().components.at(-1).type, 10, 'the controls end with the footer text');
-  assert.deepEqual(panels[1].allowedMentions, { parse: [] });
   assert.equal(queue.length, 0);
   deleteGuildMusicData('test-music-server');
 });

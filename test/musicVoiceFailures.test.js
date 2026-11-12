@@ -243,3 +243,46 @@ test('a music node that drops out is tried again for as long as it takes, never 
   assert.equal(client.riffy.options.reconnectTimeout, 10_000);
   client.riffy.removeAllListeners();
 });
+
+// Right after a restart one public node can be down and the other plays a song without
+// sound: Lavalink then reports "track stuck". That node is not used for the next player.
+function stuckSignal(node) {
+  const client = { channels: { cache: new Map() }, riffy: new EventEmitter() };
+  setupPlayerHandler(client);
+  client.riffy.emit('trackStuck', { guildId: 'stuck-guild', node }, track, { thresholdMs: 24100 });
+}
+
+test('a song that Lavalink reports as stuck marks its node, so the next /play goes to a node that works', async () => {
+  const silent = { name: 'Silent-node', rest: {} };
+  const working = { name: 'Working-node', rest: {} };
+  stuckSignal(silent);
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction } = setup('stuck-next', player);
+  client.riffy.leastUsedNodes = [silent, working];
+  const created = [];
+  client.riffy.createPlayer = node => { created.push(node.name); player.node = node; return player; };
+  await playQuery(client, interaction, 'some song');
+  assert.deepEqual(created, ['Working-node']);
+});
+
+test('no player is created on the only node that just played without sound; a clear message, and it is tried again after two minutes', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 5_000_000 });
+  const only = { name: 'Only-node', rest: {} };
+  stuckSignal(only);
+  const player = makePlayer(async function play() { this.playing = true; return this; });
+  const { client, interaction, created } = setup('stuck-only', player);
+  client.riffy.leastUsedNodes = [only];
+  const madeOn = [];
+  client.riffy.createPlayer = node => { madeOn.push(node.name); player.node = node; return player; };
+  await assert.rejects(playQuery(client, interaction, 'some song'), error => {
+    assert.equal(error.name, 'CloudyError');
+    assert.match(error.userMessage, /reconnecting right now/);
+    return true;
+  });
+  assert.deepEqual(madeOn, [], 'nothing was started on the silent node');
+  assert.equal(created.length, 0);
+
+  t.mock.timers.tick(2 * 60 * 1000 + 1);
+  await playQuery(client, interaction, 'some song');
+  assert.deepEqual(madeOn, ['Only-node'], 'after two minutes the node gets another chance');
+});

@@ -15,6 +15,7 @@ import {
 } from './musicEmbeds.js';
 import { clearPlayerMessages, isTrackRunning, refreshPlayerMessage, markTrackEnding } from './playerHandler.js';
 import { prepareMusicQuery } from './musicLinks.js';
+import { clearBadNode, isBadNode, isRecentlyBadNode, markNodeBad } from './musicNodeHealth.js';
 import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
 
@@ -23,7 +24,6 @@ const LINK_NOT_PLAYABLE = 'That link could not be opened. It may be private, reg
 const RESOLVE_TIMEOUT_MS = 12_000;
 const MUSIC_READY_WAIT_MS = 20_000;
 const VOICE_MOVE_TIMEOUT_MS = 12_000;
-const BAD_NODE_MS = 10 * 60 * 1000;
 const PLAYABLE_LOAD_TYPES = new Set(['track', 'playlist', 'search', 'TRACK_LOADED', 'PLAYLIST_LOADED', 'SEARCH_RESULT']);
 
 export function getPlayer(client, guildId) {
@@ -117,17 +117,9 @@ export async function waitForMusicReady(client, timeoutMs = MUSIC_READY_WAIT_MS)
     }
 }
 
-// A node that could not hold a voice connection is tried last for a while, so the
-// next /play does not wait for it again.
-const badNodes = new Map();
-
-function isBadNode(node) {
-    return (badNodes.get(node?.name) || 0) > Date.now();
-}
-
-function markNodeBad(node) {
-    if (node?.name) badNodes.set(node.name, Date.now() + BAD_NODE_MS);
-}
+// A node that could not hold a voice connection (or played a song without sound)
+// is tried last for a while, so the next /play does not wait for it again
+// (musicNodeHealth.js).
 
 // The node that last really started a song goes first: Riffy's own order (fewest
 // requests) otherwise sends the next player to a node that just failed.
@@ -135,7 +127,7 @@ let lastGoodNodeName = null;
 
 function markNodeGood(node) {
     if (!node?.name) return;
-    badNodes.delete(node.name);
+    clearBadNode(node);
     lastGoodNodeName = node.name;
 }
 
@@ -149,6 +141,16 @@ function orderedNodes(client) {
 
 function createVoicePlayer(client, options, node = null) {
     const target = node || orderedNodes(client)[0] || null;
+    // The only node that is connected just failed to carry sound: a player there would
+    // show "Now playing" and stay silent. A clear message instead; the other node is
+    // retried by itself and the node is tried again after two minutes.
+    if (!node && target && isRecentlyBadNode(target)) {
+        throw new CloudyError(
+            'Music node cannot play sound',
+            ErrorTypes.NETWORK,
+            'The music server that plays the sound is reconnecting right now. Please try again in a minute.',
+        );
+    }
     return target && typeof client.riffy.createPlayer === 'function'
         ? client.riffy.createPlayer(target, options)
         : client.riffy.createConnection(options);
@@ -1102,8 +1104,6 @@ export async function destroyPlayerSession(client, guildId, player, guildData, {
     const panelChannelId = guildData.playerChannelId;
     guildData.playerMessageId = null;
     guildData.playerChannelId = null;
-    guildData.controlsMessageId = null;
-    guildData.lastControls = null;
     guildData.lastPanel = null;
     guildData.panelTrack = null;
     guildData.sessionCleaned = false;
