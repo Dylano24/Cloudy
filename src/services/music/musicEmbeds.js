@@ -11,7 +11,7 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
-import { feedEmoji, feedEmojiComponent, feedEmojiReady, MUSIC_FOOTER_PIECES } from '../feedEmojiService.js';
+import { feedEmoji, feedEmojiComponent } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -373,18 +373,20 @@ export const PLAYER_CARD_HEADINGS = ['Played', 'Skipped', 'Stopped', 'Could not 
 // on a phone) is the footer text drawn over 14 emoji pieces, as wide as the bar
 // (`footer_*` in feedEmojiService.js), on the line under "Requested by" (a line
 // of only emoji would be shown big). Until the pieces are uploaded it is text.
-const PLAYER_FOOTER_TEXT = `-# **${CLOUDY_FOOTER}**`;
 // Cards posted earlier: the footer as a picture or as a line of its own.
 const PLAYER_CARD_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@0c7c11e1fe8a2e71e0c259aa7c0e9d8d8bfbe41b/assets/music-footer.png';
 const PLAYER_CARD_FOOTER_MARKS = [CLOUDY_FOOTER, ':cft_1:'];
+// The footer of the player card is ONE fixed picture (owner's choice): the same 14
+// footer pieces side by side (`assets/music-footer-line.png`, transparent, the text
+// filling 83.5% of the width as the emoji line did). The card is redrawn every second
+// for the timer and Discord's app loads custom emoji again on every redraw, so the
+// emoji footer blinked; a picture whose link never changes stays put, like the cover.
+export const PLAYER_FOOTER_PICTURE_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@da41ebfa0c912ffe1582a559b88d35fcf95467a5/assets/music-footer-line.png';
+const PLAYER_CARD_FOOTER_URLS = new Set([PLAYER_CARD_FOOTER_URL, PLAYER_FOOTER_PICTURE_URL]);
 // A pause or resume never shows the timer a second back: an edit shows the next
 // second a moment early (`lead`), and the node's own position can be that bit behind.
 const TIMER_HOLD_MS = 1_200;
 
-export function playerFooterLine() {
-    const keys = Array.from({ length: MUSIC_FOOTER_PIECES }, (_, index) => `footer_${index + 1}`);
-    return keys.every(key => feedEmojiReady(key)) ? keys.map(key => feedEmoji(key)).join('') : PLAYER_FOOTER_TEXT;
-}
 
 function timerPosition(player, guildData, lead) {
     let position = songPosition(player, guildData) + (player?.paused ? 0 : lead);
@@ -420,7 +422,10 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
-    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}\n${playerFooterLine()}`));
+    // The live card has no "Requested by" (owner's choice, for now: its dot emoji blinked
+    // on the every-second redraw); a record keeps it. Both end with the footer picture.
+    if (ended) card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
+    card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(PLAYER_FOOTER_PICTURE_URL)));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
@@ -434,7 +439,7 @@ export function isPlayerCardMessage(message) {
         for (const item of items || []) {
             const data = item?.toJSON ? item.toJSON() : item?.data || item;
             if (typeof data?.content === 'string') texts.push(data.content);
-            if ((data?.items || []).some(entry => (entry?.media?.url || entry?.url) === PLAYER_CARD_FOOTER_URL)) footer = true;
+            if ((data?.items || []).some(entry => PLAYER_CARD_FOOTER_URLS.has(entry?.media?.url || entry?.url))) footer = true;
             if (String(data?.custom_id || data?.customId || '').startsWith('music_')) musicButtons = true;
             walk(data?.components);
         }
