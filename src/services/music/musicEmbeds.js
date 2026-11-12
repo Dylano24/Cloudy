@@ -99,33 +99,6 @@ export function musicProgressBar(positionMs, lengthMs) {
     return musicBarPieces(positionMs, lengthMs)?.map(key => feedEmoji(key)).join('') ?? null;
 }
 
-// The player card's bar is a PICTURE (owner's choice): the same look as the old emoji
-// bar (white and rounded for what has played, a white knob, a dark grey line for the
-// rest), one picture for each of 216 knob places (about one a second for a song of 3
-// to 4 minutes), hosted on jsDelivr at a fixed commit so a link never changes
-// (assets/music-bar, 1714x104, transparent). The card only swaps the picture's link;
-// the emoji pieces of the old bar loaded late the first time a piece came by.
-export const PLAYER_BAR_STEPS = 216;
-const PLAYER_BAR_BASE = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@65a5005c066b6f09e4db1bec4813e6b704753879/assets/music-bar';
-
-export function playerBarStep(positionMs, lengthMs) {
-    const length = Number(lengthMs);
-    if (!Number.isFinite(length) || length <= 0) return null;
-    const position = Number(positionMs);
-    const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
-    return Math.round(fraction * (PLAYER_BAR_STEPS - 1));
-}
-
-export function playerBarPictureUrl(step) {
-    return `${PLAYER_BAR_BASE}/bar_${String(step).padStart(3, '0')}.png`;
-}
-
-/** The bar picture's link for this moment of the song, or null without a length. */
-export function playerBarPicture(positionMs, lengthMs) {
-    const step = playerBarStep(positionMs, lengthMs);
-    return step === null ? null : playerBarPictureUrl(step);
-}
-
 // Cloudy's own clock for the timer on the player card (owner's choice: a
 // real-time timer). It counts real time from where the song was and follows the
 // node again only when the song is paused or resumed, or when they differ by more
@@ -441,8 +414,7 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
     } else {
         const position = Math.min(timerPosition(player, guildData, lead), length);
         if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
-        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}`));
-        card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(playerBarPicture(position, length))));
+        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
