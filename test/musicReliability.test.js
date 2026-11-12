@@ -401,13 +401,16 @@ test('the bar timer fires when the bar reaches its next piece, not up to 15 seco
   const { msUntilNextBarPiece } = await import('../src/services/music/musicEmbeds.js');
   const { nextBarRefreshDelay } = await import('../src/services/music/playerHandler.js');
   const at = (position, extra = {}) => ({ current: song('x'), position, cloudyPositionAt: 1_000, paused: false, ...extra });
-  assert.equal(msUntilNextBarPiece(at(0), 1_000), 9_000, 'a 3-minute song gets its first piece after 9 seconds');
-  assert.equal(msUntilNextBarPiece(at(10_000), 1_000), 17_000);
+  // Fourteen pieces: a 3-minute song moves one piece every 180/14 seconds.
+  const piece = 180_000 / 14;
+  assert.equal(Math.round(msUntilNextBarPiece(at(0), 1_000)), Math.round(piece / 2), 'the first piece after half a piece');
+  assert.equal(Math.round(msUntilNextBarPiece(at(10_000), 1_000)), Math.round(piece * 1.5 - 10_000));
   assert.equal(msUntilNextBarPiece(at(10_000, { paused: true }), 1_000), null, 'nothing moves while paused');
   assert.equal(msUntilNextBarPiece(at(179_000), 1_000), null, 'a full bar');
-  assert.equal(nextBarRefreshDelay(at(0), 1_000), 9_250);
-  assert.equal(nextBarRefreshDelay(at(10_000), 1_000), 15_000, 'at least every 15 seconds');
-  assert.equal(nextBarRefreshDelay(at(8_990), 1_000), 2_000, 'never more often than every 2 seconds');
+  assert.equal(Math.round(nextBarRefreshDelay(at(0), 1_000)), Math.round(piece / 2 + 250));
+  const long = { info: { title: 'long', length: 600_000 } };
+  assert.equal(nextBarRefreshDelay(at(30_000, { current: long }), 1_000), 15_000, 'at least every 15 seconds');
+  assert.equal(nextBarRefreshDelay(at(piece / 2 - 10), 1_000), 2_000, 'never more often than every 2 seconds');
   assert.equal(nextBarRefreshDelay(at(0, { paused: true }), 1_000), 15_000);
 });
 
@@ -418,16 +421,17 @@ test('the player panel is edited exactly when the bar moves, and not in between'
   f.client.riffy.emit('trackStart', f.player, f.player.current);
   await flush();
   assert.equal(f.sent.length, 1);
-  t.mock.timers.tick(9_000);
+  // Fourteen pieces of 180/14 s: the first at about 6.4 s, the second at about 19.3 s.
+  t.mock.timers.tick(6_400);
   await flush();
   assert.equal(f.edits.length, 0, 'the first piece is not due yet');
   t.mock.timers.tick(300);
   await flush();
   assert.equal(f.edits.length, 1, 'edited right when the first piece fills');
-  t.mock.timers.tick(15_000);
+  t.mock.timers.tick(12_500);
   await flush();
-  assert.equal(f.edits.length, 1, 'the 15-second check sends nothing while the bar did not move');
-  t.mock.timers.tick(3_000);
+  assert.equal(f.edits.length, 1, 'nothing is sent while the bar did not move');
+  t.mock.timers.tick(400);
   await flush();
   assert.equal(f.edits.length, 2, 'the second piece right on time');
   deleteGuildMusicData('quality-bar');
