@@ -102,8 +102,9 @@ const itemKind = item => (item.kind === 'song' ? 'song' : songs(item.count || 0)
 const itemName = item => String(item?.name || 'Untitled').replace(/\*/g, '').slice(0, 80);
 
 // What plays now is always first (owner's choice): "<green dot> Playing: <name>"
-// with Cloudy's glowing green dot, and not again in the numbered list. A song that
-// is not in the list (a full list, a /play song) shows the same way.
+// with Cloudy's glowing green dot, and not again below it; the rest each start with
+// the white glowing dot instead of a number. A song that is not in the list (a full
+// list, a /play song) shows the same way.
 const PLAYING = 'Playing: ';
 const isActive = (item, active) => Boolean(active?.url) && item?.url === active.url;
 const unsavedActive = (items, active) => (active?.url && !(items || []).some(item => isActive(item, active)) ? active : null);
@@ -116,7 +117,7 @@ function listText(items, active = null) {
   const rest = (items || []).filter(item => !isActive(item, active)).slice(0, MAX_PLAYLISTS);
   if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
   else if (!rest.length && !shown) lines.push('Your list is empty. Add a song or a playlist below.');
-  else lines.push(...rest.map((item, index) => `${index + 1}. ${itemName(item)} · ${itemKind(item)}`));
+  else lines.push(...rest.map(item => `${feedEmoji('dot')} ${itemName(item)} · ${itemKind(item)}`));
   return ['**Your list**', ...lines].join('\n').slice(0, 3900);
 }
 
