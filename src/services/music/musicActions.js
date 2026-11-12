@@ -1102,6 +1102,8 @@ export async function destroyPlayerSession(client, guildId, player, guildData, {
     const panelChannelId = guildData.playerChannelId;
     guildData.playerMessageId = null;
     guildData.playerChannelId = null;
+    guildData.controlsMessageId = null;
+    guildData.lastControls = null;
     guildData.lastPanel = null;
     guildData.panelTrack = null;
     guildData.sessionCleaned = false;

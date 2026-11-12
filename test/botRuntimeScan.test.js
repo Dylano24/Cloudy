@@ -77,7 +77,11 @@ function musicFixture() {
   const data = getGuildMusicData(guildId);
   data.playerMessageId = 'player-message';
   data.playerChannelId = channel.id;
-  return { guildId, channel, player, client, data };
+  // The controls (the buttons) are their own message under the card.
+  data.controlsMessageId = 'controls-message';
+  const controlEdits = [];
+  channel.messages.cache.set('controls-message', { edit: async payload => { controlEdits.push(payload); } });
+  return { guildId, channel, player, client, data, controlEdits };
 }
 
 test('music refresh uses the existing cached player message without fetching', async () => {
@@ -89,7 +93,7 @@ test('music refresh uses the existing cached player message without fetching', a
   deleteGuildMusicData(f.guildId);
 });
 
-test('twenty concurrent player refreshes coalesce into two edits and keep latest controls', async () => {
+test('twenty concurrent player refreshes coalesce and keep the latest controls', async () => {
   const f = musicFixture();
   const gate = deferred();
   const payloads = [];
@@ -106,11 +110,12 @@ test('twenty concurrent player refreshes coalesce into two edits and keep latest
   f.player.paused = true;
   gate.resolve();
   await Promise.all(requests);
-  assert.equal(payloads.length, 2);
+  // The card only shows the timer: Pause or Resume does not change it, so it is edited once.
+  assert.equal(payloads.length, 1);
   assert.equal(peak, 1);
-  // In the middle (Spotify's order), one button switches: Pause while playing, Resume once paused.
-  assert.equal(cardButtons(payloads[0])[2], 'music_pause');
-  assert.equal(cardButtons(payloads.at(-1))[2], 'music_resume');
+  // The buttons are on the controls message (Spotify's order): one switches, Pause
+  // while playing, Resume once paused. Twenty refreshes end in the two states, in order.
+  assert.deepEqual(f.controlEdits.map(payload => cardButtons(payload)[2]), ['music_pause', 'music_resume']);
   deleteGuildMusicData(f.guildId);
 });
 
