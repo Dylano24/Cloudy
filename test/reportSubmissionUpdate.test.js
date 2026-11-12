@@ -30,7 +30,7 @@ test('both report submission routes share exact private confirmation with real v
     reason: 'This message is offensive!!',
   }).toJSON();
   assert.equal(embed.title, 'Report submitted');
-  assert.equal(embed.description, 'Your report has been successfully submitted to our moderation team.\n\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.');
+  assert.equal(embed.description, 'Your report has been successfully submitted to our moderation team.\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.');
   assert.deepEqual(embed.fields.map(field => [field.name, field.value]), [
     ['Reported member', '<@123456789012345678>'],
     ['Reported message', 'Original reported message goes here.'],
@@ -54,7 +54,7 @@ test('confirmation keeps original reported emoji and reason verbatim', () => {
     reason: 'Offensive 😠 content!',
   }).toJSON();
   assert.equal(embed.footer?.text, 'Cloudy Inc. • Moderation team • R90', 'the footer uses the current report number');
-  assert.equal(embed.description, 'Your report has been successfully submitted to our moderation team.\n\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.');
+  assert.equal(embed.description, 'Your report has been successfully submitted to our moderation team.\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.');
   assert.equal(embed.fields[1].value, 'Original 📦 emoji and **markdown**');
   assert.equal(embed.fields[2].value, 'Offensive 😠 content!');
 });
