@@ -133,6 +133,7 @@ for (const [key, fallback] of [
 ]) {
   BASE_EMOJIS[key] = { name: `cloudy_${key}`, file: `../../assets/music-icons/${key}.png`, fallback };
 }
+const MUSIC_CONTROL_EMOJI_VERSIONS = { shuffle: 2 };
 // The approved silver-white music button glyphs are static application emojis.
 // Their names are versioned: old player emojis are kept for older messages.
 // Application emojis work across both Dylano and Cloudy Inc without using guild slots.
@@ -142,7 +143,8 @@ for (const [key, fallback] of [
   ['queue', '☰'], ['add', '+'], ['remove', '−'], ['stop', '■'],
 ]) {
   BASE_EMOJIS[`mc_button_${key}`] = {
-    name: `cmusic_${key}_v1`,
+    // A redrawn icon gets a new version, so it is uploaded again (shuffle v2).
+    name: `cmusic_${key}_v${MUSIC_CONTROL_EMOJI_VERSIONS[key] || 1}`,
     musicControlArt: key,
     fallback,
   };

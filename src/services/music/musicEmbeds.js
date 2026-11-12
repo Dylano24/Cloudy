@@ -135,6 +135,13 @@ export function msUntilNextSecond(player, now = Date.now(), guildData = null, le
     return SECOND_MS - (shown % SECOND_MS);
 }
 
+// The live timer's digits (owner's choice): Unicode's monospace digits, all exactly
+// as wide, so the "/" never moves when a second changes. Discord's own font has
+// narrow and wide digits ("0:41 / 4:38" was narrower than "0:44 / 4:38").
+export function fixedWidthDigits(text) {
+    return String(text).replace(/[0-9]/g, digit => String.fromCodePoint(0x1D7F6 + Number(digit)));
+}
+
 /** m:ss (or h:mm:ss), also for 0. */
 export function formatClock(ms) {
     const value = Number(ms);
@@ -426,7 +433,7 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
         if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
         // Only the timer, no bar (owner's choice: the bar's emoji pieces glitched; the
         // /now playing embed keeps its bar).
-        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}`));
+        card.addTextDisplayComponents(text(`-# ${fixedWidthDigits(`${formatClock(position)} / ${formatClock(length)}`)}`));
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');

@@ -7,7 +7,7 @@ import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/p
 import { refreshPlayerMessage, markTrackStarted, setupPlayerHandler, shutdownMusic } from '../src/services/music/playerHandler.js';
 import { livePlayerPosition } from '../src/services/music/musicEmbeds.js';
 import { applyNodeReconnectBackoff } from '../src/services/music/riffySetup.js';
-import { cardButtons, cardHeading, cardTexts } from './helpers/playerCard.js';
+import { cardButtons, cardHeading, cardTexts, plainDigits } from './helpers/playerCard.js';
 
 const song = title => ({ info: { title, author: 'Artist', uri: `https://example.com/${title}`, length: 180_000 } });
 
@@ -448,7 +448,7 @@ test('the player panel shows every second once, in order, while the song plays',
   await flush();
   assert.equal(f.sent.length, 1);
   for (let i = 0; i < 61; i += 1) { t.mock.timers.tick(100); await flush(); }
-  const seconds = f.edits.map(payload => /-# (\d+):(\d\d) \//.exec(cardTexts(payload).join('\n'))).map(match => Number(match[1]) * 60 + Number(match[2]));
+  const seconds = f.edits.map(payload => /-# (\d+):(\d\d) \//.exec(plainDigits(cardTexts(payload).join('\n')))).map(match => Number(match[1]) * 60 + Number(match[2]));
   assert.deepEqual(seconds, [1, 2, 3, 4, 5, 6], 'one edit per second, none skipped or shown twice');
   deleteGuildMusicData('quality-bar');
 });
@@ -595,7 +595,7 @@ test('with Discord answering at varying speed (150-700 ms, sometimes 1.4 s) ever
   f.client.riffy.emit('trackStart', f.player, f.player.current);
   await flush();
   for (let i = 0; i < 1_200; i += 1) { t.mock.timers.tick(50); await flush(); }
-  const seconds = shown.map(payload => /-# (\d+):(\d\d) \//.exec(cardTexts(payload).join('\n'))).filter(Boolean).map(match => Number(match[1]) * 60 + Number(match[2]));
+  const seconds = shown.map(payload => /-# (\d+):(\d\d) \//.exec(plainDigits(cardTexts(payload).join('\n')))).filter(Boolean).map(match => Number(match[1]) * 60 + Number(match[2]));
   assert.ok(seconds.length >= 58, `about one edit per second over a minute (${seconds.length})`);
   for (let i = 1; i < seconds.length; i += 1) assert.equal(seconds[i] - seconds[i - 1], 1, `second ${seconds[i - 1]} is followed by ${seconds[i]}`);
   deleteGuildMusicData('jitter-timer');
