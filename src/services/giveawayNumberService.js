@@ -48,3 +48,37 @@ export async function getOrCreateGiveawayNumber(client, guildId, messageId) {
     return numbers[messageId];
   });
 }
+
+// The #N of a giveaway, or null when it never had one. Never creates one.
+export async function findGiveawayNumber(client, guildId, messageId) {
+  if (!validId(messageId) || !client?.db?.get) return null;
+  const raw = unwrapReplitData(await client.db.get(sequenceKey(guildId), {}));
+  const number = raw?.numbers?.[messageId];
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+// A deleted giveaway's #N links to its deletion log (owner's choice): the
+// Embed log entry after /giveaway manage Delete, else the Staff log entry,
+// where the deleted giveaway can still be read. Stored per giveaway message,
+// so a claim log sent after the deletion links there too.
+const deletedLinksKey = guildId => 'guild:' + guildId + ':giveaway-log:deleted-links-v1';
+const MESSAGE_URL = /^https:\/\/discord\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}$/;
+
+export const isDiscordMessageUrl = url => MESSAGE_URL.test(String(url || ''));
+
+export async function deletedGiveawayLogUrl(client, guildId, messageId) {
+  if (!validId(messageId) || !client?.db?.get) return null;
+  const raw = unwrapReplitData(await client.db.get(deletedLinksKey(guildId), {}));
+  const url = raw && typeof raw === 'object' ? raw[messageId] : null;
+  return isDiscordMessageUrl(url) ? url : null;
+}
+
+export async function rememberDeletedGiveawayLogUrl(client, guildId, messageId, url) {
+  if (!validId(messageId) || !isDiscordMessageUrl(url) || !client?.db?.get || !client?.db?.set) return false;
+  return Mutex.runExclusive('giveaway-deleted-links:' + guildId, async () => {
+    const raw = unwrapReplitData(await client.db.get(deletedLinksKey(guildId), {}));
+    const links = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+    links[messageId] = url;
+    return await client.db.set(deletedLinksKey(guildId), links) !== false;
+  });
+}
