@@ -167,7 +167,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.deepEqual(noticeSections(reporterNotice), ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']);
   assert.deepEqual(noticeSections(targetNotice), ['Reported message', 'Review outcome', 'Moderation action', 'Reason', 'Auto-close']);
   assert.match(outcome(reporterNotice), /Appropriate action has been taken/);
-  assert.ok(json(reporterNotice.embeds[0]).description.includes('\n\n**Auto-close**'), 'equal paragraph spacing before Auto-close');
+  assert.ok(json(reporterNotice.embeds[0]).description.includes('fair and safe.\n**Auto-close**'), 'no empty line between the thanks and Auto-close (owner\'s choice)');
   assert.match(outcome(targetNotice), /glowingdotred/);
   assert.ok(noticeSection(targetNotice, 'Moderation action').startsWith(feedEmoji('report_orange')));
   assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed\n\n'));
@@ -188,7 +188,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.ok(!embed.fields?.length, 'private notice sections are rendered as one description for consistent spacing');
     if (notice === reporterNotice) {
       assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n\nAppropriate action/);
-      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\n\nThank you/);
+      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\nThank you/, 'no empty line between the outcome text and the thanks (owner\'s choice)');
       assert.ok(embed.description.includes('<@target>\n**Reported message**\n'), 'member and reported message are closer');
     } else {
       assert.ok(embed.description.startsWith('Your recent message'), 'no artificial gap below moderation title');
@@ -245,7 +245,8 @@ test('report update footers match the visible channel number and repair existing
     assert.ok(embed.description.includes('Original message text\n**Review outcome**\n'));
     if (audience === 'reporter') {
       assert.match(embed.description, /Reviewed\n\nYour report/);
-      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\n\nThank you/);
+      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\nThank you/, 'an existing notice gets the compact gap too');
+      assert.match(embed.description, /fair and safe\.\n\*\*Auto-close\*\*/);
     }
   }
   assert.equal(f.payloads.length, count, 'existing notices are edited, never reposted');

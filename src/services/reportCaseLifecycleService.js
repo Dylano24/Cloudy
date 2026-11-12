@@ -321,7 +321,11 @@ function compactHighlightedReportGaps(description) {
     .replace(/(\*\*Review outcome\*\*\n[\s\S]*?)\n\n(?=\*\*Moderation action\*\*\n)/, '$1\n')
     .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n')
     // Restore this gap on both new and previously compacted Discord messages.
-    .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n');
+    .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n')
+    // Reporter notice (owner's choice, highlighted): the thanks follows the outcome text
+    // and Auto-close follows the thanks without an empty line, also on existing notices.
+    .replace(/(server rules\.|deemed necessary\.)\n+(?=Thank you for bringing this)/, '$1\n')
+    .replace(/(fair and safe\.)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n');
 }
 
 function reportNoticeDescription(intro, fields) {
@@ -332,8 +336,7 @@ function reportNoticeDescription(intro, fields) {
 
 function spacedReportOutcome(value) {
   return String(value || '')
-    .replace(/(Action taken|No action taken)\n(?=[^\n])/, '$1\n\n')
-    .replace(/(server rules\.|deemed necessary\.)\n(?=Thank you for bringing this)/, '$1\n\n');
+    .replace(/(Action taken|No action taken)\n(?=[^\n])/, '$1\n\n');
 }
 
 // Update only active private notices in place on startup (including mismatched R-numbers).
