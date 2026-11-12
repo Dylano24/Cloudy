@@ -128,10 +128,12 @@ BASE_EMOJIS.ban_reason_green = { ...BASE_EMOJIS.ban_reason_green, name: 'ban_rea
 for (const [key, fallback] of [
   ['mc_play', '▶️'], ['mc_pause', '⏸️'], ['mc_previous', '⏮️'], ['mc_next', '⏭️'],
   ['mc_shuffle', '🔀'], ['mc_shuffle_on', '🔀'], ['mc_repeat', '🔁'], ['mc_repeat_on', '🔁'],
-  ['mc_repeat_one', '🔂'], ['mc_queue', '📋'],
+  ['mc_repeat_one', '🔂'], ['mc_queue', '📋'], ['mc_stop', '⏹️'], ['mc_note', '🎵'],
 ]) {
   BASE_EMOJIS[key] = { name: `cloudy_${key}`, file: `../../assets/music-icons/${key}.png`, fallback };
 }
+// The repeat icons were drawn bigger (owner's choice): new names, so they upload again.
+for (const key of ['mc_repeat', 'mc_repeat_on', 'mc_repeat_one']) BASE_EMOJIS[key].name = `cloudy_${key}2`;
 for (const piece of ['lk', 'mk', 'rk', 'rkf']) {
   BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/music-icons/bar_${piece}.png`, fallback: '●' };
 }

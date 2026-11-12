@@ -6,9 +6,7 @@ import {
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
-    SectionBuilder,
     TextDisplayBuilder,
-    ThumbnailBuilder,
 } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
@@ -68,7 +66,10 @@ export function formatMusicProgress(positionMs, lengthMs, steps = 12) {
 // played, grey for the rest, the same pieces as the vote bar. Ten pieces: twelve
 // wrapped to a second line in Discord on a PC. Plain blocks show until the pieces
 // are uploaded.
-export function musicProgressBar(positionMs, lengthMs, steps = 10) {
+// 14 pieces: as wide as the row of five buttons under it (owner's choice).
+export const MUSIC_BAR_STEPS = 14;
+
+export function musicProgressBar(positionMs, lengthMs, steps = MUSIC_BAR_STEPS) {
     const length = Number(lengthMs);
     if (!Number.isFinite(length) || length <= 0) return null;
     const position = Number(positionMs);
@@ -87,7 +88,7 @@ export function musicProgressBar(positionMs, lengthMs, steps = 10) {
 // Milliseconds until the bar shows its next piece (null while paused, without a
 // length or when it is full): the panel is refreshed at that moment, so the bar
 // never runs behind the song.
-export function msUntilNextBarPiece(player, now = Date.now(), steps = 10) {
+export function msUntilNextBarPiece(player, now = Date.now(), steps = MUSIC_BAR_STEPS) {
     const length = Number(player?.current?.info?.length);
     if (!player?.current || player.paused || !Number.isFinite(length) || length <= 0) return null;
     const position = livePlayerPosition(player, now);
@@ -294,12 +295,12 @@ export function buildPlayerButtonRows(player, guildData) {
             .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
             .setLabel('Add')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🎵'),
+            .setEmoji(feedEmojiComponent('mc_note')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setLabel('Stop')
             .setStyle(ButtonStyle.Danger)
-            .setEmoji('⏹️'),
+            .setEmoji(feedEmojiComponent('mc_stop')),
     );
 
     return [controls, stop];
@@ -314,11 +315,13 @@ export function getQueuePageSize() {
 }
 
 // The player as one card like Spotify's Now Playing (owner's choice: the buttons
-// inside it): the cover on top, the title and artist beside the Cloudy logo, the
-// bar with its knob, the duration and who asked for it, then the controls and the
-// Cloudy footer, with the white side line. A record of an ended song ("Played",
-// "Skipped", ...) is the same card without the bar and the buttons.
-export const PLAYER_CARD_HEADINGS = ['Now playing', 'Played', 'Skipped', 'Stopped', 'Could not play'];
+// inside it): the cover on top (no ALT label), the title and the artist, the bar
+// with its knob, the duration and who asked for it, then the controls and the
+// Cloudy footer on one small white line (as on the vote card), with the white
+// side line. A record of an ended song says "Played", "Skipped", ... above the
+// title and has no bar and no buttons. No "Now playing" line and no logo.
+export const PLAYER_CARD_HEADINGS = ['Played', 'Skipped', 'Stopped', 'Could not play'];
+const PLAYER_CARD_FOOTER = `-# **${CLOUDY_FOOTER}**`;
 
 export function buildPlayerCard(track, player, guildData, { ended = null } = {}) {
     const info = track?.info || {};
@@ -327,33 +330,32 @@ export function buildPlayerCard(track, player, guildData, { ended = null } = {})
     const artist = String(info.author || 'Unknown artist').replace(/\n/g, ' ').slice(0, 200);
     const card = new ContainerBuilder().setAccentColor(0xFFFFFF);
     const cover = getTrackArtwork(track);
-    if (cover) {
-        card.addMediaGalleryComponents(new MediaGalleryBuilder()
-            .addItems(new MediaGalleryItemBuilder().setURL(cover).setDescription(title.slice(0, 100))));
-    }
-    card.addSectionComponents(new SectionBuilder()
-        .addTextDisplayComponents(text(`-# ${ended || 'Now playing'}\n### ${title}\n${artist}`))
-        .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL)));
+    if (cover) card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(cover)));
+    card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
     const bar = ended ? null : musicProgressBar(livePlayerPosition(player), info.length);
     if (bar) card.addTextDisplayComponents(text(bar));
     const requester = info.requester?.username || info.requester?.tag || 'Unknown';
     card.addTextDisplayComponents(text(`-# ${formatDuration(info.length)} · Requested by ${requester}`));
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
-    card.addTextDisplayComponents(text(`-# ${CLOUDY_FOOTER}`));
+    card.addTextDisplayComponents(text(PLAYER_CARD_FOOTER));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
-// A message that is one of these cards (Cloudy's own panel or record).
+// A message that is one of these cards: Cloudy's player (its music buttons) or a
+// record of an ended song (its heading), both with the Cloudy footer.
 export function isPlayerCardMessage(message) {
     const texts = [];
+    let musicButtons = false;
     const walk = items => {
         for (const item of items || []) {
             const data = item?.toJSON ? item.toJSON() : item?.data || item;
             if (typeof data?.content === 'string') texts.push(data.content);
+            if (String(data?.custom_id || data?.customId || '').startsWith('music_')) musicButtons = true;
             walk(data?.components);
         }
     };
     walk(message?.components);
+    if (!texts.includes(PLAYER_CARD_FOOTER)) return false;
     const heading = new RegExp(`^-# (${PLAYER_CARD_HEADINGS.join('|')})\\n### `);
-    return texts.some(content => heading.test(content)) && texts.includes(`-# ${CLOUDY_FOOTER}`);
+    return musicButtons || texts.some(content => heading.test(content));
 }
