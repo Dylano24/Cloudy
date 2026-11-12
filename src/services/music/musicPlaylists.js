@@ -17,6 +17,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { CLOUDY_LOGO_URL } from '../cloudyLogoService.js';
 import { CLOUDY_BRANDING } from '../cloudyBrandingService.js';
+import { feedEmoji } from '../feedEmojiService.js';
 import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
@@ -100,22 +101,22 @@ const songs = count => `${count} ${count === 1 ? 'song' : 'songs'}`;
 const itemKind = item => (item.kind === 'song' ? 'song' : songs(item.count || 0));
 const itemName = item => String(item?.name || 'Untitled').replace(/\*/g, '').slice(0, 80);
 
-// What plays now shows as "Playing: <name>" (owner's choice: the playlist of /play
-// shows here, in words, not with an emoji). One that is not in the list (a full
-// list) shows first, unnumbered.
+// What plays now is always first (owner's choice): "<green dot> Playing: <name>"
+// with Cloudy's glowing green dot, and not again in the numbered list. A song that
+// is not in the list (a full list, a /play song) shows the same way.
 const PLAYING = 'Playing: ';
 const isActive = (item, active) => Boolean(active?.url) && item?.url === active.url;
 const unsavedActive = (items, active) => (active?.url && !(items || []).some(item => isActive(item, active)) ? active : null);
+const playingFirst = (items, active) => [...(items || [])]
+  .sort((a, b) => Number(isActive(b, active)) - Number(isActive(a, active)));
 
 function listText(items, active = null) {
-  const extra = unsavedActive(items, active);
-  const lines = extra ? [`${PLAYING}${itemName(extra)} · ${itemKind(extra)}`] : [];
+  const shown = (items || []).find(item => isActive(item, active)) || active;
+  const lines = shown ? [`${feedEmoji('online')} ${PLAYING}${itemName(shown)} · ${itemKind(shown)}`] : [];
+  const rest = (items || []).filter(item => !isActive(item, active)).slice(0, MAX_PLAYLISTS);
   if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
-  else if (!items.length && !extra) lines.push('Your list is empty. Add a song or a playlist below.');
-  else {
-    lines.push(...items.slice(0, MAX_PLAYLISTS).map((item, index) =>
-      `${index + 1}. ${isActive(item, active) ? PLAYING : ''}${itemName(item)} · ${itemKind(item)}`));
-  }
+  else if (!rest.length && !shown) lines.push('Your list is empty. Add a song or a playlist below.');
+  else lines.push(...rest.map((item, index) => `${index + 1}. ${itemName(item)} · ${itemKind(item)}`));
   return ['**Your list**', ...lines].join('\n').slice(0, 3900);
 }
 
@@ -142,7 +143,7 @@ function itemSelect(customId, options, placeholder) {
 }
 
 // One form, opened at once by the player's Add button: the list itself (what plays
-// now as "Playing:"), a field to add a song or playlist, Start (plays the chosen one
+// now first, as "Playing:"), a field to add a song or playlist, Start (plays the chosen one
 // in place of what plays now) and Remove. Every opening gets its own id. `items`
 // null means the list could not be read.
 export function buildListModal(items, active = null) {
@@ -150,7 +151,7 @@ export function buildListModal(items, active = null) {
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
   // No help lines under the fields (owner's choice: too much text).
   const labels = [new LabelBuilder().setLabel('Add a song or playlist').setTextInputComponent(add)];
-  const saved = (items || []).slice(0, MAX_PLAYLISTS).map(item => itemOption(item, active));
+  const saved = playingFirst(items, active).slice(0, MAX_PLAYLISTS).map(item => itemOption(item, active));
   const extra = unsavedActive(items, active);
   const removable = [...(extra ? [itemOption(extra, active, 'active')] : []), ...saved].slice(0, MAX_PLAYLISTS);
   if (saved.length) {
