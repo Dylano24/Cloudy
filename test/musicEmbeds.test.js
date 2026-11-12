@@ -165,7 +165,8 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
-  assert.equal(cardTexts(panels[0])[1], '-# 0:00 / 3:00', 'only the timer, no bar (owner\'s choice)');
+  // Monospace digits (owner's choice), so the "/" never moves: '-# 0:00 / 3:00'.
+  assert.equal(cardTexts(panels[0])[1], '-# \u{1D7F6}:\u{1D7F6}\u{1D7F6} / \u{1D7F9}:\u{1D7F6}\u{1D7F6}', 'only the timer, no bar (owner\'s choice)');
   // No "Requested by" on the live card (owner's choice, for now); the footer is one fixed
   // picture under the buttons, so it never blinks when the card is redrawn every second.
   assert.ok(!cardTexts(panels[0]).some(text => text.includes('Requested by')));
@@ -264,8 +265,10 @@ test('the approved silver music artwork contains all nine control icons plus Pla
     const image = musicControlPng(key);
     assert.ok(Buffer.isBuffer(image), key + ' is ready for Discord application emoji upload');
     assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', key + ' has a PNG header');
-    assert.equal(image.readUInt32BE(16), 64);
-    assert.equal(image.readUInt32BE(20), 64);
+    // Shuffle v2 is drawn at 128 px (sharper on a phone); the others at 64 px.
+    const size = key === 'shuffle' ? 128 : 64;
+    assert.equal(image.readUInt32BE(16), size);
+    assert.equal(image.readUInt32BE(20), size);
     assert.ok(image.length < 256 * 1024, key + ' stays below Discord\'s emoji size limit');
   }
   assert.equal(musicControlPng('not-a-music-icon'), null);
@@ -314,4 +317,40 @@ test('the footer picture is the 14 footer pieces side by side, and the player ca
   assert.equal(isPlayerCardMessage(asMessage(record)), true, 'and its records');
   assert.ok(cardTexts(record).some(text => text.includes('Requested by Test user')), 'a record keeps Requested by');
   assert.equal(JSON.stringify(live).split(url).length - 1, 1, 'one footer picture on the live card');
+});
+
+test('the live timer keeps its "/" in one place: every digit is equally wide', async () => {
+  const { fixedWidthDigits, formatClock } = await import('../src/services/music/musicEmbeds.js');
+  const line = seconds => fixedWidthDigits(`${formatClock(seconds * 1000)} / ${formatClock(278_000)}`);
+  assert.equal(line(44), '\u{1D7F6}:\u{1D7FA}\u{1D7FA} / \u{1D7FA}:\u{1D7F9}\u{1D7FE}', '0:44 / 4:38');
+  const slashAt = text => [...text].indexOf('/');
+  // Every second from 1:00 to 9:59 puts the "/" after the same number of characters, all
+  // of them monospace digits or the same separators, so its place never changes.
+  const places = new Set();
+  for (let second = 60; second < 600; second++) {
+    const text = line(second);
+    assert.ok(![...text].some(char => /[0-9]/.test(char)), 'no proportional digit left');
+    places.add(slashAt(text));
+  }
+  assert.deepEqual([...places], [5]);
+});
+
+test('the redrawn shuffle icon is uploaded as a new emoji (v2); the other icons keep theirs', async t => {
+  // Other emojis would be downloaded from Discord; the test stays offline.
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 404 }));
+  const { ensureFeedEmojis, feedEmojiReady } = await import('../src/services/feedEmojiService.js');
+  const { musicControlPng } = await import('../src/services/music/musicControlPngData.js');
+  const existing = new Collection([['old-shuffle', { id: '1569000000000000001', name: 'cmusic_shuffle_v1' }],
+    ['old-play', { id: '1569000000000000002', name: 'cmusic_play_v1' }]]);
+  const created = [];
+  const client = { emojis: { cache: new Collection() }, application: { emojis: {
+    fetch: async () => existing,
+    create: async ({ attachment, name }) => { created.push({ name, attachment }); return { id: String(1569000000000000100n + BigInt(created.length)), name }; },
+  } } };
+  await ensureFeedEmojis(client);
+  const shuffle = created.find(item => item.name === 'cmusic_shuffle_v2');
+  assert.ok(shuffle, 'the new shuffle icon is uploaded');
+  assert.ok(shuffle.attachment.equals(musicControlPng('shuffle')));
+  assert.ok(!created.some(item => item.name === 'cmusic_play_v1'), 'an icon that did not change is not uploaded again');
+  assert.equal(feedEmojiReady('mc_button_shuffle'), true);
 });
