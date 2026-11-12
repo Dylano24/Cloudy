@@ -345,6 +345,11 @@ async function resolveQuery(client, interaction, query, node = null) {
     if (!result) {
         throw new CloudyError('Music search returned no response', ErrorTypes.NETWORK, MUSIC_SERVER_BUSY);
     }
+    // "Requested by" shows the member's display name (owner's choice), not the username.
+    const requesterName = interaction.member?.displayName || interaction.user?.globalName || interaction.user?.username;
+    for (const track of Array.isArray(result.tracks) ? result.tracks : []) {
+        if (track?.info && requesterName) track.info.requesterName = String(requesterName).slice(0, 80);
+    }
     return result;
 }
 
