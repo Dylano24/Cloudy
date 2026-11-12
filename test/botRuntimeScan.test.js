@@ -109,8 +109,10 @@ test('twenty concurrent player refreshes coalesce into two edits and keep latest
   assert.equal(payloads.length, 2);
   assert.equal(peak, 1);
   // In the middle (Spotify's order), one button switches: Pause while playing, Resume once paused.
-  assert.equal(cardButtons(payloads[0])[2], 'music_pause');
-  assert.equal(cardButtons(payloads.at(-1))[2], 'music_resume');
+  // (the song's length on the right of "Requested by" is a button too: skip it)
+  const controls = payload => cardButtons(payload).filter(id => id !== 'music_time');
+  assert.equal(controls(payloads[0])[2], 'music_pause');
+  assert.equal(controls(payloads.at(-1))[2], 'music_resume');
   deleteGuildMusicData(f.guildId);
 });
 

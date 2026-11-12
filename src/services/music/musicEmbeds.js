@@ -6,6 +6,7 @@ import {
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
+    SectionBuilder,
     TextDisplayBuilder,
 } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
@@ -155,10 +156,17 @@ export function livePlayerPosition(player, now = Date.now()) {
     return position + Math.max(0, now - reportedAt);
 }
 
+// The name after "Requested by" (owner's choice): the display name, e.g. "Dylano",
+// not the Discord username. Songs added before this keep their username.
+export function requesterDisplayName(info) {
+    const requester = info?.requester;
+    return String(info?.requesterName || requester?.globalName || requester?.username || requester?.tag || 'Unknown')
+        .replace(/\n/g, ' ');
+}
+
 export function buildMusicRequestEmbed(track, { playNow = false, queuePosition = 1 } = {}) {
     const info = track?.info || {};
-    const requester = info.requester;
-    const requesterLabel = requester?.username || requester?.tag || 'Unknown';
+    const requesterLabel = requesterDisplayName(info);
     const album = getAlbumName(track);
     return createEmbed({
         title: playNow ? 'Now playing' : 'Added to queue',
@@ -258,10 +266,7 @@ function getLoopLabel(loop) {
 }
 
 export function buildNowPlayingEmbed(track, player, guildData) {
-    const requester = track?.info?.requester;
-    const requesterLabel = requester
-        ? (requester.username || requester.tag || 'Unknown')
-        : 'Unknown';
+    const requesterLabel = requesterDisplayName(track?.info);
 
     const queued = player?.queue?.length || 0;
     const album = getAlbumName(track);
@@ -393,14 +398,27 @@ export function buildPlayerCard(track, player, guildData, { ended = null } = {})
     card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
     const length = Number(info.length);
     const timed = !info.isStream && Number.isFinite(length) && length > 0;
-    // Only the song's length (owner's choice: no running timer, no bar), on the live
-    // card and on a record; the /now playing embed keeps its bar.
-    card.addTextDisplayComponents(text(timed ? `-# ${formatClock(length)}` : '-# Live'));
-    if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
-    const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
-    // "Requested by" after the white dot (owner's choice), under the buttons; a record
-    // keeps it too. Both end with the footer picture.
-    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
+    // Above the buttons, where the time was (owner's choice): "Requested by" with the
+    // white dot and the display name, and the song's length on the right with the blue
+    // dot. Only a section can put something on the right of a line, and only a button
+    // can carry text there (`music_time`, a click does nothing). No running timer.
+    // A record of an ended song has no buttons at all (no dead buttons stay behind):
+    // there the length follows on the same line.
+    const requestedBy = `-# ${feedEmoji('dot')} Requested by ${requesterDisplayName(info)}`;
+    const songLength = timed ? formatClock(length) : 'Live';
+    if (ended) {
+        card.addTextDisplayComponents(text(`${requestedBy} · ${feedEmoji('report_blue')} ${songLength}`));
+    } else {
+        card.addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(text(requestedBy))
+            .setButtonAccessory(new ButtonBuilder()
+                .setCustomId(MUSIC_BUTTON_IDS.TIME)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji(feedEmojiComponent('report_blue'))
+                .setLabel(songLength)));
+        card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
+    }
+    // Both the live card and a record end with the footer picture.
     card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(PLAYER_FOOTER_PICTURE_URL)));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
