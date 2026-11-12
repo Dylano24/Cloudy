@@ -22,7 +22,7 @@ import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import {
-  activeSource, assertCanControl, getPlayer, inspectMusicLink, queuedSources, removeSourceFromQueue, replaceQueue,
+  MAX_QUEUE_ITEMS, activeSource, assertCanControl, getPlayer, inspectMusicLink, queuedSources, removeSourceFromQueue, replaceQueue,
 } from './musicActions.js';
 import { prepareMusicQuery } from './musicLinks.js';
 
@@ -105,8 +105,9 @@ const itemName = item => String(item?.name || 'Untitled').replace(/\*/g, '').sli
 // Cloudy's glowing green dot), then what waits in the queue ("<blue dot> Queue:",
 // Cloudy's blue dot, in queue order), then the rest of the list, each after the
 // white glowing dot instead of a number. Nothing shows twice; a song that is not in
-// the list (a /play song, a full list) shows the same way.
-const MAX_QUEUE_LINES = 10;
+// the list (a /play song) shows the same way. While something plays, a small line
+// says how many can wait (owner's choice).
+const MAX_QUEUE_LINES = MAX_QUEUE_ITEMS;
 const queueKey = url => 'q:' + createHash('sha1').update(String(url)).digest('hex').slice(0, 16);
 
 function listEntries(items, active, queued) {
@@ -131,7 +132,14 @@ function listText(items, active = null, queued = []) {
   const waiting = entries.filter(entry => entry.state === 'queue');
   const line = (dot, label, source) => `${dot} ${label}${itemName(source)} · ${itemKind(source)}`;
   const lines = [];
+  const playing = entries.some(entry => entry.state === 'playing');
+  let noted = false;
+  const note = () => {
+    if (playing && !noted) lines.push(`-# Max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`);
+    noted = true;
+  };
   for (const entry of entries) {
+    if (entry.state === 'list') note();
     if (entry.state === 'playing') lines.push(line(feedEmoji('online'), 'Playing: ', entry.source));
     else if (entry.state === 'queue' && waiting.indexOf(entry) < MAX_QUEUE_LINES) lines.push(line(feedEmoji('report_blue'), 'Queue: ', entry.source));
     else if (entry.state === 'list') lines.push(line(feedEmoji('dot'), '', entry.source));
@@ -139,6 +147,7 @@ function listText(items, active = null, queued = []) {
       lines.push(`${feedEmoji('report_blue')} Queue: +${waiting.length - MAX_QUEUE_LINES} more`);
     }
   }
+  note();
   if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
   else if (!lines.length) lines.push('Your list is empty. Add a song or a playlist below.');
   return ['**Your list**', ...lines].join('\n').slice(0, 3900);
@@ -242,25 +251,6 @@ export async function openPlaylistPanel(interaction, client) {
   const items = await listForForm(client, interaction.guildId);
   const player = getPlayer(client, interaction.guildId);
   await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player)));
-}
-
-// /play with a playlist link puts that playlist in the list (owner's choice: it
-// shows in Add as active). A list that is full or already has it stays as it is.
-export async function rememberPlayedPlaylist(client, guildId, playlist, user) {
-  if (!guildId || !/^https?:\/\//i.test(String(playlist?.url || ''))) return null;
-  try {
-    return await addPlaylist(client, guildId, {
-      url: playlist.url,
-      name: String(playlist.name || 'Playlist').slice(0, 80),
-      count: Number(playlist.count) || 0,
-      kind: 'playlist',
-      ownerId: user?.id,
-      ownerName: String(user?.username || 'Unknown').slice(0, 40),
-    });
-  } catch (error) {
-    if (error?.name !== 'CloudyError') logger.warn('[MUSIC_PLAYLISTS] Could not keep the played playlist: ' + (error?.message || error));
-    return null;
-  }
 }
 
 // The songs of a list item carry it, so Add can show it as active.
