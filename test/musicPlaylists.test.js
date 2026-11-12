@@ -75,6 +75,7 @@ function submit(client, ui, form, { add = '', start = [], remove = [] } = {}, ex
 }
 const labels = form => form.components.filter(item => item.type === 18);
 const notice = ui => ui.log.edits.at(-1).embeds[0].toJSON();
+const DOT = '<a:glowing_dot_green:1567760480439771286>';
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 test('songs and playlists are saved per server with limits, and only the owner or a moderator removes one', async () => {
@@ -212,7 +213,7 @@ test('a playlist started with /play shows in Add as active, and Start plays anot
   const chill = await addPlaylist(client, 'g-active', { url: 'https://x/playlist-chill', name: 'Chill mix', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
 
   const form = await open(client, ui);
-  assert.equal(form.components[0].content, '**Your list**\n1. Playing: Road trip · 2 songs\n2. Chill mix · 2 songs');
+  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs\n1. Chill mix · 2 songs`);
   const [, , remove] = labels(form);
   assert.deepEqual(remove.component.options.map(option => [option.label, option.emoji.name, option.description]),
     [['Road trip', '🎵', '2 songs • playing'], ['Chill mix', '🎵', '2 songs • Mila']]);
@@ -222,6 +223,13 @@ test('a playlist started with /play shows in Add as active, and Start plays anot
   assert.equal(getGuildMusicData('g-active').endingTrack.outcome, 'skipped');
   assert.deepEqual(player.queue.map(song => song.cloudySource.url), ['https://x/playlist-chill', 'https://x/playlist-chill'], 'only the new playlist waits');
   assert.deepEqual([ui.log.edits.length, ui.log.followUps.length], [0, 0], 'no message');
+
+  // The node starts the first song of Chill mix: it moves to the top, also in the choices.
+  player.play();
+  const next = await open(client, ui);
+  assert.equal(next.components[0].content, `**Your list**\n${DOT} Playing: Chill mix · 2 songs\n1. Road trip · 2 songs`);
+  assert.deepEqual(labels(next).slice(1).map(label => label.component.options.map(option => option.label)),
+    [['Chill mix', 'Road trip'], ['Chill mix', 'Road trip']]);
   deleteGuildMusicData('g-active');
 });
 
@@ -246,7 +254,7 @@ test('Remove of what plays takes its songs out of the queue; with nothing left t
   const ui2 = fakeUi('g-remove-only');
   await playQuery(second.client, ui2.make('play', 'command'), 'https://open.spotify.com/playlist/road');
   const form = await open(second.client, ui2);
-  assert.equal(form.components[0].content, '**Your list**\nPlaying: Road trip · 2 songs');
+  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs`);
   assert.deepEqual(labels(form).map(label => label.label), ['Add a song or playlist', 'Remove']);
   await submit(second.client, ui2, form, { remove: ['active'] });
   assert.equal(second.player.destroyed, true, 'nothing else to play: stopped like the Stop button');
@@ -266,4 +274,21 @@ test('a Start that cannot be opened leaves what plays and the queue as they were
   assert.equal(player.stops, 0);
   assert.deepEqual(player.queue.map(song => song.info.title), ['Song 2']);
   deleteGuildMusicData('g-start-fail');
+});
+
+test('a song played with /play shows on top as Playing, and Remove stops it', async () => {
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-plain');
+  await addPlaylist(client, 'g-plain', { url: 'https://x/playlist-1', name: 'One', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
+  await playQuery(client, ui.make('play', 'command'), 'another song');
+  const form = await open(client, ui);
+  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Song 9 · song\n1. One · 2 songs`);
+  const remove = labels(form).at(-1);
+  assert.deepEqual(remove.component.options.map(option => [option.value, option.label, option.emoji.name, option.description]),
+    [['active', 'Song 9', '🎶', 'song • playing'], [(await listPlaylists(client, 'g-plain'))[0].id, 'One', '🎵', '2 songs • Mila']]);
+  await submit(client, ui, form, { remove: ['active'] });
+  assert.equal(notice(ui).description, '**Song 9** was removed.');
+  assert.equal(player.destroyed, true, 'nothing else to play');
+  assert.equal((await listPlaylists(client, 'g-plain')).length, 1, 'the list itself is unchanged');
+  deleteGuildMusicData('g-plain');
 });
