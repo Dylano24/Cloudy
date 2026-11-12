@@ -8,17 +8,13 @@ import { deleteMessageForMove } from '../deletionAttributionService.js';
 import { finishRequestMessage, lastFinishedTrack } from './musicRequestMessages.js';
 import {
     buildPlayerCard,
-    buildPlayerControls,
     getTrackArtwork,
     isPlayerCardMessage,
     msUntilNextSecond,
 } from './musicEmbeds.js';
 import { sharpenTrackArtwork } from './musicArtwork.js';
+import { markNodeBad } from './musicNodeHealth.js';
 
-// The player is two messages (see musicEmbeds.js): the card (cover, title, timer
-// and bar) is edited every second, the controls message under it (the buttons with
-// Cloudy's own icons) only when its payload changes, so Discord's app never loads
-// the button icons again on a tick.
 // The panel's timer and bar are refreshed every second while a song plays
 // (owner's choice: a real-time timer); every 15 seconds while paused. One edit at
 // a time: the next is planned when the previous one is done. An edit takes a
@@ -113,16 +109,6 @@ function endedOutcome(guildData, track, fallback) {
 // record of that song ("Played", "Skipped", "Stopped" or "Could not play", the
 // song's cover and details, no buttons) and the next song gets a new panel under
 // it. Only the panel that shows this very song is changed; returns whether it was.
-// Removes a message of Cloudy's player (the controls under the card), quietly.
-async function removePlayerMessage(channel, messageId) {
-    if (!messageId) return;
-    try {
-        await channel?.messages?.delete?.(messageId);
-    } catch {
-        // already gone
-    }
-}
-
 export async function retirePlayerPanel(client, guildId, track, outcome, player = null) {
     const guildData = getGuildMusicData(guildId);
     const messageId = guildData.playerMessageId;
@@ -131,42 +117,32 @@ export async function retirePlayerPanel(client, guildId, track, outcome, player 
     const channel = client.channels?.cache?.get(channelId);
     if (!channel?.messages?.edit) return false;
     // From here on the next refresh posts a new panel; the old one is the record.
-    const controlsId = guildData.controlsMessageId;
     guildData.playerMessageId = null;
     guildData.playerChannelId = null;
-    guildData.controlsMessageId = null;
-    guildData.lastControls = null;
     guildData.lastPanel = null;
     guildData.panelTrack = null;
     clearUpdateInterval(guildData);
     if (player && startedTracks.get(player) === track) startedTracks.delete(player);
     // A refresh that is still being sent must not overwrite the record.
     await playerRefreshJobs.get(guildData)?.promise?.catch?.(() => {});
-    // The record has no buttons: its controls message goes.
-    const controlsRemoved = removePlayerMessage(channel, controlsId);
     const record = buildPlayerCard(track, player, guildData, { ended: ENDED_TITLES[outcome] || ENDED_TITLES.played });
     try {
         await channel.messages.edit(messageId, record);
-        await controlsRemoved;
         return true;
     } catch (error) {
-        await controlsRemoved;
         logger.debug(`[MUSIC] Could not mark the player panel as ${outcome}: ${error?.message || error}`);
         return false;
     }
 }
 
 async function deletePlayerPanel(client, guildData) {
-    const { playerMessageId, playerChannelId, controlsMessageId } = guildData;
+    const { playerMessageId, playerChannelId } = guildData;
     guildData.playerMessageId = null;
     guildData.playerChannelId = null;
-    guildData.controlsMessageId = null;
-    guildData.lastControls = null;
     guildData.lastPanel = null;
     guildData.panelTrack = null;
-    if (!playerChannelId) return;
-    const channel = client.channels?.cache?.get(playerChannelId);
-    await Promise.all([removePlayerMessage(channel, playerMessageId), removePlayerMessage(channel, controlsMessageId)]);
+    if (!playerMessageId || !playerChannelId) return;
+    await client.channels?.cache?.get(playerChannelId)?.messages?.delete?.(playerMessageId).catch(() => {});
 }
 
 // When the queue is done the bot leaves the voice channel after 30 seconds,
@@ -218,14 +194,9 @@ async function editOrSendPlayerMessage(client, guildData, channelId, payload, tr
             // A temporary API or permission failure must not create another
             // player message. Replace only a message Discord confirms is gone.
             if (Number(error?.code) !== 10008) throw error;
-            // The card is gone: its controls message goes with it, and both are posted again.
-            const orphan = guildData.controlsMessageId;
             guildData.playerMessageId = null;
             guildData.playerChannelId = null;
-            guildData.controlsMessageId = null;
-            guildData.lastControls = null;
             clearUpdateInterval(guildData);
-            void removePlayerMessage(channel, orphan);
         }
     }
 
@@ -244,49 +215,6 @@ async function editOrSendPlayerMessage(client, guildData, channelId, payload, tr
     } catch (error) {
         logger.error('Failed to send music player message:', error);
         return false;
-    }
-}
-
-// The controls message under the card (the buttons). It is posted after the card
-// and edited only when its payload really changes, so a tick of the timer never
-// redraws it. A click that is being answered holds it (`controlsHold`); a temporary
-// failure is tried again at the next refresh.
-async function syncControlsMessage(client, guildData, player) {
-    if (guildData.controlsHold > 0 || !guildData.playerMessageId || !guildData.playerChannelId || !player?.current) return;
-    const channel = client.channels?.cache?.get(guildData.playerChannelId);
-    if (!channel) return;
-    const work = (async () => {
-        try {
-            // Built only now, at the moment of sending: a click that was answered in
-            // the meantime is never undone by an older payload.
-            const controls = buildPlayerControls(player.current, player, guildData);
-            const panel = JSON.stringify(controls);
-            const messageId = guildData.controlsMessageId;
-            if (messageId) {
-                if (guildData.lastControls?.messageId === messageId && guildData.lastControls.panel === panel) return;
-                const message = channel.messages.cache?.get(messageId) || await channel.messages.fetch(messageId);
-                await message.edit(controls);
-                guildData.lastControls = { messageId, panel };
-                return;
-            }
-            const sent = await channel.send(controls);
-            guildData.controlsMessageId = sent.id;
-            guildData.lastControls = { messageId: sent.id, panel };
-        } catch (error) {
-            if (Number(error?.code) === 10008) {
-                // Someone removed the controls: the next refresh posts them again.
-                guildData.controlsMessageId = null;
-                guildData.lastControls = null;
-                return;
-            }
-            logger.debug(`[MUSIC] Could not update the player controls: ${error?.message || error}`);
-        }
-    })();
-    guildData.controlsWork = work;
-    try {
-        await work;
-    } finally {
-        if (guildData.controlsWork === work) guildData.controlsWork = null;
     }
 }
 
@@ -326,16 +254,11 @@ export async function refreshPlayerMessage(client, guildId) {
         const guild = client.guilds?.cache?.get?.(guildId);
         const musicChannel = !guildData.playerMessageId && guild ? musicChannelFor(guild) : null;
         const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
-        // With a card that is already there, card and controls go out together; a
-        // new card is posted first, so the controls land under it.
-        const together = guildData.playerMessageId ? syncControlsMessage(client, guildData, player) : null;
         if (await editOrSendPlayerMessage(client, guildData, channelId, payload, track)) {
             rememberShownSecond(guildData, track, second);
             guildData.panelFailedAt = null;
-            await (together || syncControlsMessage(client, guildData, player));
         } else {
             guildData.panelFailedAt = Date.now();
-            await together;
         }
       }
     })().catch(error => {
@@ -365,6 +288,8 @@ function scheduleBarRefresh(client, guildId, { start = false } = {}) {
     if (!start && !guildData.updateInterval) return;
     clearUpdateInterval(guildData);
     const timer = setTimeout(() => {
+        // A click on the panel is being answered: it plans the next tick itself.
+        if (guildData.panelHold > 0) return;
         refreshPlayerMessage(client, guildId);
     }, nextBarRefreshDelay(client.riffy?.players?.get(guildId), Date.now(), guildData));
     timer.unref?.();
@@ -375,40 +300,43 @@ function startUpdateInterval(client, guildId) {
     scheduleBarRefresh(client, guildId, { start: true });
 }
 
-// A click on the player's buttons (Pause, Resume, Shuffle, Loop) is answered with
-// the new controls in one step: one Discord request instead of an acknowledgement
-// and an edit after it. The buttons are on the controls message, not on the card,
-// so the timer keeps running while the click is answered. A click on another
-// message is acknowledged and the panel refreshed.
+// A click on the player panel (Pause, Resume, Shuffle, Loop) is answered with the
+// new panel in one step: one Discord request instead of an acknowledgement and an
+// edit after it. A click on another message is acknowledged and the panel edited.
 export async function answerWithPlayerPanel(interaction, client, guildId) {
     const guildData = getGuildMusicData(guildId);
     const player = client.riffy?.players?.get(guildId);
-    const onControls = Boolean(player?.current && guildData.controlsMessageId)
-        && interaction.message?.id === guildData.controlsMessageId;
-    // No refresh edits the controls while the click is answered: everyone sees them
-    // go straight to the new state (Pause, Resume, ...), never back to the old one.
-    guildData.controlsHold = (guildData.controlsHold || 0) + 1;
+    const onPanel = Boolean(player?.current && guildData.playerMessageId)
+        && interaction.message?.id === guildData.playerMessageId;
+    // No timer edit starts while the click is answered: everyone sees the panel go
+    // straight to the new state (Pause, Resume, ...), never back to the old one.
+    guildData.panelHold = (guildData.panelHold || 0) + 1;
     try {
-        if (onControls) {
-            // An edit of the controls that is still being sent was built before this
+        if (onPanel) {
+            // An edit of the timer that is still being sent was built before this
             // click: it goes first, so it never shows the old state after the answer.
-            const working = guildData.controlsWork;
-            if (working) await Promise.race([working.catch(() => {}), new Promise(resolve => setTimeout(resolve, CLICK_WAIT_MS).unref?.())]);
-            const payload = buildPlayerControls(player.current, player, guildData);
+            const running = playerRefreshJobs.get(guildData)?.promise;
+            if (running) await Promise.race([running.catch(() => {}), new Promise(resolve => setTimeout(resolve, CLICK_WAIT_MS).unref?.())]);
+            guildData.cardSecond = null;
+            const track = player.current;
+            const payload = buildPlayerCard(track, player, guildData, { lead: panelLead(guildData) });
+            const second = guildData.cardSecond;
             const panel = JSON.stringify(payload);
             try {
                 await interaction.update(payload);
-                guildData.lastControls = { messageId: guildData.controlsMessageId, panel };
+                guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
+                guildData.panelTrack = track;
+                rememberShownSecond(guildData, track, second);
             } catch (error) {
-                logger.warn(`[MUSIC] Player click could not be answered with the controls: ${error?.message || error}`);
+                logger.warn(`[MUSIC] Player click could not be answered with the panel: ${error?.message || error}`);
             }
         }
         if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate().catch(() => {});
     } finally {
-        guildData.controlsHold -= 1;
+        guildData.panelHold -= 1;
     }
-    // Shows the new state on the card too (a paused timer), sends nothing when the
-    // panel already shows this, and plans the next tick.
+    // Sends nothing when the panel already shows this; corrects a refresh that was
+    // being sent with the old state, and plans the next bar step.
     return refreshPlayerMessage(client, guildId);
 }
 
@@ -489,8 +417,23 @@ export function setupPlayerHandler(client) {
 
     // The node reports the position every few seconds; the time it arrived lets
     // the progress bar follow the song in between (livePlayerPosition).
-    client.riffy.on('playerUpdate', (player) => {
+    client.riffy.on('playerUpdate', (player, packet) => {
         player.cloudyPositionAt = Date.now();
+        // `connected` false: the node plays the song but has no voice connection to
+        // Discord, so nobody hears anything (right after a restart one public node can be
+        // down and the other cannot hold voice). After two reports in a row (about 10
+        // seconds) the node is tried last for the next /play.
+        if (packet?.state?.connected === false) {
+            if (player.current && hasStarted(player) && !player.paused) {
+                player.cloudyUnconnectedReports = (player.cloudyUnconnectedReports || 0) + 1;
+                if (player.cloudyUnconnectedReports === 2) {
+                    logger.warn(`[MUSIC] No sound in ${player.guildId}: node ${player.node?.name || '?'} has no voice connection while "${player.current?.info?.title}" plays.`);
+                    markNodeBad(player.node);
+                }
+            }
+        } else {
+            player.cloudyUnconnectedReports = 0;
+        }
     });
 
     client.riffy.on('trackStart', async (player, track) => {
@@ -602,7 +545,10 @@ export function setupPlayerHandler(client) {
     });
 
     client.riffy.on('trackStuck', async (player, track, payload) => {
-        logger.warn(`Track stuck in ${player.guildId} for "${track?.info?.title}" (${payload?.thresholdMs}ms)`);
+        logger.warn(`Track stuck in ${player.guildId} for "${track?.info?.title}" (${payload?.thresholdMs}ms) on node ${player?.node?.name || '?'}`);
+        // The node plays the song but no sound reaches the voice channel: it cannot hold
+        // the voice connection. The next /play goes to a node that can.
+        markNodeBad(player?.node);
     });
 }
 
