@@ -5,7 +5,7 @@ import { logger } from '../utils/logger.js';
 import { CLOUDY_TICKET_CLOSED_COLOR } from '../utils/ticket/ticketBranding.js';
 import { CLOUDY_RED_COLOR } from '../utils/embedColorPolicy.js';
 import { unwrapReplitData } from '../utils/database.js';
-import { getOrCreateGiveawayNumber } from './giveawayNumberService.js';
+import { deletedGiveawayLogUrl, getOrCreateGiveawayNumber, isDiscordMessageUrl } from './giveawayNumberService.js';
 
 export const GIVEAWAY_CLAIM_LOG_CHANNEL_ID = '1566390264291917874';
 export const GIVEAWAY_CLAIM_LOG_FOOTER = '© Cloudy Inc. • Quality. Innovation. Performance.';
@@ -35,7 +35,8 @@ function safeValue(value, limit = 1024) {
 }
 
 export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
-  claimChannelId = null, giveaway = null, giveawayNumber = null, occurredAt = null } = {}) {
+  claimChannelId = null, giveaway = null, giveawayNumber = null, occurredAt = null,
+  deletedLogUrl = null } = {}) {
   const definition = EVENTS[event];
   if (!definition) throw new Error('Unsupported giveaway claim log event: ' + event);
   const sourceChannelId = giveaway?.channelId;
@@ -45,7 +46,10 @@ export function buildGiveawayClaimLog({ event, guildId, messageId, userId,
   // #N is a blue link to the original giveaway in every claim log, also
   // after Close and the 24-hour deletion (owner's choice, like #giveaway-logs).
   const canLink = sourceChannelId && /^\d{17,20}$/.test(String(sourceChannelId));
-  const originalLink = canLink
+  // A deleted giveaway links to its deletion log instead (owner's choice).
+  const originalLink = isDiscordMessageUrl(deletedLogUrl)
+    ? '[' + label + '](' + deletedLogUrl + ')'
+    : canLink
     ? '[' + label + '](https://discord.com/channels/' + guildId + '/'
       + sourceChannelId + '/' + messageId + ')'
     : validNumber ? label : 'Message ID: `' + safeValue(messageId, 24) + '`';
@@ -88,7 +92,8 @@ export async function sendGiveawayClaimLog(client, guild, detail) {
     || await guild?.channels?.fetch?.(GIVEAWAY_CLAIM_LOG_CHANNEL_ID);
   if (!target?.send) throw new Error('Giveaway claim log channel unavailable');
   const giveawayNumber = await getOrCreateGiveawayNumber(client, guild.id, detail.messageId);
-  return target.send(buildGiveawayClaimLog({ ...detail, guildId: guild.id, giveawayNumber }));
+  const deletedLogUrl = await deletedGiveawayLogUrl(client, guild.id, detail.messageId).catch(() => null);
+  return target.send(buildGiveawayClaimLog({ ...detail, guildId: guild.id, giveawayNumber, deletedLogUrl }));
 }
 
 // One-time, in-place correction of already posted claim logs. Only remove
