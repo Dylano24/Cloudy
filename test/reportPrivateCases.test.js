@@ -167,7 +167,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.deepEqual(noticeSections(reporterNotice), ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']);
   assert.deepEqual(noticeSections(targetNotice), ['Reported message', 'Review outcome', 'Moderation action', 'Reason', 'Auto-close']);
   assert.match(outcome(reporterNotice), /Appropriate action has been taken/);
-  assert.ok(json(reporterNotice.embeds[0]).description.includes('fair and safe.\n**Auto-close**'), 'no empty line between the thanks and Auto-close (owner\'s choice)');
+  assert.ok(json(reporterNotice.embeds[0]).description.includes('fair and safe.\n-# \u200b\n**Auto-close**'), 'a small gap (an empty line in small text) between the thanks and Auto-close (owner\'s choice)');
   assert.match(outcome(targetNotice), /glowingdotred/);
   assert.ok(noticeSection(targetNotice, 'Moderation action').startsWith(feedEmoji('report_orange')));
   assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed\n\n'));
@@ -188,7 +188,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.ok(!embed.fields?.length, 'private notice sections are rendered as one description for consistent spacing');
     if (notice === reporterNotice) {
       assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n\nAppropriate action/);
-      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\nThank you/, 'no empty line between the outcome text and the thanks (owner\'s choice)');
+      assert.ok(embed.description.includes('server rules.\n-# \u200b\nThank you'), 'a small gap between the outcome text and the thanks (owner\'s choice)');
       assert.ok(embed.description.includes('<@target>\n**Reported message**\n'), 'member and reported message are closer');
     } else {
       assert.ok(embed.description.startsWith('Your recent message'), 'no artificial gap below moderation title');
@@ -245,8 +245,9 @@ test('report update footers match the visible channel number and repair existing
     assert.ok(embed.description.includes('Original message text\n**Review outcome**\n'));
     if (audience === 'reporter') {
       assert.match(embed.description, /Reviewed\n\nYour report/);
-      assert.match(noticeSection(notice, 'Review outcome'), /server rules\.\nThank you/, 'an existing notice gets the compact gap too');
-      assert.match(embed.description, /fair and safe\.\n\*\*Auto-close\*\*/);
+      assert.ok(embed.description.includes('server rules.\n-# \u200b\nThank you'), 'an existing notice gets the small gap too');
+      assert.ok(embed.description.includes('fair and safe.\n-# \u200b\n**Auto-close**'));
+      assert.ok(!embed.description.includes('\u200b\n-# \u200b'), 'never two small gaps after a second refresh');
     }
   }
   assert.equal(f.payloads.length, count, 'existing notices are edited, never reposted');
@@ -294,6 +295,26 @@ test('existing compact moderation notice restores one blank line before Auto-clo
   assert.match(restored.description, /Private action reason\n\n\*\*Auto-close\*\*/);
   assert.doesNotMatch(restored.description, /Private action reason\n\n\n\*\*Auto-close\*\*/);
   assert.ok(!restored.fields?.length, 'the notice remains in the compact description format');
+});
+
+test('an existing reporter notice without space before the thanks or Auto-close gets the small gap back, once', async () => {
+  const f = fixture(); await f.register();
+  const record = await f.submit();
+  const entry = record.cases.reporter;
+  const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
+  const old = json(notice.embeds[0]);
+  // As a notice looked for a while: the text glued together, no gap at all.
+  notice.embeds = [{ ...old, description: old.description
+    .replace('server rules.\n-# \u200b\nThank you', 'server rules.\nThank you')
+    .replace('fair and safe.\n-# \u200b\n**Auto-close**', 'fair and safe.\n**Auto-close**') }];
+  await restoreReportCaseTimers(f.client);
+  const restored = json(notice.embeds[0]);
+  assert.ok(restored.description.includes('server rules.\n-# \u200b\nThank you'));
+  assert.ok(restored.description.includes('fair and safe.\n-# \u200b\n**Auto-close**'));
+  const before = f.payloads.length;
+  await restoreReportCaseTimers(f.client);
+  assert.equal(json(notice.embeds[0]).description, restored.description, 'a second start changes nothing');
+  assert.equal(f.payloads.length, before, 'nothing is posted');
 });
 
 test('empty reason, invalid duration and unauthorized submissions cannot perform actions or create cases', async t => {
