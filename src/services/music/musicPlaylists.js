@@ -130,21 +130,26 @@ function listEntries(items, active, queued) {
 
 // In a jam the Playing and Queue lines also say who added it, and the small line
 // says that everyone's songs take turns.
+// Every line stays on one line on a phone (owner's choice: the text runs neatly
+// under each other, nothing wraps back to the left): a long name is shortened
+// with "…" so the line after the dot is at most 40 characters.
+const MAX_LINE = 40;
+function fitLine(label, name, suffix) {
+  const room = MAX_LINE - label.length - suffix.length;
+  const text = name.length > room ? `${name.slice(0, Math.max(4, room - 1)).trimEnd()}…` : name;
+  return `${label}${text}${suffix}`;
+}
+
 function listText(items, active = null, queued = [], jam = false) {
   const entries = listEntries(items, active, queued);
   const waiting = entries.filter(entry => entry.state === 'queue');
-  const by = entry => (jam && entry.state !== 'list' && entry.by ? ` · ${entry.by}` : '');
-  const line = (dot, label, entry) => `${dot} ${label}${itemName(entry.source)} · ${itemKind(entry.source)}${by(entry)}`;
-  const lines = [];
-  const playing = entries.some(entry => entry.state === 'playing');
-  let noted = false;
-  const note = () => {
-    if (!noted && jam) lines.push(`-# Jam: everyone's songs take turns · max ${MAX_QUEUE_ITEMS} in the queue`);
-    else if (!noted && playing) lines.push(`-# Max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`);
-    noted = true;
-  };
+  const by = entry => (jam && entry.state !== 'list' && entry.by ? ` · ${String(entry.by).slice(0, 12)}` : '');
+  const line = (dot, label, entry) => `${dot} ${fitLine(label, itemName(entry.source), ` · ${itemKind(entry.source)}${by(entry)}`)}`;
+  // The small line about the queue sits right under the heading (owner's choice).
+  const lines = [jam
+    ? `-# Jam: everyone's songs take turns · max ${MAX_QUEUE_ITEMS} in the queue`
+    : `-# Max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`];
   for (const entry of entries) {
-    if (entry.state === 'list') note();
     if (entry.state === 'playing') lines.push(line(feedEmoji('online'), 'Playing: ', entry));
     else if (entry.state === 'queue' && waiting.indexOf(entry) < MAX_QUEUE_LINES) lines.push(line(feedEmoji('report_blue'), 'Queue: ', entry));
     else if (entry.state === 'list') lines.push(line(feedEmoji('dot'), '', entry));
@@ -152,9 +157,8 @@ function listText(items, active = null, queued = [], jam = false) {
       lines.push(`${feedEmoji('report_blue')} Queue: +${waiting.length - MAX_QUEUE_LINES} more`);
     }
   }
-  note();
   if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
-  else if (!lines.length) lines.push('Your list is empty. Add a song or a playlist below.');
+  else if (!entries.length) lines.push('Your list is empty. Add a song or a playlist below.');
   return ['**Your list**', ...lines].join('\n').slice(0, 3900);
 }
 
