@@ -11,7 +11,7 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
-import { feedEmoji } from '../feedEmojiService.js';
+import { feedEmoji, feedEmojiReady, feedEmojiComponent } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -321,66 +321,43 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
     });
 }
 
-// A button with a text symbol is narrower than one with an icon. Thin spaces on both
-// sides widen it to about the width of the old icon buttons; a word joiner (invisible,
-// zero width) at each end keeps them, because spaces at the very start or end of a
-// label are dropped.
+// Labels are a fallback only while the new application emojis are uploading.
+// Word-joiners keep fallback padding consistent on mobile Discord.
 const WORD_JOINER = '\u2060';
 const THIN_SPACE = '\u2009';
 const padLabel = (label, spaces = 1) => `${WORD_JOINER}${THIN_SPACE.repeat(spaces)}${label}${THIN_SPACE.repeat(spaces)}${WORD_JOINER}`;
 
+// Use a single uploaded silver glyph as the entire button content. Unlike
+// platform fonts, these render at the same size and match the approved preview.
+// The old text symbols remain a safe fallback while application emojis upload.
+function musicIconButton(customId, style, icon, fallback, spaces = 1) {
+    const button = new ButtonBuilder().setCustomId(customId).setStyle(style);
+    const emojiKey = `mc_button_${icon}`;
+    if (feedEmojiReady(emojiKey)) return button.setEmoji(feedEmojiComponent(emojiKey));
+    return button.setLabel(padLabel(fallback, spaces));
+}
+
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
-    // Like Spotify (owner's choice): Shuffle, Previous, Play/Pause, Next, Repeat in one
-    // row, grey, a mode that is on (shuffle, repeat) in green. The bottom row has
-    // Queue, Add (+), Remove (-) and Stop. Text symbols only
-    // (`PLAYER_BUTTON_SYMBOLS`): they never blink on the card's every-second redraw.
-    // No volume buttons (owner's choice): /music volume still sets it, and the old
-    // button ids stay registered so a player message from before still answers.
     const loop = guildData?.loop || 'none';
     const modeStyle = on => (on ? ButtonStyle.Success : ButtonStyle.Secondary);
     const controls = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
-            .setStyle(modeStyle(guildData?.shuffle))
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.shuffle, 4)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.PREVIOUS)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.previous, 0)),
-        new ButtonBuilder()
-            .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.SKIP)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.next, 0)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.LOOP)
-            .setStyle(modeStyle(loop === 'track' || loop === 'queue'))
-            .setLabel(loop === 'track' ? padLabel(PLAYER_BUTTON_SYMBOLS.repeatOne, 3) : padLabel(PLAYER_BUTTON_SYMBOLS.repeat, 5)),
+        musicIconButton(MUSIC_BUTTON_IDS.SHUFFLE, modeStyle(guildData?.shuffle), 'shuffle', PLAYER_BUTTON_SYMBOLS.shuffle, 4),
+        musicIconButton(MUSIC_BUTTON_IDS.PREVIOUS, ButtonStyle.Secondary, 'previous', PLAYER_BUTTON_SYMBOLS.previous, 0),
+        musicIconButton(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE,
+            ButtonStyle.Secondary, paused ? 'play' : 'pause',
+            paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause),
+        musicIconButton(MUSIC_BUTTON_IDS.SKIP, ButtonStyle.Secondary, 'next', PLAYER_BUTTON_SYMBOLS.next, 0),
+        musicIconButton(MUSIC_BUTTON_IDS.LOOP, modeStyle(loop === 'track' || loop === 'queue'),
+            loop === 'track' ? 'repeat_one' : 'repeat',
+            loop === 'track' ? PLAYER_BUTTON_SYMBOLS.repeatOne : PLAYER_BUTTON_SYMBOLS.repeat, loop === 'track' ? 3 : 5),
     );
-
     const actions = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.queue, 4)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.add, 6)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.REMOVE)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.remove, 6)),
-        new ButtonBuilder()
-            .setCustomId(MUSIC_BUTTON_IDS.STOP)
-            .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.stop, 6)),
+        musicIconButton(MUSIC_BUTTON_IDS.QUEUE, ButtonStyle.Secondary, 'queue', PLAYER_BUTTON_SYMBOLS.queue, 4),
+        musicIconButton(MUSIC_BUTTON_IDS.PLAYLISTS, ButtonStyle.Secondary, 'add', PLAYER_BUTTON_SYMBOLS.add, 6),
+        musicIconButton(MUSIC_BUTTON_IDS.REMOVE, ButtonStyle.Secondary, 'remove', PLAYER_BUTTON_SYMBOLS.remove, 6),
+        musicIconButton(MUSIC_BUTTON_IDS.STOP, ButtonStyle.Secondary, 'stop', PLAYER_BUTTON_SYMBOLS.stop, 6),
     );
-
     return [controls, actions];
 }
 

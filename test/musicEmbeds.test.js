@@ -229,8 +229,8 @@ test('the player controls keep Play/Pause centered with Queue, +, -, and Stop be
     ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop'],
     ['music_queue', 'music_playlists', 'music_remove', 'music_stop'],
   ]);
-  // Text symbols in the label, never an emoji (owner's choice): Discord's app loads a custom emoji again on
-  // every redraw of the card (every second for the timer), so the icons blinked; a symbol never does.
+  // Before the approved application emojis finish uploading, the original
+  // text-only controls remain functional and free of invisible/empty buttons.
   const bare = label => label.replace(/[\u2060\u2009]/g, '');
   assert.ok(rows.flat().every(button => !button.emoji), 'no emoji on any button, custom or standard');
   assert.deepEqual(rows[0].map(button => bare(button.label)), ['\u292E', '\u2759\u25C0\uFE0E', '\u23F8\uFE0E', '\u25B6\uFE0E\u2759', '\u21BB'], 'the symbols the owner picked');
@@ -245,6 +245,30 @@ test('the player controls keep Play/Pause centered with Queue, +, -, and Stop be
   const queueLoop = buildPlayerButtonRows({ paused: false }, { loop: 'queue' }).map(row => row.toJSON().components);
   assert.equal(queueLoop[0][4].style, 3);
   assert.equal(bare(queueLoop[0][4].label), '\u21BB');
+});
+
+test('the approved silver music artwork contains all nine control icons plus Play and Repeat one', async () => {
+  const { MUSIC_CONTROL_ART_KEYS, musicControlSvg } = await import('../src/services/music/musicControlArtwork.js');
+  assert.deepEqual(MUSIC_CONTROL_ART_KEYS, [
+    'shuffle', 'previous', 'pause', 'next', 'repeat', 'queue', 'add', 'remove', 'stop', 'play', 'repeat_one',
+  ]);
+  for (const key of MUSIC_CONTROL_ART_KEYS) {
+    const art = musicControlSvg(key);
+    assert.match(art, /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" width="128" height="128" viewBox="-42 -42 84 84">/);
+    assert.match(art, /url\(#steel\)/, key + ' should use the shared silver-white gradient');
+    assert.ok(!/<animate|<image|data:|<script/i.test(art), key + ' must be a static vector with no remote dependencies');
+  }
+  assert.equal(musicControlSvg('not-a-music-icon'), null);
+  const { musicControlPng } = await import('../src/services/music/musicControlPngData.js');
+  for (const key of MUSIC_CONTROL_ART_KEYS) {
+    const image = musicControlPng(key);
+    assert.ok(Buffer.isBuffer(image), key + ' is ready for Discord application emoji upload');
+    assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', key + ' has a PNG header');
+    assert.equal(image.readUInt32BE(16), 64);
+    assert.equal(image.readUInt32BE(20), 64);
+    assert.ok(image.length < 256 * 1024, key + ' stays below Discord\'s emoji size limit');
+  }
+  assert.equal(musicControlPng('not-a-music-icon'), null);
 });
 
 test('the card shows the sharpest copy of the cover, however the song was added', async () => {
