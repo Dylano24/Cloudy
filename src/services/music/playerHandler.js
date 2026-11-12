@@ -14,6 +14,7 @@ import {
 } from './musicEmbeds.js';
 import { sharpenTrackArtwork } from './musicArtwork.js';
 import { markNodeBad } from './musicNodeHealth.js';
+import { PRIVATE_NODE_NAME } from '../../config/music/lavalink.js';
 
 // The panel's timer and bar are refreshed every second while a song plays
 // (owner's choice: a real-time timer); every 15 seconds while paused. One edit at
@@ -542,6 +543,9 @@ export function setupPlayerHandler(client) {
     client.riffy.on('trackError', (player, track, payload) => {
         const exception = payload?.exception || payload?.error || payload;
         logger.warn(`[MUSIC] Track could not be streamed in ${player.guildId} ("${track?.info?.title || 'track'}", ${track?.info?.sourceName || 'unknown source'}, node ${player?.node?.name || '?'}): ${exception?.message || exception?.cause || JSON.stringify(exception)}`);
+        // Cloudy's own server could not stream it (e.g. YouTube refused it): the next
+        // songs go to the public nodes for a while, never a run of failed songs.
+        if (player?.node?.name === PRIVATE_NODE_NAME) markNodeBad(player.node);
     });
 
     client.riffy.on('trackStuck', async (player, track, payload) => {
