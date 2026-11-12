@@ -142,7 +142,7 @@ for (const [key, fallback] of [
   ['queue', '☰'], ['add', '+'], ['remove', '−'], ['stop', '■'],
 ]) {
   BASE_EMOJIS[`mc_button_${key}`] = {
-    name: `cloudy_music_btn_${key}_silver_v1`,
+    name: `cmusic_${key}_v1`,
     musicControlArt: key,
     fallback,
   };
