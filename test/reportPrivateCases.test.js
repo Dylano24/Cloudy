@@ -22,7 +22,8 @@ const noticeSection = (notice, name) => {
   const from = start + marker.length;
   const rest = description.slice(from);
   const next = rest.search(/\n(?:\n)?\*\*[^*\n]+\*\*\n/);
-  return rest.slice(0, next < 0 ? undefined : next).trim();
+  // A small gap (an empty line in small text) between sections is spacing, not section text.
+  return rest.slice(0, next < 0 ? undefined : next).replace(/\n-# \u200b\s*$/, '').trim();
 };
 const outcome = notice => noticeSection(notice, 'Review outcome');
 // A handled report is marked in place (as appeals are): no separate message,
@@ -182,7 +183,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.equal(embed.thumbnail, undefined, 'private update embeds must not have a C logo');
     assert.ok(embed.description.includes(notice === reporterNotice
       ? '\n**Reported message**\n'
-      : '\n\n**Reported message**\n'), 'only the highlighted reporter section gap is compacted');
+      : 'and has been reviewed.\n-# \u200b\n**Reported message**\n'), 'reporter: right under the member; target: a small gap under its opening sentence');
     assert.ok(embed.description.includes('Original message text\n**Review outcome**\n'), 'reported message and outcome are closer');
     assert.ok(!embed.description.includes('Original message text\n\n**Review outcome**\n'), 'no double gap at the highlighted transition');
     assert.ok(!embed.description.endsWith('\n\n'), 'no extra spacing after the last section');
@@ -196,7 +197,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
       assert.ok(!embed.description.endsWith('\n\u200b'));
       assert.match(embed.description, /Action taken\n\*\*Moderation action\*\*\n/, 'outcome and moderation action have a compact gap');
       assert.match(embed.description, /Message removed\n\*\*Reason\*\*\n/, 'moderation action and reason have a compact gap');
-      assert.match(embed.description, /Private action reason\n\n\*\*Auto-close\*\*\n/, 'reason and auto-close retain one blank line');
+      assert.ok(embed.description.includes('Private action reason\n-# \u200b\n**Auto-close**\n'), 'a small gap between the reason and Auto-close (owner\'s choice: the same in every report message)');
     }
     assert.equal(embed.color, 0xFFFFFF);
   }
@@ -291,12 +292,13 @@ test('existing compact moderation notice restores one blank line before Auto-clo
   const entry = record.cases.target;
   const notice = f.channels.get(entry.channelId).messages.cache.get(entry.messageId);
   const old = json(notice.embeds[0]);
-  assert.match(old.description, /Private action reason\n\n\*\*Auto-close\*\*/);
-  notice.embeds = [{ ...old, description: old.description.replace('Private action reason\n\n**Auto-close**', 'Private action reason\n**Auto-close**') }];
+  assert.ok(old.description.includes('Private action reason\n-# \u200b\n**Auto-close**'));
+  notice.embeds = [{ ...old, description: old.description.replace('Private action reason\n-# \u200b\n**Auto-close**', 'Private action reason\n**Auto-close**') }];
   await restoreReportCaseTimers(f.client);
   const restored = json(notice.embeds[0]);
-  assert.match(restored.description, /Private action reason\n\n\*\*Auto-close\*\*/);
-  assert.doesNotMatch(restored.description, /Private action reason\n\n\n\*\*Auto-close\*\*/);
+  assert.ok(restored.description.includes('Private action reason\n-# \u200b\n**Auto-close**'), 'the small gap comes back');
+  assert.ok(!restored.description.includes('\u200b\n-# \u200b'), 'never two small gaps');
+  assert.ok(!restored.description.includes('\n\n'), 'no full empty line anywhere in the moderation notice');
   assert.ok(!restored.fields?.length, 'the notice remains in the compact description format');
 });
 
@@ -597,6 +599,10 @@ test('No sanction closes the report without moderation and notifies both members
       ? ['Reported member', 'Reported message', 'Review outcome', 'Auto-close']
       : ['Reported message', 'Review outcome', 'Auto-close']);
     assert.ok(!noticeSections(notice).some(name => name === 'Reason' || name === 'Moderation action'));
+    const text = json(notice.embeds[0]).description;
+    assert.ok(text.includes('No action taken\n-# \u200b\n'), 'a small gap under No action taken');
+    assert.ok(!text.includes('\n\n'), 'no full empty line anywhere in the notice');
+    if (audience === 'target') assert.ok(text.includes('at this time.\n-# \u200b\n**Auto-close**'), 'a small gap before Auto-close');
     assert.doesNotMatch(JSON.stringify(json(notice.embeds[0])), /Handled by|Private action reason/);
   }
   assertHandledInPlace(f, 'staff', 'The report was reviewed and no sanction was applied.');
