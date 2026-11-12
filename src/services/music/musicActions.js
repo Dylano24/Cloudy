@@ -454,6 +454,11 @@ export function activeSource(player) {
     return sourceOfTrack(player.current);
 }
 
+// At most 10 songs or playlists wait in the queue (owner's choice); a playlist
+// counts once, and the rest of what plays now does not count.
+export const MAX_QUEUE_ITEMS = 10;
+const QUEUE_FULL = `The queue is full: at most ${MAX_QUEUE_ITEMS} songs or playlists can wait. Remove one with Add or wait until one has played.`;
+
 // What waits in the queue, once per list item or song, in queue order; the rest
 // of what plays now is not counted.
 export function queuedSources(player) {
@@ -538,7 +543,11 @@ export async function removeSourceFromQueue(client, guildId, url, member) {
 async function runPlayQuery(client, interaction, rawQuery, { source = null } = {}) {
     await waitForMusicReady(client);
     assertInVoice(interaction.member);
-    if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
+    const existing = getPlayer(client, interaction.guild.id);
+    if (!existing) await assertBotCanJoin(interaction);
+    if (activeSource(existing) && queuedSources(existing).length >= MAX_QUEUE_ITEMS) {
+        throw new CloudyError('Queue full', ErrorTypes.USER_INPUT, QUEUE_FULL);
+    }
 
     const { query, isLink } = await prepareMusicQuery(rawQuery);
     let player;
@@ -577,8 +586,6 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
                 'Playlist added',
                 `**${playlistInfo?.name || 'Playlist'}**\nAdded ${tracks.length} track(s).`,
             ),
-            // /play puts a playlist link in the list (rememberPlayedPlaylist).
-            playlist: isLink ? playlist : null,
         };
     }
 
