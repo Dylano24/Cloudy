@@ -1,5 +1,5 @@
 // The music player's list (owner's choice): songs and playlists for this session.
-// The player's 🎵 Add button opens one form at once that shows the list and has a
+// The player's + button opens one form at once that shows the list and has a
 // field to add a song or playlist, a Start choice, a Remove choice and the Jam. An
 // item is its link, so starting a playlist always loads its current songs. The list
 // lives only in memory for the session (owner's choice: nothing is kept): Stop, the
@@ -197,19 +197,23 @@ function itemSelect(customId, options, placeholder) {
 // Queue, the rest), a field to add a song or playlist, Start (plays the chosen one
 // in place of what plays now) and Remove, in the same order as the list. Every
 // opening gets its own id. `items` null means the list could not be read.
-export function buildListModal(items, { active = null, queued = [], jam = null, tracks = [], canEnd = false } = {}) {
-  const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
-    .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
-  // No help lines under the fields (owner's choice: too much text). In a jam the
-  // field and Start add to the jam's queue in turn instead.
-  const labels = [new LabelBuilder().setLabel(jam ? 'Add to the jam' : 'Add a song or playlist').setTextInputComponent(add)];
+export function buildListModal(items, { active = null, queued = [], jam = null, tracks = [], canEnd = false, removeOnly = false } = {}) {
+  // The - button uses this same list and its existing removal permissions, but
+  // exposes only Remove; + keeps the original Add, Start, Remove and Jam fields.
+  const labels = [];
+  if (!removeOnly) {
+    const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
+      .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
+    // No help lines under the fields (owner's choice: too much text).
+    labels.push(new LabelBuilder().setLabel(jam ? 'Add to the jam' : 'Add a song or playlist').setTextInputComponent(add));
+  }
   const entries = listEntries(items, active, queued);
   const saved = entries.filter(entry => entry.item).slice(0, MAX_PLAYLISTS).map(entry => entryOption(entry, entry.item.id));
   const removable = entries
     .filter(entry => entry.item || entry.source.url)
     .map(entry => entryOption(entry, entry.item ? entry.item.id : entry.state === 'playing' ? 'active' : queueKey(entry.source.url)))
     .slice(0, MAX_PLAYLISTS);
-  if (saved.length) {
+  if (!removeOnly && saved.length) {
     labels.push(new LabelBuilder().setLabel(jam ? 'Add from your list' : 'Start')
       .setStringSelectMenuComponent(itemSelect('start', saved, 'Choose what to play')));
   }
@@ -229,11 +233,11 @@ export function buildListModal(items, { active = null, queued = [], jam = null, 
   const jamChoices = jam
     ? [...picks, ...(canEnd ? [{ label: 'End the jam', value: 'end', description: 'Stops the music for everyone' }] : [])]
     : [{ label: 'Start a jam', value: 'start', description: 'Everyone in the voice channel can add songs' }];
-  if (jamChoices.length) {
+  if (!removeOnly && jamChoices.length) {
     labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', jamChoices,
       jam ? (picks.length ? 'Choose a song to play now' : 'Choose to end the jam') : 'Choose to start a jam')));
   }
-  return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
+  return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle(removeOnly ? 'Remove from your list' : 'Add to your list')
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued, jam)))
     .addLabelComponents(...labels);
 }
@@ -280,6 +284,23 @@ export async function openPlaylistPanel(interaction, client) {
     tracks: player?.queue,
     canEnd: canEndJam(guildId, interaction.user.id, interaction.memberPermissions),
   }));
+}
+
+// The - button opens only the existing Remove selection. Nothing is deleted on
+// click: the person chooses an item, and the same permission checks apply on submit.
+export async function openRemovePlaylistPanel(interaction, client) {
+  const guildId = interaction.guildId;
+  const items = await listPlaylists(client, guildId);
+  const player = getPlayer(client, guildId);
+  const context = {
+    active: activeSource(player),
+    queued: queuedSources(player),
+    jam: getGuildMusicData(guildId).jam,
+  };
+  if (!listEntries(items, context.active, context.queued).some(entry => entry.item || entry.source?.url)) {
+    return sendNotice(interaction, { quiet: false }, ['Nothing is available to remove.'], true);
+  }
+  return interaction.showModal(buildListModal(items, { ...context, removeOnly: true }));
 }
 
 // The songs of a list item carry it, so Add can show it as active.
