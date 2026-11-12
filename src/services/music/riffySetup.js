@@ -3,6 +3,8 @@ import { GatewayDispatchEvents } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import lavalinkConfig from '../../config/music/lavalink.js';
 import { setupPlayerHandler } from './playerHandler.js';
+import { warmPlayerBarPictures } from './musicBarWarmup.js';
+import { PLAYER_BAR_STEPS } from './musicEmbeds.js';
 
 const require = createRequire(import.meta.url);
 const { Riffy } = require('riffy');
@@ -81,5 +83,9 @@ export function initRiffyAfterReady(client) {
     if (client.riffy && client.user?.id) {
         client.riffy.init(client.user.id);
         logger.info('Riffy voice connection manager initialized.');
+        // In the background: the player bar pictures are ready before the first song.
+        void warmPlayerBarPictures()
+            .then(count => logger.info(`[MUSIC] Player bar pictures ready: ${count}/${PLAYER_BAR_STEPS}.`))
+            .catch(() => {});
     }
 }
