@@ -11,7 +11,7 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
-import { feedEmoji, feedEmojiComponent } from '../feedEmojiService.js';
+import { feedEmoji, feedEmojiComponent, feedEmojiReady, MUSIC_FOOTER_PIECES } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -99,14 +99,39 @@ export function musicProgressBar(positionMs, lengthMs) {
     return musicBarPieces(positionMs, lengthMs)?.map(key => feedEmoji(key)).join('') ?? null;
 }
 
-// Milliseconds until the song reaches its next whole second (null while paused,
-// without a length or at the end): the panel's timer and bar are refreshed then.
-export function msUntilNextSecond(player, now = Date.now()) {
+// Cloudy's own clock for the timer on the player card (owner's choice: a
+// real-time timer). It counts real time from where the song was and follows the
+// node again only when the song is paused or resumed, or when they differ by more
+// than 1.5 seconds (a seek, Previous, a stall): the node reports the position
+// every few seconds, a little early or late, and following every report made the
+// timer stop for a second or skip one.
+const CLOCK_DRIFT_MS = 1_500;
+
+export function songPosition(player, guildData = null, now = Date.now()) {
+    const node = livePlayerPosition(player, now);
+    const track = player?.current;
+    if (!guildData || !track) return node;
+    const paused = Boolean(player.paused);
+    const clock = guildData.songClock;
+    if (clock?.track === track && clock.paused === paused) {
+        const own = paused ? clock.base : clock.base + Math.max(0, now - clock.at);
+        if (Math.abs(own - node) <= CLOCK_DRIFT_MS) return own;
+    }
+    guildData.songClock = { track, paused, base: node, at: now };
+    return node;
+}
+
+// Milliseconds until the timer on the card should show its next second (null
+// while paused, without a length or at the end); 0 when the card is behind (an
+// edit was late), so the next one goes at once and no second is skipped. `lead`
+// is how long an edit takes to show: the edit is sent that much earlier.
+export function msUntilNextSecond(player, now = Date.now(), guildData = null, lead = 0) {
     const length = Number(player?.current?.info?.length);
     if (!player?.current || player.paused || !Number.isFinite(length) || length <= 0) return null;
-    const position = livePlayerPosition(player, now);
-    if (position >= length) return null;
-    return SECOND_MS - (position % SECOND_MS);
+    const shown = songPosition(player, guildData, now) + lead;
+    if (shown >= length) return null;
+    if (Number.isInteger(guildData?.shownSecond) && guildData.shownSecond < Math.floor(shown / SECOND_MS)) return 0;
+    return SECOND_MS - (shown % SECOND_MS);
 }
 
 /** m:ss (or h:mm:ss), also for 0. */
@@ -336,39 +361,45 @@ export function getQueuePageSize() {
 // inside it): the cover on top (no ALT label), the title and the artist, the
 // timer (where the song is / its length, every second) on its own small line on
 // the left right above the bar, the bar with its knob, the controls (all grey),
-// "Requested by" under them after the white dot and the Cloudy footer. A record
-// of an ended song says "Played", "Skipped", ... above the title, shows only the
+// "Requested by" after the white dot and under it the Cloudy footer. A record of
+// an ended song says "Played", "Skipped", ... above the title, shows only the
 // song's length and has no bar and no buttons. No "Now playing" line and no logo.
 export const PLAYER_CARD_HEADINGS = ['Played', 'Skipped', 'Stopped', 'Could not play'];
-// The footer small, white and on one line on every phone (owner's choice): the
-// smallest text Discord has (-#) is grey and wraps on a phone, so it is a thin
-// picture (assets/music-footer.png, 450 px, the text over 86% of it) on a fixed
-// link: a phone shrinks it to the card, so it always fits. No description, so no
-// ALT label.
-export const PLAYER_CARD_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@0c7c11e1fe8a2e71e0c259aa7c0e9d8d8bfbe41b/assets/music-footer.png';
-// Cards posted with the footer as text.
-const PLAYER_CARD_TEXT_FOOTERS = [`-# ${CLOUDY_FOOTER}`, `-# **${CLOUDY_FOOTER}**`];
-// The node reports the position every few seconds; a report a little behind
-// Cloudy's own count never makes the timer go back a second.
-const TIMER_SETTLE_MS = 2_500;
+// The footer (owner's choice: small, white, on one line and the same on a PC as
+// on a phone) is the footer text drawn over 14 emoji pieces, as wide as the bar
+// (`footer_*` in feedEmojiService.js), on the line under "Requested by" (a line
+// of only emoji would be shown big). Until the pieces are uploaded it is text.
+const PLAYER_FOOTER_TEXT = `-# **${CLOUDY_FOOTER}**`;
+// Cards posted earlier: the footer as a picture or as a line of its own.
+const PLAYER_CARD_FOOTER_URL = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@0c7c11e1fe8a2e71e0c259aa7c0e9d8d8bfbe41b/assets/music-footer.png';
+const PLAYER_CARD_FOOTER_MARKS = [CLOUDY_FOOTER, ':cft_1:'];
+// A pause or resume never shows the timer a second back: an edit shows the next
+// second a moment early (`lead`), and the node's own position can be that bit behind.
+const TIMER_HOLD_MS = 1_200;
 
-function shownPosition(player, guildData, track) {
-    let position = livePlayerPosition(player);
-    const last = guildData?.shownPosition;
-    if (last?.track === track && !player?.paused && position < last.ms && last.ms - position < TIMER_SETTLE_MS) position = last.ms;
-    if (guildData) guildData.shownPosition = { track, ms: position };
+export function playerFooterLine() {
+    const keys = Array.from({ length: MUSIC_FOOTER_PIECES }, (_, index) => `footer_${index + 1}`);
+    return keys.every(key => feedEmojiReady(key)) ? keys.map(key => feedEmoji(key)).join('') : PLAYER_FOOTER_TEXT;
+}
+
+function timerPosition(player, guildData, lead) {
+    let position = songPosition(player, guildData) + (player?.paused ? 0 : lead);
+    const shown = guildData?.shownSecond;
+    if (Number.isInteger(shown) && guildData.shownTrack === player?.current) {
+        const held = shown * SECOND_MS;
+        if (position < held && held - position < TIMER_HOLD_MS) position = held;
+    }
     return position;
 }
 
-export function buildPlayerCard(track, player, guildData, { ended = null } = {}) {
+export function buildPlayerCard(track, player, guildData, { ended = null, lead = 0 } = {}) {
     const info = track?.info || {};
     const text = content => new TextDisplayBuilder().setContent(content);
-    const picture = url => new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(url));
     const title = String(info.title || 'Unknown track').replace(/\n/g, ' ').slice(0, 200);
     const artist = String(info.author || 'Unknown artist').replace(/\n/g, ' ').slice(0, 200);
     const card = new ContainerBuilder().setAccentColor(0xFFFFFF);
     const cover = getTrackArtwork(track);
-    if (cover) card.addMediaGalleryComponents(picture(cover));
+    if (cover) card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(cover)));
     card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
     const length = Number(info.length);
     const timed = !info.isStream && Number.isFinite(length) && length > 0;
@@ -377,13 +408,13 @@ export function buildPlayerCard(track, player, guildData, { ended = null } = {})
     } else if (ended) {
         card.addTextDisplayComponents(text(`-# ${formatClock(length)}`));
     } else {
-        const position = Math.min(shownPosition(player, guildData, track), length);
+        const position = Math.min(timerPosition(player, guildData, lead), length);
+        if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
         card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
-    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}`));
-    card.addMediaGalleryComponents(picture(PLAYER_CARD_FOOTER_URL));
+    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}\n${playerFooterLine()}`));
     return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
@@ -403,7 +434,7 @@ export function isPlayerCardMessage(message) {
         }
     };
     walk(message?.components);
-    if (!footer && !texts.some(content => PLAYER_CARD_TEXT_FOOTERS.includes(content))) return false;
+    if (!footer && !texts.some(content => PLAYER_CARD_FOOTER_MARKS.some(mark => content.includes(mark)))) return false;
     const heading = new RegExp(`^-# (${PLAYER_CARD_HEADINGS.join('|')})\\n### `);
     return musicButtons || texts.some(content => heading.test(content));
 }

@@ -15,12 +15,17 @@ import {
 import { sharpenTrackArtwork } from './musicArtwork.js';
 
 // The panel's timer and bar are refreshed every second while a song plays
-// (owner's choice: a real-time timer), just after the song reaches its next
-// whole second; every 15 seconds while paused. One edit at a time: the next is
-// planned when the previous one is done.
+// (owner's choice: a real-time timer); every 15 seconds while paused. One edit at
+// a time: the next is planned when the previous one is done. An edit takes a
+// moment to show (measured, `panelEditMs`), so it is sent that much before the
+// second starts; an edit that came late is followed at once by the next, so no
+// second is skipped (it skipped one after an edit that took over half a second).
 const UPDATE_INTERVAL_MS = 15 * 1000;
-const TICK_MARGIN_MS = 60;
-const TICK_MIN_MS = 500;
+const TICK_MARGIN_MS = 15;
+const TICK_CATCH_UP_MS = 40;
+const TICK_RETRY_MS = 2_000;
+const DEFAULT_EDIT_MS = 300;
+const MAX_LEAD_MS = 500;
 const IDLE_DISCONNECT_MS = 30 * 1000;
 const CLICK_WAIT_MS = 1_500;
 const SHUTDOWN_PANEL_REMOVAL_MS = 3_000;
@@ -35,6 +40,24 @@ export function markTrackStarted(player, track = player?.current) {
         player.position = 0;
         player.cloudyPositionAt = Date.now();
     }
+    if (player?.guildId) {
+        const guildData = getGuildMusicData(player.guildId);
+        guildData.songClock = null;
+        guildData.shownSecond = null;
+        guildData.shownTrack = null;
+    }
+}
+
+/** How much earlier an edit of the timer is sent: about the part of an edit before Discord shows it. */
+export function panelLead(guildData) {
+    const measured = Number(guildData?.panelEditMs);
+    const editMs = Number.isFinite(measured) && measured > 0 ? measured : DEFAULT_EDIT_MS;
+    return Math.min(MAX_LEAD_MS, Math.round(editMs * 0.6));
+}
+
+function rememberEditTime(guildData, ms) {
+    const value = Math.min(1_500, Math.max(0, ms));
+    guildData.panelEditMs = guildData.panelEditMs ? Math.round(guildData.panelEditMs * 0.7 + value * 0.3) : value;
 }
 
 // A song that Lavalink started and that has not ended yet: /play then always
@@ -140,12 +163,13 @@ function scheduleIdleLeave(client, player, guildData) {
     }, IDLE_DISCONNECT_MS);
 }
 
+// True when the panel shows this payload afterwards (edited, sent or already shown).
 async function editOrSendPlayerMessage(client, guildData, channelId, payload, track = null) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) {
         guildData.playerMessageId = null;
         guildData.playerChannelId = null;
-        return;
+        return false;
     }
 
     // A refresh that would show exactly the same panel is not sent again (the
@@ -154,15 +178,17 @@ async function editOrSendPlayerMessage(client, guildData, channelId, payload, tr
 
     if (guildData.playerMessageId) {
         if (guildData.lastPanel?.messageId === guildData.playerMessageId && guildData.lastPanel.panel === panel) {
-            return;
+            return true;
         }
         try {
             const msg = channel.messages.cache?.get(guildData.playerMessageId)
                 || await channel.messages.fetch(guildData.playerMessageId);
+            const startedAt = Date.now();
             await msg.edit(payload);
+            rememberEditTime(guildData, Date.now() - startedAt);
             guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
             guildData.panelTrack = track;
-            return;
+            return true;
         } catch (error) {
             // A temporary API or permission failure must not create another
             // player message. Replace only a message Discord confirms is gone.
@@ -184,9 +210,17 @@ async function editOrSendPlayerMessage(client, guildData, channelId, payload, tr
         guildData.playerChannelId = channel.id;
         guildData.lastPanel = { messageId: newMsg.id, panel };
         guildData.panelTrack = track;
+        return true;
     } catch (error) {
         logger.error('Failed to send music player message:', error);
+        return false;
     }
+}
+
+// The second the panel now shows, so the next edit shows the one after it.
+function rememberShownSecond(guildData, track, second) {
+    guildData.shownSecond = Number.isInteger(second) ? second : null;
+    guildData.shownTrack = track;
 }
 
 export async function refreshPlayerMessage(client, guildId) {
@@ -210,15 +244,24 @@ export async function refreshPlayerMessage(client, guildId) {
             return;
         }
 
-        const payload = buildPlayerCard(player.current, player, guildData);
+        guildData.cardSecond = null;
+        const track = player.current;
+        const payload = buildPlayerCard(track, player, guildData, { lead: panelLead(guildData) });
+        const second = guildData.cardSecond;
         // A new player panel goes to #music when the server has it (owner's
         // choice); an existing panel keeps its message.
         const guild = client.guilds?.cache?.get?.(guildId);
         const musicChannel = !guildData.playerMessageId && guild ? musicChannelFor(guild) : null;
         const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
-        await editOrSendPlayerMessage(client, guildData, channelId, payload, player.current);
+        if (await editOrSendPlayerMessage(client, guildData, channelId, payload, track)) {
+            rememberShownSecond(guildData, track, second);
+            guildData.panelFailedAt = null;
+        } else {
+            guildData.panelFailedAt = Date.now();
+        }
       }
     })().catch(error => {
+        guildData.panelFailedAt = Date.now();
         logger.error('Failed to refresh music player message:', error);
     }).finally(() => {
         if (playerRefreshJobs.get(guildData) === job) playerRefreshJobs.delete(guildData);
@@ -230,11 +273,12 @@ export async function refreshPlayerMessage(client, guildId) {
     return job.promise;
 }
 
-export function nextBarRefreshDelay(player, now = Date.now()) {
-    const untilSecond = msUntilNextSecond(player, now);
+export function nextBarRefreshDelay(player, now = Date.now(), guildData = player?.guildId ? getGuildMusicData(player.guildId) : null) {
+    const untilSecond = msUntilNextSecond(player, now, guildData, panelLead(guildData));
     if (untilSecond === null) return UPDATE_INTERVAL_MS;
-    const wait = untilSecond + TICK_MARGIN_MS;
-    return wait < TICK_MIN_MS ? wait + 1_000 : wait;
+    // An edit that failed is tried again after 2 seconds, never in a tight loop.
+    if (guildData?.panelFailedAt && now - guildData.panelFailedAt < TICK_RETRY_MS) return TICK_RETRY_MS;
+    return untilSecond === 0 ? TICK_CATCH_UP_MS : untilSecond + TICK_MARGIN_MS;
 }
 
 // Only while a song runs (startUpdateInterval at its start, cleared when it ends).
@@ -243,8 +287,10 @@ function scheduleBarRefresh(client, guildId, { start = false } = {}) {
     if (!start && !guildData.updateInterval) return;
     clearUpdateInterval(guildData);
     const timer = setTimeout(() => {
+        // A click on the panel is being answered: it plans the next tick itself.
+        if (guildData.panelHold > 0) return;
         refreshPlayerMessage(client, guildId);
-    }, nextBarRefreshDelay(client.riffy?.players?.get(guildId)));
+    }, nextBarRefreshDelay(client.riffy?.players?.get(guildId), Date.now(), guildData));
     timer.unref?.();
     guildData.updateInterval = timer;
 }
@@ -261,22 +307,33 @@ export async function answerWithPlayerPanel(interaction, client, guildId) {
     const player = client.riffy?.players?.get(guildId);
     const onPanel = Boolean(player?.current && guildData.playerMessageId)
         && interaction.message?.id === guildData.playerMessageId;
-    if (onPanel) {
-        // An edit of the timer that is still being sent was built before this
-        // click: it goes first, so it never shows the old state after the answer.
-        const running = playerRefreshJobs.get(guildData)?.promise;
-        if (running) await Promise.race([running.catch(() => {}), new Promise(resolve => setTimeout(resolve, CLICK_WAIT_MS).unref?.())]);
-        const payload = buildPlayerCard(player.current, player, guildData);
-        const panel = JSON.stringify(payload);
-        try {
-            await interaction.update(payload);
-            guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
-            guildData.panelTrack = player.current;
-        } catch (error) {
-            logger.warn(`[MUSIC] Player click could not be answered with the panel: ${error?.message || error}`);
+    // No timer edit starts while the click is answered: everyone sees the panel go
+    // straight to the new state (Pause, Resume, ...), never back to the old one.
+    guildData.panelHold = (guildData.panelHold || 0) + 1;
+    try {
+        if (onPanel) {
+            // An edit of the timer that is still being sent was built before this
+            // click: it goes first, so it never shows the old state after the answer.
+            const running = playerRefreshJobs.get(guildData)?.promise;
+            if (running) await Promise.race([running.catch(() => {}), new Promise(resolve => setTimeout(resolve, CLICK_WAIT_MS).unref?.())]);
+            guildData.cardSecond = null;
+            const track = player.current;
+            const payload = buildPlayerCard(track, player, guildData, { lead: panelLead(guildData) });
+            const second = guildData.cardSecond;
+            const panel = JSON.stringify(payload);
+            try {
+                await interaction.update(payload);
+                guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
+                guildData.panelTrack = track;
+                rememberShownSecond(guildData, track, second);
+            } catch (error) {
+                logger.warn(`[MUSIC] Player click could not be answered with the panel: ${error?.message || error}`);
+            }
         }
+        if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate().catch(() => {});
+    } finally {
+        guildData.panelHold -= 1;
     }
-    if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate().catch(() => {});
     // Sends nothing when the panel already shows this; corrects a refresh that was
     // being sent with the old state, and plans the next bar step.
     return refreshPlayerMessage(client, guildId);

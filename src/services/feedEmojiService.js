@@ -150,6 +150,14 @@ for (const [kind, [first, last]] of Object.entries(MUSIC_BAR_KNOB_PIECES)) {
     };
   }
 }
+// The player card's footer (owner's choice: small, white, on one line and the
+// same on a PC as on a phone): the footer text drawn over 14 emoji pieces
+// (assets/music-footer), as wide as the 14-piece bar above it, so Discord sizes
+// it like the bar and the text: a picture was shown at its own width on a PC.
+export const MUSIC_FOOTER_PIECES = 14;
+for (let index = 1; index <= MUSIC_FOOTER_PIECES; index += 1) {
+  BASE_EMOJIS[`footer_${index}`] = { name: `cft_${index}`, file: `../../assets/music-footer/${index}.png`, fallback: '' };
+}
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
@@ -173,6 +181,11 @@ export function emojiComponentFromMarkup(markup, fallback = '') {
 
 export function feedEmojiComponent(key) {
   return emojiComponentFromMarkup(resolved.get(key), FEED_EMOJIS[key]?.fallback || '');
+}
+
+/** Whether this emoji is uploaded (no fallback). */
+export function feedEmojiReady(key) {
+  return resolved.has(key);
 }
 
 export function feedEmoji(key) {
