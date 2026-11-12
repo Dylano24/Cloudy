@@ -1,4 +1,15 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ContainerBuilder,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder,
+    MessageFlags,
+    SectionBuilder,
+    TextDisplayBuilder,
+    ThumbnailBuilder,
+} from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
@@ -300,4 +311,49 @@ export function buildQueuePaginationRow(page, totalPages) {
 
 export function getQueuePageSize() {
     return QUEUE_PAGE_SIZE;
+}
+
+// The player as one card like Spotify's Now Playing (owner's choice: the buttons
+// inside it): the cover on top, the title and artist beside the Cloudy logo, the
+// bar with its knob, the duration and who asked for it, then the controls and the
+// Cloudy footer, with the white side line. A record of an ended song ("Played",
+// "Skipped", ...) is the same card without the bar and the buttons.
+export const PLAYER_CARD_HEADINGS = ['Now playing', 'Played', 'Skipped', 'Stopped', 'Could not play'];
+
+export function buildPlayerCard(track, player, guildData, { ended = null } = {}) {
+    const info = track?.info || {};
+    const text = content => new TextDisplayBuilder().setContent(content);
+    const title = String(info.title || 'Unknown track').replace(/\n/g, ' ').slice(0, 200);
+    const artist = String(info.author || 'Unknown artist').replace(/\n/g, ' ').slice(0, 200);
+    const card = new ContainerBuilder().setAccentColor(0xFFFFFF);
+    const cover = getTrackArtwork(track);
+    if (cover) {
+        card.addMediaGalleryComponents(new MediaGalleryBuilder()
+            .addItems(new MediaGalleryItemBuilder().setURL(cover).setDescription(title.slice(0, 100))));
+    }
+    card.addSectionComponents(new SectionBuilder()
+        .addTextDisplayComponents(text(`-# ${ended || 'Now playing'}\n### ${title}\n${artist}`))
+        .setThumbnailAccessory(new ThumbnailBuilder().setURL(CLOUDY_C_LOGO_URL)));
+    const bar = ended ? null : musicProgressBar(livePlayerPosition(player), info.length);
+    if (bar) card.addTextDisplayComponents(text(bar));
+    const requester = info.requester?.username || info.requester?.tag || 'Unknown';
+    card.addTextDisplayComponents(text(`-# ${formatDuration(info.length)} · Requested by ${requester}`));
+    if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
+    card.addTextDisplayComponents(text(`-# ${CLOUDY_FOOTER}`));
+    return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
+}
+
+// A message that is one of these cards (Cloudy's own panel or record).
+export function isPlayerCardMessage(message) {
+    const texts = [];
+    const walk = items => {
+        for (const item of items || []) {
+            const data = item?.toJSON ? item.toJSON() : item?.data || item;
+            if (typeof data?.content === 'string') texts.push(data.content);
+            walk(data?.components);
+        }
+    };
+    walk(message?.components);
+    const heading = new RegExp(`^-# (${PLAYER_CARD_HEADINGS.join('|')})\\n### `);
+    return texts.some(content => heading.test(content)) && texts.includes(`-# ${CLOUDY_FOOTER}`);
 }

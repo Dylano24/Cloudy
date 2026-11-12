@@ -7,9 +7,8 @@ import { isPlayerPanelEmbed } from './musicPanelIdentity.js';
 import { deleteMessageForMove } from '../deletionAttributionService.js';
 import { finishRequestMessage, lastFinishedTrack } from './musicRequestMessages.js';
 import {
-    buildNowPlayingEmbed,
-    buildPlayerButtonRows,
-    buildMusicRequestEmbed,
+    buildPlayerCard,
+    isPlayerCardMessage,
     msUntilNextBarPiece,
 } from './musicEmbeds.js';
 
@@ -55,7 +54,7 @@ export async function clearPlayerMessages(client, guildId, extraChannelIds = [])
         if (!channel?.messages?.fetch) continue;
         const messages = await channel.messages.fetch({ limit: CLEAN_SCAN_LIMIT }).catch(() => null);
         const own = [...(messages?.values?.() || [])].filter(message => message.author?.id === client.user?.id
-            && message.embeds?.some(isPlayerPanelEmbed));
+            && (isPlayerCardMessage(message) || message.embeds?.some(isPlayerPanelEmbed)));
         await Promise.allSettled(own.map(message => deleteMessageForMove(message)));
     }
 }
@@ -98,9 +97,9 @@ export async function retirePlayerPanel(client, guildId, track, outcome, player 
     if (player && startedTracks.get(player) === track) startedTracks.delete(player);
     // A refresh that is still being sent must not overwrite the record.
     await playerRefreshJobs.get(guildData)?.promise?.catch?.(() => {});
-    const embed = buildMusicRequestEmbed(track, { playNow: true }).setTitle(ENDED_TITLES[outcome] || ENDED_TITLES.played);
+    const record = buildPlayerCard(track, player, guildData, { ended: ENDED_TITLES[outcome] || ENDED_TITLES.played });
     try {
-        await channel.messages.edit(messageId, { embeds: [embed], components: [], allowedMentions: { parse: [] } });
+        await channel.messages.edit(messageId, record);
         return true;
     } catch (error) {
         logger.debug(`[MUSIC] Could not mark the player panel as ${outcome}: ${error?.message || error}`);
@@ -137,7 +136,7 @@ function scheduleIdleLeave(client, player, guildData) {
     }, IDLE_DISCONNECT_MS);
 }
 
-async function editOrSendPlayerMessage(client, guildData, channelId, embed, components, track = null) {
+async function editOrSendPlayerMessage(client, guildData, channelId, payload, track = null) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) {
         guildData.playerMessageId = null;
@@ -145,7 +144,6 @@ async function editOrSendPlayerMessage(client, guildData, channelId, embed, comp
         return;
     }
 
-    const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
     // A refresh that would show exactly the same panel is not sent again (the
     // 15-second timer while paused, or a bar piece that did not move yet).
     const panel = JSON.stringify(payload);
@@ -208,14 +206,13 @@ export async function refreshPlayerMessage(client, guildId) {
             return;
         }
 
-        const embed = buildNowPlayingEmbed(player.current, player, guildData);
-        const components = buildPlayerButtonRows(player, guildData);
+        const payload = buildPlayerCard(player.current, player, guildData);
         // A new player panel goes to #music when the server has it (owner's
         // choice); an existing panel keeps its message.
         const guild = client.guilds?.cache?.get?.(guildId);
         const musicChannel = !guildData.playerMessageId && guild ? musicChannelFor(guild) : null;
         const channelId = musicChannel?.id || guildData.playerChannelId || player.textChannel;
-        await editOrSendPlayerMessage(client, guildData, channelId, embed, components, player.current);
+        await editOrSendPlayerMessage(client, guildData, channelId, payload, player.current);
       }
     })().catch(error => {
         logger.error('Failed to refresh music player message:', error);
@@ -260,9 +257,7 @@ export async function answerWithPlayerPanel(interaction, client, guildId) {
     const onPanel = Boolean(player?.current && guildData.playerMessageId)
         && interaction.message?.id === guildData.playerMessageId;
     if (onPanel) {
-        const embed = buildNowPlayingEmbed(player.current, player, guildData);
-        const components = buildPlayerButtonRows(player, guildData);
-        const payload = { embeds: [embed], components, allowedMentions: { parse: [] } };
+        const payload = buildPlayerCard(player.current, player, guildData);
         const panel = JSON.stringify(payload);
         try {
             await interaction.update(payload);

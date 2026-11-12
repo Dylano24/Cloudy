@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { cardButtons } from './helpers/playerCard.js';
 import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
 import { getCounterCount, getGuildCounterStats } from '../src/services/serverstatsService.js';
@@ -108,8 +109,8 @@ test('twenty concurrent player refreshes coalesce into two edits and keep latest
   assert.equal(payloads.length, 2);
   assert.equal(peak, 1);
   // In the middle (Spotify's order), one button switches: Pause while playing, Resume once paused.
-  assert.equal(payloads[0].components[0].toJSON().components[2].custom_id, 'music_pause');
-  assert.equal(payloads.at(-1).components[0].toJSON().components[2].custom_id, 'music_resume');
+  assert.equal(cardButtons(payloads[0])[2], 'music_pause');
+  assert.equal(cardButtons(payloads.at(-1))[2], 'music_resume');
   deleteGuildMusicData(f.guildId);
 });
 

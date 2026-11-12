@@ -7,6 +7,7 @@ import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/p
 import { refreshPlayerMessage, markTrackStarted, setupPlayerHandler, shutdownMusic } from '../src/services/music/playerHandler.js';
 import { livePlayerPosition } from '../src/services/music/musicEmbeds.js';
 import { applyNodeReconnectBackoff } from '../src/services/music/riffySetup.js';
+import { cardButtons, cardHeading, cardTexts } from './helpers/playerCard.js';
 
 const song = title => ({ info: { title, author: 'Artist', uri: `https://example.com/${title}`, length: 180_000 } });
 
@@ -121,7 +122,7 @@ function panelFixture(guildId) {
     messages: {
       cache: new Collection(),
       fetch: async () => ({ edit: async payload => { edits.push(payload); } }),
-      edit: async (id, payload) => { records.push({ id, title: payload.embeds[0].toJSON().title, components: payload.components }); },
+      edit: async (id, payload) => { records.push({ id, title: cardHeading(payload), components: cardButtons(payload) }); },
       delete: async id => { channel.deleted.push(id); },
     },
     deleted: [],
@@ -379,8 +380,9 @@ test('a playlist added while a song plays shows in the player panel at once', as
   f.client.riffy.resolve = async () => ({ loadType: 'playlist', playlistInfo: { name: 'Mix' }, tracks: [song('a'), song('b'), song('c')] });
   const interaction = { guild: { id: 'reliability-playlist-now' }, channel: { id: 'panel-channel' }, user: { id: 'u' }, member: { voice: { channel: { id: 'voice' } } } };
   await playQuery(f.client, interaction, 'https://open.spotify.com/playlist/x');
-  const queueField = f.edits.at(-1).embeds[0].toJSON().fields.find(field => field.name === 'Queue');
-  assert.equal(queueField.value, '3 tracks', 'not only after the next 15-second refresh');
+  assert.equal(f.player.queue.length, 3);
+  assert.equal(f.sent.length, 1, 'the card keeps showing the song that plays; the queue is in Queue and Add');
+  assert.match(cardTexts(f.edits.at(-1) || f.sent[0]).join('\n'), /### x/);
   deleteGuildMusicData('reliability-playlist-now');
 });
 
@@ -447,7 +449,7 @@ test('Pause, Resume and Loop on the player are answered with the new panel in on
     async update(payload) { this.replied = true; answers.push(payload); },
     async deferUpdate() { this.deferred = true; this.deferrals += 1; },
   });
-  const ids = payload => payload.components.flatMap(row => row.toJSON().components.map(button => button.custom_id));
+  const ids = payload => cardButtons(payload);
 
   const pause = click('music_pause');
   await musicButtonHandler.execute(pause, f.client);
