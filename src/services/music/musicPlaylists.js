@@ -212,10 +212,11 @@ export function buildListModal(items, active = null, queued = [], jam = false, t
     value: trackPickKey(track, index),
     emoji: { name: '🎶' },
   })) : [];
+  // No emoji on Start/End, and a "Choose ..." placeholder like the other fields (owner's choice).
   labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', jam
-    ? [...picks, { label: 'End the jam', value: 'end', emoji: { name: '⏹️' } }]
-    : [{ label: 'Start a jam', value: 'start', description: "Everyone's songs take turns", emoji: { name: '🎉' } }],
-  jam ? (picks.length ? 'Choose a song to play now' : 'Jam is on') : 'Start a jam')));
+    ? [...picks, { label: 'End the jam', value: 'end' }]
+    : [{ label: 'Start a jam', value: 'start', description: "Everyone's songs take turns" }],
+  jam ? (picks.length ? 'Choose a song to play now' : 'Choose to end the jam') : 'Choose to start a jam')));
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued, jam)))
     .addLabelComponents(...labels);
