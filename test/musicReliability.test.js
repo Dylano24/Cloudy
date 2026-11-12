@@ -297,6 +297,7 @@ test('the music player panel and its records are kept out of every saved respons
   assert.equal(isMusicPlayerEmbed(buildQueueEmbed([track], track, 0)), true, 'the Queue button reply');
   assert.equal(isMusicPlayerEmbed(buildMusicCommandsEmbed()), true, 'the Commands explanation');
   assert.equal(isMusicPlayerEmbed({ title: 'Playlists', description: 'x', footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } }), true, 'the Playlists panel');
+  assert.equal(isMusicPlayerEmbed({ title: 'Your list', description: 'x', footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } }), true, 'the notice of the Add form');
 
   // Like Cloudy Inc.: a saved "Now playing" template with a green side line and no picture.
   const green = { title: 'Now playing', description: '{dynamic}', color: 0x00C49D, fields: [] };
