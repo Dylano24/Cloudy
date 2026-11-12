@@ -100,20 +100,21 @@ const songs = count => `${count} ${count === 1 ? 'song' : 'songs'}`;
 const itemKind = item => (item.kind === 'song' ? 'song' : songs(item.count || 0));
 const itemName = item => String(item?.name || 'Untitled').replace(/\*/g, '').slice(0, 80);
 
-// What plays now is marked ▶️ (owner's choice: the playlist of /play shows here as
-// active). One that is not in the list (a full list) shows first, unnumbered.
-const ACTIVE = '▶️';
+// What plays now shows as "Playing: <name>" (owner's choice: the playlist of /play
+// shows here, in words, not with an emoji). One that is not in the list (a full
+// list) shows first, unnumbered.
+const PLAYING = 'Playing: ';
 const isActive = (item, active) => Boolean(active?.url) && item?.url === active.url;
 const unsavedActive = (items, active) => (active?.url && !(items || []).some(item => isActive(item, active)) ? active : null);
 
 function listText(items, active = null) {
   const extra = unsavedActive(items, active);
-  const lines = extra ? [`${ACTIVE} ${itemName(extra)} · ${itemKind(extra)}`] : [];
+  const lines = extra ? [`${PLAYING}${itemName(extra)} · ${itemKind(extra)}`] : [];
   if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
   else if (!items.length && !extra) lines.push('Your list is empty. Add a song or a playlist below.');
   else {
     lines.push(...items.slice(0, MAX_PLAYLISTS).map((item, index) =>
-      `${index + 1}. ${isActive(item, active) ? ACTIVE + ' ' : ''}${itemName(item)} · ${itemKind(item)}`));
+      `${index + 1}. ${isActive(item, active) ? PLAYING : ''}${itemName(item)} · ${itemKind(item)}`));
   }
   return ['**Your list**', ...lines].join('\n').slice(0, 3900);
 }
@@ -122,29 +123,31 @@ function itemOption(item, active, value = item.id) {
   const playing = isActive(item, active) || value === 'active';
   return {
     label: itemName(item).slice(0, 100),
-    description: `${itemKind(item)} • ${playing ? 'active' : item.ownerName || 'Unknown'}`.slice(0, 100),
+    description: `${itemKind(item)} • ${playing ? 'playing' : item.ownerName || 'Unknown'}`.slice(0, 100),
     value,
-    emoji: { name: playing ? ACTIVE : item.kind === 'song' ? '🎶' : '🎵' },
+    emoji: { name: item.kind === 'song' ? '🎶' : '🎵' },
   };
 }
 
-function itemSelect(customId, options, placeholder, multiple) {
+// One choice each (owner's choice): a tap selects at once. A choice of several
+// needed Discord's extra Select button on the phone.
+function itemSelect(customId, options, placeholder) {
   return new StringSelectMenuBuilder()
     .setCustomId(customId)
     .setPlaceholder(placeholder)
     .setRequired(false)
     .setMinValues(0)
-    .setMaxValues(multiple ? options.length : 1)
+    .setMaxValues(1)
     .addOptions(options);
 }
 
 // One form, opened at once by the player's Add button: the list itself (what plays
-// now marked ▶️), a field to add a song or playlist, Start (plays the chosen one in
-// place of what plays now) and Remove. Every opening gets its own id. `items`
+// now as "Playing:"), a field to add a song or playlist, Start (plays the chosen one
+// in place of what plays now) and Remove. Every opening gets its own id. `items`
 // null means the list could not be read.
 export function buildListModal(items, active = null) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
-    .setRequired(false).setMaxLength(500).setPlaceholder('Song name, or a song or playlist link');
+    .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
   // No help lines under the fields (owner's choice: too much text).
   const labels = [new LabelBuilder().setLabel('Add a song or playlist').setTextInputComponent(add)];
   const saved = (items || []).slice(0, MAX_PLAYLISTS).map(item => itemOption(item, active));
@@ -152,11 +155,11 @@ export function buildListModal(items, active = null) {
   const removable = [...(extra ? [itemOption(extra, active, 'active')] : []), ...saved].slice(0, MAX_PLAYLISTS);
   if (saved.length) {
     labels.push(new LabelBuilder().setLabel('Start')
-      .setStringSelectMenuComponent(itemSelect('start', saved, 'Choose what to play', false)));
+      .setStringSelectMenuComponent(itemSelect('start', saved, 'Choose what to play')));
   }
   if (removable.length) {
     labels.push(new LabelBuilder().setLabel('Remove')
-      .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove', true)));
+      .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove')));
   }
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active)))
