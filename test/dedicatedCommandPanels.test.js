@@ -129,8 +129,8 @@ test('Music Commands shows the current player controls privately and expires aft
   assert.equal(reply.embeds[0].toJSON().title, 'Music commands');
   assert.match(reply.embeds[0].toJSON().description, /`\/play`/);
   assert.match(reply.embeds[0].toJSON().description, /Player buttons/);
-  assert.match(reply.embeds[0].toJSON().description, /⏸️ Pause or continue/);
-  assert.match(reply.embeds[0].toJSON().description, /⏹️ Stop and leave/);
+  assert.match(reply.embeds[0].toJSON().description, /\u23F8\uFE0E Pause or continue/);
+  assert.match(reply.embeds[0].toJSON().description, /\u25A0 Stop and leave/);
   for (const hidden of ['/music seek', '/music 247', '/music guide', '/nowplaying', '/now playing', '/music shuffle']) {
     assert.ok(!reply.embeds[0].toJSON().description.includes(hidden));
   }
