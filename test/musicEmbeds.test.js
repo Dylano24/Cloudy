@@ -2,6 +2,7 @@ import test from 'node:test';
 import { cardButtons, cardCover, cardHeading, cardTexts } from './helpers/playerCard.js';
 import assert from 'node:assert/strict';
 import { ChannelType, Collection, MessageFlags } from 'discord.js';
+import { PLAYER_FOOTER_PICTURE_URL } from '../src/services/music/musicEmbeds.js';
 import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
@@ -162,13 +163,18 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
-  // Requested by under the buttons after the white dot, the footer on the line under it
-  // (14 emoji pieces once uploaded, as wide as the bar; until then the footer text).
-  assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user\n-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
   assert.equal(cardTexts(panels[0])[1], '-# 0:00 / 3:00', 'only the timer, no bar (owner\'s choice)');
+  // No "Requested by" on the live card (owner's choice, for now); the footer is one fixed
+  // picture under the buttons, so it never blinks when the card is redrawn every second.
+  assert.ok(!cardTexts(panels[0]).some(text => text.includes('Requested by')));
+  assert.ok(!cardTexts(panels[0]).some(text => /<a?:\w+:\d+>/.test(text)), 'no custom emoji in the card\'s text');
   const parts = panels[0].components[0].toJSON().components;
-  assert.equal(parts.filter(part => part.type === 12).length, 1, 'only the cover is a picture');
-  assert.equal(parts.at(-1).type, 10, 'the card ends with the footer text');
+  const pictures = parts.filter(part => part.type === 12);
+  assert.equal(pictures.length, 2, 'the cover and the footer');
+  assert.equal(parts.at(-1).type, 12, 'the card ends with the footer picture');
+  assert.equal(parts.at(-1).items[0].media.url, PLAYER_FOOTER_PICTURE_URL);
+  assert.equal(parts.at(-1).items[0].description, undefined, 'no ALT label');
+  assert.equal(parts.at(-2).type, 1, 'right under the buttons');
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
@@ -256,4 +262,23 @@ test('a button gets Cloudy\'s uploaded icon as an emoji object, else the standar
   assert.deepEqual(emojiComponentFromMarkup('<a:spin:42>', '▶️'), { id: '42', name: 'spin', animated: true });
   assert.equal(emojiComponentFromMarkup(undefined, '▶️'), '▶️');
   assert.equal(emojiComponentFromMarkup('▶️', '▶️'), '▶️');
+});
+
+test('the footer picture is the 14 footer pieces side by side, and the player card is still recognised by it', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { buildPlayerCard, isPlayerCardMessage, PLAYER_FOOTER_PICTURE_URL: url } = await import('../src/services/music/musicEmbeds.js');
+  const png = await readFile(new URL('../assets/music-footer-line.png', import.meta.url));
+  assert.equal(png.subarray(1, 4).toString(), 'PNG');
+  assert.equal(png.readUInt32BE(16), 2146, 'the 14 pieces (1792 px) fill 83.5% of the width, as the emoji line did');
+  assert.equal(png.readUInt32BE(20), 128);
+  assert.equal(png[25], 6, 'transparent background');
+  assert.match(url, /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/music-footer-line\.png$/, 'a fixed commit, so the link never changes');
+  const song = { info: { title: 'Song', author: 'Artist', length: 180_000, requester: { username: 'Test user' } } };
+  const live = buildPlayerCard(song, { current: song, paused: false, position: 5_000, queue: [] }, {});
+  const record = buildPlayerCard(song, { current: song, paused: false, position: 5_000, queue: [] }, {}, { ended: 'Played' });
+  const asMessage = payload => ({ components: payload.components.map(component => component.toJSON()) });
+  assert.equal(isPlayerCardMessage(asMessage(live)), true, 'Stop and a new session still clean up the live card');
+  assert.equal(isPlayerCardMessage(asMessage(record)), true, 'and its records');
+  assert.ok(cardTexts(record).some(text => text.includes('Requested by Test user')), 'a record keeps Requested by');
+  assert.equal(JSON.stringify(live).split(url).length - 1, 1, 'one footer picture on the live card');
 });
