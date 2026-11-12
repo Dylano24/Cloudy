@@ -406,8 +406,11 @@ export function setupPlayerHandler(client) {
         if (!retired) await deletePlayerPanel(client, guildData);
 
         guildData.previousTracks = [];
-        // The bot left the voice channel: a jam ends with it.
+        // The bot left the voice channel: the session ends with it, nothing is kept.
         guildData.jam = null;
+        guildData.list = [];
+        clearTimeout(guildData.jamHostTimer);
+        guildData.jamHostTimer = null;
         guildData.autoPaused = false;
         if (guildData.idleTimeout) {
             clearTimeout(guildData.idleTimeout);

@@ -24,6 +24,7 @@ function fakeBot(resolve) {
     db: {
       get: async key => structuredClone(data.get(key) ?? null),
       set: async (key, value) => { data.set(key, structuredClone(value)); return true; },
+      delete: async key => data.delete(key),
     },
     riffy: {
       players: new Map(),
@@ -81,10 +82,13 @@ const BLUE = '🔵'; // Cloudy's blue dot before it is uploaded
 const MAX_NOTE = '-# Max 10 songs or playlists in the queue';
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-test('songs and playlists are saved per server with limits, and only the owner or a moderator removes one', async () => {
+test('the list lives only for the session, with limits, and only the owner or a moderator removes one', async () => {
   const { client, data } = fakeBot();
+  data.set('guild:g-store:music-playlists', { items: [{ id: 'old', url: 'https://x/old', name: 'Old', count: 1 }] });
   const a = await addPlaylist(client, 'g-store', { url: 'https://open.spotify.com/playlist/a', name: 'A', count: 3, ownerId: 'u1', ownerName: 'Mila' });
-  assert.ok(data.has('guild:g-store:music-playlists'), 'stored under the server key in the database');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(data.has('guild:g-store:music-playlists'), false, 'a list stored before is deleted; nothing is saved');
+  assert.deepEqual((await listPlaylists(client, 'g-store')).map(item => item.name), ['A']);
   await assert.rejects(addPlaylist(client, 'g-store', { url: 'https://open.spotify.com/playlist/a', name: 'Again', count: 1, ownerId: 'u2', ownerName: 'Sam' }), error => /already in your list/.test(error.userMessage));
   for (let n = 1; n < 10; n += 1) await addPlaylist(client, 'g-store', { url: 'https://x/' + n, name: 'P' + n, count: 1, ownerId: 'u1', ownerName: 'Mila' });
   await assert.rejects(addPlaylist(client, 'g-store', { url: 'https://x/extra', name: 'Extra', count: 1, ownerId: 'u1', ownerName: 'Mila' }), error => /up to 10/.test(error.userMessage));
@@ -92,6 +96,21 @@ test('songs and playlists are saved per server with limits, and only the owner o
   assert.deepEqual(await removePlaylist(client, 'g-store', a.id, { userId: 'u2' }), { removed: false, reason: 'forbidden' });
   assert.equal((await removePlaylist(client, 'g-store', a.id, { userId: 'u2', canManage: true })).removed, true);
   assert.deepEqual(await removePlaylist(client, 'g-store', a.id, { userId: 'u1' }), { removed: false, reason: 'missing' });
+  deleteGuildMusicData('g-store');
+});
+
+test('Stop ends the session: the list, the queue and the jam are gone', async () => {
+  const { destroyPlayerSession } = await import('../src/services/music/musicActions.js');
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-close');
+  await addPlaylist(client, 'g-close', { url: 'https://x/playlist-1', name: 'One', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
+  await playQuery(client, ui.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  await destroyPlayerSession(client, 'g-close', player, getGuildMusicData('g-close'));
+  assert.deepEqual(await listPlaylists(client, 'g-close'), []);
+  assert.equal(player.queue.length, 0);
+  const form = await open(client, ui);
+  assert.equal(form.components[0].content, `**Your list**\n${MAX_NOTE}\nYour list is empty. Add a song or a playlist below.`);
+  deleteGuildMusicData('g-close');
 });
 
 test('Add opens one form at once with the list, a song or playlist field, Start and Remove', async () => {
@@ -290,7 +309,7 @@ test('a song played with /play shows on top as Playing, and Remove stops it', as
   await submit(client, ui, form, { remove: ['active'] });
   assert.equal(notice(ui).description, '**Song 9** was removed.');
   assert.equal(player.destroyed, true, 'nothing else to play');
-  assert.equal((await listPlaylists(client, 'g-plain')).length, 1, 'the list itself is unchanged');
+  assert.deepEqual(await listPlaylists(client, 'g-plain'), [], 'stopping like Stop ends the session, so the list is emptied too');
   deleteGuildMusicData('g-plain');
 });
 
@@ -345,65 +364,91 @@ test('at most 10 songs or playlists wait in the queue; Start still replaces', as
   deleteGuildMusicData('g-full');
 });
 
-test('a jam: everyone adds and the songs take turns per person; it ends with Stop', async () => {
-  const { arrangeJamQueue, destroyPlayerSession } = await import('../src/services/music/musicActions.js');
-  // The turn order: one song per person, whoever plays now goes last.
-  const song = (title, who) => ({ info: { title, uri: 'https://example.com/' + title, requester: { id: who, username: who } } });
-  const turns = { current: song('A0', 'A'), queue: Object.assign([song('A1', 'A'), song('A2', 'A'), song('B1', 'B'), song('B2', 'B'), song('C1', 'C')], { add(t) { this.push(t); }, clear() { this.length = 0; } }) };
-  arrangeJamQueue(turns);
-  assert.deepEqual(turns.queue.map(t => t.info.title), ['B1', 'C1', 'A1', 'B2', 'A2']);
-
+test('a jam works like Spotify: one queue in the order songs are added, the host ends it', async () => {
   const { client, player } = fakeBot(async ({ query }) => ({ loadType: 'search', tracks: [track(query)] }));
   const ui = fakeUi('g-jam');
   const sam = { user: { id: 'sam', username: 'Sam' }, memberPermissions: { has: () => false } };
   await playQuery(client, ui.make('play', 'command'), 'first song');
+  await addPlaylist(client, 'g-jam', { url: 'https://x/playlist-1', name: 'One', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
   let form = await open(client, ui);
   const jamField = labels(form).find(label => label.label === 'Jam');
-  assert.deepEqual(jamField.component.options.map(option => [option.value, option.label, option.emoji]), [['start', 'Start a jam', undefined]]);
+  assert.deepEqual(jamField.component.options.map(option => [option.value, option.label, option.description, option.emoji]),
+    [['start', 'Start a jam', 'Everyone in the voice channel can add songs', undefined]]);
   assert.equal(jamField.component.placeholder, 'Choose to start a jam');
 
   await submit(client, ui, form, { jam: ['start'] });
-  assert.equal(notice(ui).description, "Jam started: everyone's songs take turns.");
-  assert.ok(getGuildMusicData('g-jam').jam);
+  assert.equal(notice(ui).description, 'Jam started: everyone in the voice channel can add songs.');
+  assert.equal(getGuildMusicData('g-jam').jam.hostName, 'Mila');
 
-  // Mila adds two songs, then Sam adds one through the form: Sam's song comes second.
+  // Everyone adds; the songs wait in the order they were added, with who added them.
   await playQuery(client, ui.make('play', 'command'), 'mila one');
-  await playQuery(client, ui.make('play', 'command'), 'mila two');
   form = await open(client, ui, sam);
-  assert.deepEqual(labels(form).map(label => label.label), ['Add to the jam', 'Remove', 'Jam']);
+  assert.deepEqual(labels(form).map(label => label.label), ['Add to the jam', 'Add from your list', 'Remove', 'Jam']);
   await submit(client, ui, form, { add: 'sam one' }, sam);
   assert.equal(notice(ui).description, '**Song sam one** was added to the jam.');
-  assert.deepEqual(player.queue.map(t => t.info.requester.username), ['Sam', 'Mila', 'Mila'],
-    'Mila plays now, so Sam is next; then Mila again');
-  assert.deepEqual(await listPlaylists(client, 'g-jam'), [], 'nothing from the jam is saved');
+  await playQuery(client, ui.make('play', 'command'), 'mila two');
+  assert.deepEqual(player.queue.map(t => t.info.title), ['Song mila one', 'Song sam one', 'Song mila two']);
 
   form = await open(client, ui);
   assert.equal(form.components[0].content, [
     '**Your list**',
-    "-# Jam: everyone's songs take turns · max 10 in the queue",
+    "-# Mila's Jam · max 10 songs or playlists in the queue",
     `${DOT} Playing: Song first song · song · Mila`,
-    `${BLUE} Queue: Song sam one · song · Sam`,
     `${BLUE} Queue: Song mila one · song · Mila`,
+    `${BLUE} Queue: Song sam one · song · Sam`,
     `${BLUE} Queue: Song mila two · song · Mila`,
+    `${WHITE} One · 2 songs`,
   ].join('\n'));
-  const jamPicks = labels(form).at(-1).component;
-  assert.equal(jamPicks.placeholder, 'Choose a song to play now');
-  assert.deepEqual(jamPicks.options.map(option => [option.label, option.description]),
-    [['Song sam one', 'Sam'], ['Song mila one', 'Mila'], ['Song mila two', 'Mila'], ['End the jam', undefined]]);
-  assert.equal(jamPicks.options.at(-1).emoji, undefined, 'no emoji on End the jam');
 
-  // Choosing a song in the Jam field plays it at once; the others keep their place.
+  // Everyone may choose the song that plays now; only the host (or a moderator) can end it.
+  const hostPicks = labels(form).at(-1).component;
+  assert.equal(hostPicks.placeholder, 'Choose a song to play now');
+  assert.deepEqual(hostPicks.options.map(option => [option.label, option.description]),
+    [['Song mila one', 'Mila'], ['Song sam one', 'Sam'], ['Song mila two', 'Mila'], ['End the jam', 'Stops the music for everyone']]);
+  const samForm = await open(client, ui, sam);
+  const samPicks = labels(samForm).at(-1).component;
+  assert.deepEqual(samPicks.options.map(option => option.label), ['Song mila one', 'Song sam one', 'Song mila two'], 'no End the jam for a guest');
+
   const stopsBefore = player.stops;
   const editsBefore = ui.log.edits.length;
-  await submit(client, ui, form, { jam: [jamPicks.options[2].value] });
-  assert.deepEqual(player.queue.map(t => t.info.title), ['Song mila two', 'Song sam one', 'Song mila one']);
+  await submit(client, ui, samForm, { jam: [samPicks.options[2].value] }, sam);
+  assert.deepEqual(player.queue.map(t => t.info.title), ['Song mila two', 'Song mila one', 'Song sam one']);
   assert.equal(player.stops, stopsBefore + 1, 'the song that played is skipped');
-  assert.equal(getGuildMusicData('g-jam').endingTrack.outcome, 'skipped');
   assert.equal(ui.log.edits.length, editsBefore, 'no message: the player shows it');
 
-  await destroyPlayerSession(client, 'g-jam', player, getGuildMusicData('g-jam'));
-  assert.equal(getGuildMusicData('g-jam').jam, null, 'Stop ends the jam');
+  await submit(client, ui, samForm, { jam: ['end'] }, sam);
+  assert.match(notice(ui).description, /Only the host of the jam or a moderator can end it/);
+  assert.ok(getGuildMusicData('g-jam').jam, 'a guest cannot end it');
+
+  // The host ends it: the whole session closes and nothing is kept.
+  await submit(client, ui, await open(client, ui), { jam: ['end'] });
+  assert.equal(notice(ui).description, 'The jam has ended.');
+  assert.equal(getGuildMusicData('g-jam').jam, null);
+  assert.equal(player.destroyed, true, 'the music stops like Stop');
+  assert.deepEqual(await listPlaylists(client, 'g-jam'), [], 'the list is gone too');
   deleteGuildMusicData('g-jam');
+});
+
+test('the jam ends when its host stays out of the voice channel for 30 seconds', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { watchJamHost, JAM_HOST_AWAY_MS } = await import('../src/services/music/musicActions.js');
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-host');
+  await playQuery(client, ui.make('play', 'command'), 'first song');
+  await submit(client, ui, await open(client, ui), { jam: ['start'] });
+  const leave = { id: 'owner', channelId: 'voice' };
+  const away = { id: 'owner', channelId: null };
+  watchJamHost(client, 'g-host', player, leave, away);
+  t.mock.timers.tick(JAM_HOST_AWAY_MS - 1000);
+  watchJamHost(client, 'g-host', player, away, leave);
+  t.mock.timers.tick(5_000);
+  assert.ok(getGuildMusicData('g-host').jam, 'back in time: the jam goes on');
+  watchJamHost(client, 'g-host', player, leave, away);
+  t.mock.timers.tick(JAM_HOST_AWAY_MS);
+  for (let i = 0; i < 5; i += 1) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(getGuildMusicData('g-host').jam, null);
+  assert.equal(player.destroyed, true);
+  deleteGuildMusicData('g-host');
 });
 
 test('every line of the list stays on one line: a long name is shortened', async () => {
