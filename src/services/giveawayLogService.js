@@ -29,6 +29,12 @@ async function giveawayLogChannel(guild) {
   return fallback?.send ? fallback : null;
 }
 
+// Every channel that holds giveaway logs other than the claim logs.
+export async function giveawayLogChannels(guild) {
+  const channels = [await giveawayLogChannel(guild), await countryLogChannel(guild)];
+  return [...new Map(channels.filter(channel => channel?.id).map(channel => [channel.id, channel])).values()];
+}
+
 function giveawayLink(guildId, giveaway, number) {
   const label = number ? '#' + number : 'Go to giveaway';
   return validId(giveaway?.channelId) && validId(giveaway?.messageId)

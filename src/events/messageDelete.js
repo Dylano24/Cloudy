@@ -12,6 +12,7 @@ import { forgetMessageSnapshot, getMessageSnapshot, isMessageLogFeedback, messag
 import { storeDeletedVideo } from '../services/deletedMediaService.js';
 import { truncateMessageLogText } from '../utils/logging/preserveMessageText.js';
 import { isPrivateReportCasePayload } from '../utils/reportCasePrivacy.js';
+import { linkDeletedGiveawayLogs } from '../services/giveawayDeletedLogLinks.js';
 
 // The log description holds up to 4096 characters; keep room for the
 // header lines and truncate the body to fit inside the embed.
@@ -253,7 +254,7 @@ export async function logDeletedMessage(message, options = {}) {
   const bodyLimit = MAX_LOGGED_MESSAGE_CONTENT_LENGTH - (details ? details.length + 2 : 0);
   const sectionBody = [embedCopies.length ? '' : truncateMessageLogText(fullBody, bodyLimit), details].filter(Boolean).join('\n\n');
 
-  await logEvent({
+  const logged = await logEvent({
     client: message.client,
     guildId,
     eventType: EVENT_TYPES.MESSAGE_DELETE,
@@ -273,5 +274,11 @@ export async function logDeletedMessage(message, options = {}) {
       channelId,
     }
   });
+  // A deleted giveaway: its #N in the giveaway logs now opens this log,
+  // where the deleted giveaway can still be read (owner's choice).
+  if (logged?.url && authorId && authorId === message.client?.user?.id) {
+    await linkDeletedGiveawayLogs(message.client, message.guild, message.id, logged.url)
+      .catch(error => logger.warn(`Could not link giveaway logs to deleted message ${message.id}: ${error?.message || error}`));
+  }
   if (snapshot || !uncached) await forgetMessageSnapshot(guildId, message.id);
 }
