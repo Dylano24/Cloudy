@@ -11,7 +11,7 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
-import { feedEmoji, feedEmojiComponent, feedEmojiReady, MUSIC_FOOTER_PIECES } from '../feedEmojiService.js';
+import { feedEmoji, feedEmojiReady, MUSIC_FOOTER_PIECES } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -190,26 +190,44 @@ export function buildMusicGuideEmbed() {
     });
 }
 
+// The player's buttons are text symbols, not emoji (owner's choice, after the custom
+// icons blinked): Discord's app loads the custom emoji of a button again every time
+// its message is redrawn, and the timer redraws the card every second. A symbol in a
+// button's label is drawn by the phone itself, so there is nothing to load again.
+// The two-bar and triangle symbols carry the text selector (U+FE0E) so they stay
+// white text and are not drawn as colour emoji. A mode that is on (shuffle, repeat)
+// is a green button instead of a green icon.
+export const PLAYER_BUTTON_SYMBOLS = Object.freeze({
+    shuffle: '\u21C4',
+    previous: '\u23EE\uFE0E',
+    pause: '\u23F8\uFE0E',
+    play: '\u25B6\uFE0E',
+    next: '\u23ED\uFE0E',
+    repeat: '\u21BB',
+    repeatOne: '\u21BB1',
+    queue: '\u2630',
+    add: '\u266B',
+    stop: '\u25A0',
+});
+
 // Owner's choice: /play starts the music and the player's buttons do everything
-// else, so the buttons are explained here by their own emoji, one short line each
-// in the order of the buttons (one emoji per line keeps the lines neatly under each
+// else, so the buttons are explained here by their own symbols, one short line each
+// in the order of the buttons (one symbol per line keeps the lines neatly under each
 // other). Only commands that are not on the player (for example a future Guess the
 // song) get a slash command line.
-// The player's buttons in their order, each with its own icon (Spotify's style;
-// the standard emoji until the icons are uploaded).
 const musicCommandsDescription = () => [
     '**Play**',
     '`/play` — Play a song or link.',
     '',
     '**Player buttons**',
-    `${feedEmoji('mc_shuffle')} Shuffle the queue`,
-    `${feedEmoji('mc_previous')} Previous song`,
-    `${feedEmoji('mc_pause')} Pause or continue`,
-    `${feedEmoji('mc_next')} Next song`,
-    `${feedEmoji('mc_repeat')} Repeat song or queue`,
-    `${feedEmoji('mc_queue')} Show the queue`,
-    '🎵 Add, start or remove',
-    '⏹️ Stop and leave',
+    `${PLAYER_BUTTON_SYMBOLS.shuffle} Shuffle the queue`,
+    `${PLAYER_BUTTON_SYMBOLS.previous} Previous song`,
+    `${PLAYER_BUTTON_SYMBOLS.pause} Pause or continue`,
+    `${PLAYER_BUTTON_SYMBOLS.next} Next song`,
+    `${PLAYER_BUTTON_SYMBOLS.repeat} Repeat song or queue`,
+    `${PLAYER_BUTTON_SYMBOLS.queue} Show the queue`,
+    `${PLAYER_BUTTON_SYMBOLS.add} Add, start or remove`,
+    `${PLAYER_BUTTON_SYMBOLS.stop} Stop and leave`,
 ].join('\n');
 
 export function buildMusicCommandsEmbed() {
@@ -304,50 +322,50 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
     // Like Spotify (owner's choice): Shuffle, Previous, Play/Pause, Next, Repeat in
-    // one row, white icons on grey, the mode that is on in green, and Play/Pause in
-    // the middle stands out in green. The bottom row has Queue, 🎵 Add (it opens
-    // the form at once) and, last, the red Stop button.
+    // one row, grey, a mode that is on (shuffle, repeat) in green. The bottom row has
+    // Queue, Add (it opens the form at once) and, last, Stop. The icons are text
+    // symbols in the button's label (`PLAYER_BUTTON_SYMBOLS`): they never blink on the
+    // card's every-second redraw.
     // No volume buttons (owner's choice): /music volume still sets it, and the old
     // button ids stay registered so a player message from before still answers.
     const loop = guildData?.loop || 'none';
+    const modeStyle = on => (on ? ButtonStyle.Success : ButtonStyle.Secondary);
     const controls = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent(guildData?.shuffle ? 'mc_shuffle_on' : 'mc_shuffle')),
+            .setStyle(modeStyle(guildData?.shuffle))
+            .setLabel(PLAYER_BUTTON_SYMBOLS.shuffle),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PREVIOUS)
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent('mc_previous')),
+            .setLabel(PLAYER_BUTTON_SYMBOLS.previous),
         new ButtonBuilder()
             .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent(paused ? 'mc_play' : 'mc_pause')),
+            .setLabel(paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SKIP)
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent('mc_next')),
+            .setLabel(PLAYER_BUTTON_SYMBOLS.next),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent(loop === 'track' ? 'mc_repeat_one' : loop === 'queue' ? 'mc_repeat_on' : 'mc_repeat')),
+            .setStyle(modeStyle(loop === 'track' || loop === 'queue'))
+            .setLabel(loop === 'track' ? PLAYER_BUTTON_SYMBOLS.repeatOne : PLAYER_BUTTON_SYMBOLS.repeat),
     );
 
     const stop = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent('mc_queue')),
+            .setLabel(PLAYER_BUTTON_SYMBOLS.queue),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
-            .setLabel('Add')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent('mc_note')),
+            .setLabel(`${PLAYER_BUTTON_SYMBOLS.add} Add`),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
-            .setLabel('Stop')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji(feedEmojiComponent('mc_stop')),
+            .setLabel(`${PLAYER_BUTTON_SYMBOLS.stop} Stop`),
     );
 
     return [controls, stop];
