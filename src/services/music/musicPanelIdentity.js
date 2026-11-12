@@ -5,8 +5,9 @@
 // cover) must never restyle them, like the game feeds (gameFeedTitles.js).
 // The player panel and the record it leaves when a song ends:
 const PANEL_TITLES = new Set(['now playing', 'played', 'skipped', 'stopped', 'could not play']);
-// The queue (Queue button), the Commands explanation and the Playlists panel:
-const SCREEN_TITLES = new Set(['music queue', 'music commands', 'playlists']);
+// The queue (Queue button), the Commands explanation and the notice of the
+// Add form ("Your list"; "Playlists" was its earlier panel):
+const SCREEN_TITLES = new Set(['music queue', 'music commands', 'playlists', 'your list']);
 
 export function isMusicPlayerEmbed(embed) {
   const data = embed?.toJSON ? embed.toJSON() : (embed?.data || embed);

@@ -131,7 +131,7 @@ const MUSIC_COMMANDS_DESCRIPTION = [
     '🔀 Shuffle the queue',
     '🔁 Repeat song or queue',
     '📋 Show the queue',
-    '🎵 Add or start playlists',
+    '🎵 Add, start or remove',
     '⏹️ Stop and leave',
 ].join('\n');
 
