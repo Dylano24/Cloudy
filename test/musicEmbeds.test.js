@@ -165,7 +165,7 @@ test('/play shows only the persistent player and cleans up its private acknowled
   // Requested by under the buttons after the white dot, the footer on the line under it
   // (14 emoji pieces once uploaded, as wide as the bar; until then the footer text).
   assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user\n-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
-  assert.match(cardTexts(panels[0])[1], /^-# 0:00 \/ 3:00\n/, 'the timer on the left right above the bar');
+  assert.equal(cardTexts(panels[0])[1], '-# 0:00 / 3:00', 'only the timer, no bar (owner\'s choice)');
   const parts = panels[0].components[0].toJSON().components;
   assert.equal(parts.filter(part => part.type === 12).length, 1, 'only the cover is a picture');
   assert.equal(parts.at(-1).type, 10, 'the card ends with the footer text');

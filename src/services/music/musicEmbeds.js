@@ -414,7 +414,9 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
     } else {
         const position = Math.min(timerPosition(player, guildData, lead), length);
         if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
-        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
+        // Only the timer, no bar (owner's choice: the bar's emoji pieces glitched; the
+        // /now playing embed keeps its bar).
+        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}`));
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
