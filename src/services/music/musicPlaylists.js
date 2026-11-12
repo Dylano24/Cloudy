@@ -14,7 +14,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CLOUDY_LOGO_URL } from '../cloudyLogoService.js';
 import { CLOUDY_BRANDING } from '../cloudyBrandingService.js';
 import { feedEmoji } from '../feedEmojiService.js';
@@ -22,7 +22,7 @@ import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import {
-  activeSource, assertCanControl, getPlayer, inspectMusicLink, removeSourceFromQueue, replaceQueue,
+  activeSource, assertCanControl, getPlayer, inspectMusicLink, queuedSources, removeSourceFromQueue, replaceQueue,
 } from './musicActions.js';
 import { prepareMusicQuery } from './musicLinks.js';
 
@@ -101,33 +101,56 @@ const songs = count => `${count} ${count === 1 ? 'song' : 'songs'}`;
 const itemKind = item => (item.kind === 'song' ? 'song' : songs(item.count || 0));
 const itemName = item => String(item?.name || 'Untitled').replace(/\*/g, '').slice(0, 80);
 
-// What plays now is always first (owner's choice): "<green dot> Playing: <name>"
-// with Cloudy's glowing green dot, and not again below it; the rest each start with
-// the white glowing dot instead of a number. A song that is not in the list (a full
-// list, a /play song) shows the same way.
-const PLAYING = 'Playing: ';
-const isActive = (item, active) => Boolean(active?.url) && item?.url === active.url;
-const unsavedActive = (items, active) => (active?.url && !(items || []).some(item => isActive(item, active)) ? active : null);
-const playingFirst = (items, active) => [...(items || [])]
-  .sort((a, b) => Number(isActive(b, active)) - Number(isActive(a, active)));
+// The list in this order (owner's choice): what plays now ("<green dot> Playing:",
+// Cloudy's glowing green dot), then what waits in the queue ("<blue dot> Queue:",
+// Cloudy's blue dot, in queue order), then the rest of the list, each after the
+// white glowing dot instead of a number. Nothing shows twice; a song that is not in
+// the list (a /play song, a full list) shows the same way.
+const MAX_QUEUE_LINES = 10;
+const queueKey = url => 'q:' + createHash('sha1').update(String(url)).digest('hex').slice(0, 16);
 
-function listText(items, active = null) {
-  const shown = (items || []).find(item => isActive(item, active)) || active;
-  const lines = shown ? [`${feedEmoji('online')} ${PLAYING}${itemName(shown)} · ${itemKind(shown)}`] : [];
-  const rest = (items || []).filter(item => !isActive(item, active)).slice(0, MAX_PLAYLISTS);
+function listEntries(items, active, queued) {
+  const list = items || [];
+  const savedFor = source => (source?.url ? list.find(item => item.url === source.url) : null);
+  const used = new Set();
+  const entries = [];
+  const take = (state, source) => {
+    const item = savedFor(source);
+    if (item && used.has(item.id)) return;
+    if (item) used.add(item.id);
+    entries.push({ state, item, source: item || source });
+  };
+  if (active) take('playing', active);
+  for (const source of queued || []) take('queue', source);
+  for (const item of list) if (!used.has(item.id)) entries.push({ state: 'list', item, source: item });
+  return entries;
+}
+
+function listText(items, active = null, queued = []) {
+  const entries = listEntries(items, active, queued);
+  const waiting = entries.filter(entry => entry.state === 'queue');
+  const line = (dot, label, source) => `${dot} ${label}${itemName(source)} · ${itemKind(source)}`;
+  const lines = [];
+  for (const entry of entries) {
+    if (entry.state === 'playing') lines.push(line(feedEmoji('online'), 'Playing: ', entry.source));
+    else if (entry.state === 'queue' && waiting.indexOf(entry) < MAX_QUEUE_LINES) lines.push(line(feedEmoji('report_blue'), 'Queue: ', entry.source));
+    else if (entry.state === 'list') lines.push(line(feedEmoji('dot'), '', entry.source));
+    if (entry.state === 'queue' && waiting.indexOf(entry) === MAX_QUEUE_LINES) {
+      lines.push(`${feedEmoji('report_blue')} Queue: +${waiting.length - MAX_QUEUE_LINES} more`);
+    }
+  }
   if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
-  else if (!rest.length && !shown) lines.push('Your list is empty. Add a song or a playlist below.');
-  else lines.push(...rest.map(item => `${feedEmoji('dot')} ${itemName(item)} · ${itemKind(item)}`));
+  else if (!lines.length) lines.push('Your list is empty. Add a song or a playlist below.');
   return ['**Your list**', ...lines].join('\n').slice(0, 3900);
 }
 
-function itemOption(item, active, value = item.id) {
-  const playing = isActive(item, active) || value === 'active';
+function entryOption(entry, value) {
+  const { source, state } = entry;
   return {
-    label: itemName(item).slice(0, 100),
-    description: `${itemKind(item)} • ${playing ? 'playing' : item.ownerName || 'Unknown'}`.slice(0, 100),
+    label: itemName(source).slice(0, 100),
+    description: `${itemKind(source)} • ${state === 'list' ? source.ownerName || 'Unknown' : state}`.slice(0, 100),
     value,
-    emoji: { name: item.kind === 'song' ? '🎶' : '🎵' },
+    emoji: { name: source.kind === 'song' ? '🎶' : '🎵' },
   };
 }
 
@@ -143,18 +166,21 @@ function itemSelect(customId, options, placeholder) {
     .addOptions(options);
 }
 
-// One form, opened at once by the player's Add button: the list itself (what plays
-// now first, as "Playing:"), a field to add a song or playlist, Start (plays the chosen one
-// in place of what plays now) and Remove. Every opening gets its own id. `items`
-// null means the list could not be read.
-export function buildListModal(items, active = null) {
+// One form, opened at once by the player's Add button: the list itself (Playing,
+// Queue, the rest), a field to add a song or playlist, Start (plays the chosen one
+// in place of what plays now) and Remove, in the same order as the list. Every
+// opening gets its own id. `items` null means the list could not be read.
+export function buildListModal(items, active = null, queued = []) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
   // No help lines under the fields (owner's choice: too much text).
   const labels = [new LabelBuilder().setLabel('Add a song or playlist').setTextInputComponent(add)];
-  const saved = playingFirst(items, active).slice(0, MAX_PLAYLISTS).map(item => itemOption(item, active));
-  const extra = unsavedActive(items, active);
-  const removable = [...(extra ? [itemOption(extra, active, 'active')] : []), ...saved].slice(0, MAX_PLAYLISTS);
+  const entries = listEntries(items, active, queued);
+  const saved = entries.filter(entry => entry.item).slice(0, MAX_PLAYLISTS).map(entry => entryOption(entry, entry.item.id));
+  const removable = entries
+    .filter(entry => entry.item || entry.source.url)
+    .map(entry => entryOption(entry, entry.item ? entry.item.id : entry.state === 'playing' ? 'active' : queueKey(entry.source.url)))
+    .slice(0, MAX_PLAYLISTS);
   if (saved.length) {
     labels.push(new LabelBuilder().setLabel('Start')
       .setStringSelectMenuComponent(itemSelect('start', saved, 'Choose what to play')));
@@ -164,7 +190,7 @@ export function buildListModal(items, active = null) {
       .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove')));
   }
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active)))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued)))
     .addLabelComponents(...labels);
 }
 
@@ -214,7 +240,8 @@ async function listForForm(client, guildId) {
 // The player's Add button: the form with the list opens at once.
 export async function openPlaylistPanel(interaction, client) {
   const items = await listForForm(client, interaction.guildId);
-  await interaction.showModal(buildListModal(items, activeSource(getPlayer(client, interaction.guildId))));
+  const player = getPlayer(client, interaction.guildId);
+  await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player)));
 }
 
 // /play with a playlist link puts that playlist in the list (owner's choice: it
@@ -312,13 +339,16 @@ async function handleListForm(interaction, client, state) {
   let failed = false;
   const fail = line => { failed = true; lines.push(line); };
 
-  const active = activeSource(getPlayer(client, guildId));
+  const player = getPlayer(client, guildId);
+  const active = activeSource(player);
+  const queued = queuedSources(player);
   for (const id of removeIds) {
     try {
-      if (id === 'active') {
-        // What plays now and is not in the list (a full list).
-        if (active && await removeSourceFromQueue(client, guildId, active.url, interaction.member)) {
-          lines.push(`**${itemName(active)}** was removed.`);
+      if (id === 'active' || id.startsWith('q:')) {
+        // What plays now or waits in the queue and is not in the list.
+        const source = id === 'active' ? active : queued.find(entry => entry.url && queueKey(entry.url) === id);
+        if (source && await removeSourceFromQueue(client, guildId, source.url, interaction.member)) {
+          lines.push(`**${itemName(source)}** was removed.`);
         }
         continue;
       }
