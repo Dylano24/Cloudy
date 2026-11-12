@@ -1,4 +1,5 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { createHash } from 'node:crypto';
 import { successEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -520,6 +521,43 @@ export function arrangeJamQueue(player) {
     }
     player.queue.clear();
     for (const track of arranged) player.queue.add(track);
+}
+
+// The Jam field lists the songs in the queue; one chosen there plays at once
+// (owner's choice: no pressing Skip several times). Its key is its place in the
+// queue and a short digest of the song, so a queue that changed in between still
+// finds the same song.
+const trackDigest = track => createHash('sha1')
+    .update(String(track?.info?.uri || track?.info?.title || ''))
+    .digest('hex').slice(0, 10);
+export const trackPickKey = (track, index) => `t:${index}:${trackDigest(track)}`;
+
+export function playQueuedNow(client, interaction, key) {
+    const guildId = interaction.guild.id;
+    const player = getPlayer(client, guildId);
+    if (!player?.current || !(player.playing || player.paused)) {
+        throw new CloudyError('Nothing playing', ErrorTypes.USER_INPUT, 'Nothing is playing right now.');
+    }
+    assertCanControl(interaction.member, player);
+    const [, at, digest] = String(key).split(':');
+    const queue = [...player.queue];
+    let index = Number(at);
+    if (!queue[index] || trackDigest(queue[index]) !== digest) index = queue.findIndex(track => trackDigest(track) === digest);
+    if (index < 0) throw new CloudyError('Song not queued', ErrorTypes.USER_INPUT, 'That song is no longer in the queue.');
+    // It moves to the front; the other songs keep their place.
+    const [track] = player.queue.splice(index, 1);
+    player.queue.unshift(track);
+    const guildData = getGuildMusicData(guildId);
+    guildData.lastSkip = { track: player.current, at: Date.now() };
+    markTrackEnding(guildData, player.current, 'skipped');
+    if (player.loop === 'track') player.setLoop('none');
+    player.stop();
+    if (player.paused) {
+        player.pause(false);
+        player.playing = true;
+        guildData.autoPaused = false;
+    }
+    return track;
 }
 
 // Start or end the jam. Who is in the bot's voice channel may do it; without a
