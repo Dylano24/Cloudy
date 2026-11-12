@@ -111,9 +111,10 @@ test('Add opens one form at once with the list, a song or playlist field, Start 
   assert.deepEqual([start.label, start.component.custom_id, start.component.min_values, start.component.max_values, start.component.required],
     ['Start', 'start', 0, 1, false]);
   assert.deepEqual([remove.label, remove.component.custom_id, remove.component.min_values, remove.component.max_values, remove.component.required],
-    ['Remove', 'remove', 0, 2, false]);
+    ['Remove', 'remove', 0, 1, false], 'one choice: a tap selects at once');
   assert.deepEqual(remove.component.options.map(option => option.label), ['Chill mix', 'Blinding Lights']);
   assert.ok(labels(form).every(label => !label.description), 'no help lines under the fields');
+  assert.equal(add.component.placeholder, 'Song name or playlist link');
 });
 
 test('a song name, a song link and a playlist link are each added to the list', async () => {
@@ -140,7 +141,7 @@ test('a song name, a song link and a playlist link are each added to the list', 
   assert.equal(ui.log.followUps.length, 0, 'never an extra message');
 });
 
-test('Start plays one from the list without any message, Remove removes several at once', async () => {
+test('Start plays one from the list without any message, Remove removes the chosen one', async () => {
   const { client, player } = fakeBot();
   const ui = fakeUi('g-start');
   const one = await addPlaylist(client, 'g-start', { url: 'https://x/1', name: 'One', count: 2, ownerId: 'owner', ownerName: 'Mila' });
@@ -152,9 +153,11 @@ test('Start plays one from the list without any message, Remove removes several 
   assert.deepEqual([ui.log.deferredUpdates, ui.log.deferredReplies.length, ui.log.edits.length, ui.log.followUps.length], [1, 0, 0, 0],
     'the player panel shows the songs; nothing else is posted');
 
-  await submit(client, ui, await open(client, ui), { remove: [one.id, two.id] });
+  await submit(client, ui, await open(client, ui), { remove: [two.id] });
+  assert.equal(notice(ui).description, '**Two** was removed.');
+  await submit(client, ui, await open(client, ui), { remove: [one.id] });
+  assert.equal(notice(ui).description, '**One** was removed.');
   assert.deepEqual(await listPlaylists(client, 'g-start'), []);
-  assert.equal(notice(ui).description, '**One** was removed.\n**Two** was removed.');
 
   await submit(client, ui, await open(client, ui));
   assert.equal(ui.log.deferredUpdates, 2, 'an empty form just closes');
@@ -209,10 +212,10 @@ test('a playlist started with /play shows in Add as active, and Start plays anot
   const chill = await addPlaylist(client, 'g-active', { url: 'https://x/playlist-chill', name: 'Chill mix', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
 
   const form = await open(client, ui);
-  assert.equal(form.components[0].content, '**Your list**\n1. ▶️ Road trip · 2 songs\n2. Chill mix · 2 songs');
+  assert.equal(form.components[0].content, '**Your list**\n1. Playing: Road trip · 2 songs\n2. Chill mix · 2 songs');
   const [, , remove] = labels(form);
   assert.deepEqual(remove.component.options.map(option => [option.label, option.emoji.name, option.description]),
-    [['Road trip', '▶️', '2 songs • active'], ['Chill mix', '🎵', '2 songs • Mila']]);
+    [['Road trip', '🎵', '2 songs • playing'], ['Chill mix', '🎵', '2 songs • Mila']]);
 
   await submit(client, ui, form, { start: [chill.id] });
   assert.equal(player.stops, 1, 'the song that played is skipped');
@@ -243,7 +246,7 @@ test('Remove of what plays takes its songs out of the queue; with nothing left t
   const ui2 = fakeUi('g-remove-only');
   await playQuery(second.client, ui2.make('play', 'command'), 'https://open.spotify.com/playlist/road');
   const form = await open(second.client, ui2);
-  assert.equal(form.components[0].content, '**Your list**\n▶️ Road trip · 2 songs');
+  assert.equal(form.components[0].content, '**Your list**\nPlaying: Road trip · 2 songs');
   assert.deepEqual(labels(form).map(label => label.label), ['Add a song or playlist', 'Remove']);
   await submit(second.client, ui2, form, { remove: ['active'] });
   assert.equal(second.player.destroyed, true, 'nothing else to play: stopped like the Stop button');
