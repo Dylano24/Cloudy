@@ -10,7 +10,7 @@ import {
 } from '../src/services/creatorNotificationProviders.js';
 import {
   addCreatorNotification, removeCreatorNotification, listCreatorNotifications,
-  checkCreatorNotifications,
+  checkCreatorNotifications, buildCreatorNotification,
 } from '../src/services/creatorNotificationService.js';
 
 const GUILD = '1520000000000000000';
@@ -334,4 +334,21 @@ test('a video link uses oEmbed to find the creator profile, even when the watch 
   };
   const entry = await addCreatorNotification(bot, GUILD, null, 'https://youtu.be/dQw4w9WgXcQ', null, { fetcher, env: {} });
   assert.equal(entry.id, 'youtube:' + CHANNEL_ID);
+});
+
+test('the announcement shows the creator name and the video picture', () => {
+  const yt = '<feed><entry><yt:videoId>ZZ123</yt:videoId><title>Big day</title><author><name>Some Creator</name></author>' +
+    '<media:group><media:thumbnail url="https://i2.ytimg.com/vi/ZZ123/hqdefault.jpg" width="480"/></media:group>' +
+    '<published>2026-11-11T12:00:00Z</published></entry></feed>';
+  const [video] = parseCreatorFeed(yt, 'youtube', CHANNEL_ID);
+  assert.equal(video.author, 'Some Creator');
+  assert.equal(video.thumbnail, 'https://i2.ytimg.com/vi/ZZ123/hqdefault.jpg');
+  const embed = buildCreatorNotification(video, { platform: 'youtube', account: CHANNEL_ID }).embeds[0];
+  assert.equal(embed.description, '**Some Creator**\nBig day');
+  assert.equal(embed.image.url, video.thumbnail);
+  // Without a feed picture the video's own thumbnail is used; a foreign host is never trusted.
+  const [plain] = parseCreatorFeed('<feed><entry><yt:videoId>AB1</yt:videoId><title>T</title></entry></feed>', 'youtube', CHANNEL_ID);
+  assert.equal(plain.thumbnail, 'https://i.ytimg.com/vi/AB1/hqdefault.jpg');
+  const [evil] = parseCreatorFeed('<feed><entry><yt:videoId>AB2</yt:videoId><media:thumbnail url="https://evil.example/x.jpg"/></entry></feed>', 'youtube', CHANNEL_ID);
+  assert.equal(evil.thumbnail, null);
 });

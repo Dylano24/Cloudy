@@ -107,9 +107,12 @@ export function buildCreatorNotification(item, subscription) {
     content: item.url,
     embeds: [{
       title,
-      description: '**' + subscription.account + '**\n' + String(item.title).replace(/@/g, '@\u200b').slice(0, 240),
+      // The creator's name (a YouTube channel ID is not a name) and the video's picture.
+      description: '**' + String(item.author || subscription.account).replace(/@/g, '@\u200b').slice(0, 100) + '**\n'
+        + String(item.title).replace(/@/g, '@\u200b').slice(0, 240),
       color: 0xFFFFFF,
       thumbnail: { url: LOGO },
+      ...(item.thumbnail ? { image: { url: item.thumbnail } } : {}),
       footer: { text: CLOUDY_STANDARD_FOOTER },
     }],
     allowedMentions: { parse: [] },

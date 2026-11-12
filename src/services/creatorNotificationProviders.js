@@ -52,6 +52,20 @@ function safePlatformUrl(platform, raw) {
   } catch { return null; }
 }
 
+// A picture link of the platform's own host (never an arbitrary address).
+function safeImageUrl(raw, hosts) {
+  try {
+    const url = new URL(String(raw || '').replace('%{width}', '1280').replace('%{height}', '720')
+      .replace('{width}', '1280').replace('{height}', '720'));
+    return url.protocol === 'https:' && hosts.some(host => url.hostname === host || url.hostname.endsWith('.' + host)) ? url.href : null;
+  } catch { return null; }
+}
+const IMAGE_HOSTS = {
+  youtube: ['ytimg.com', 'youtube.com'],
+  twitch: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'],
+  tiktok: ['tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokcdn-eu.com', 'tiktok.com'],
+};
+
 export function parseCreatorFeed(xml, platform, account) {
   return [...String(xml || '').matchAll(/<(entry|item)\b[^>]*>([\s\S]*?)<\/\1>/gi)]
     .map(([, kind, body]) => {
@@ -67,6 +81,11 @@ export function parseCreatorFeed(xml, platform, account) {
         title: (xmlTag(body, 'title') || account + ' published a video').slice(0, 240),
         url,
         type: 'video',
+        // The channel's name and the video's picture, for the announcement.
+        author: (xmlTag(/<author\b[\s\S]*?<\/author>/i.exec(body)?.[0] || '', 'name') || '').slice(0, 100) || null,
+        thumbnail: safeImageUrl(/<media:thumbnail\b[^>]*url=["']([^"']+)["']/i.exec(body)?.[1]
+          || /<enclosure\b[^>]*url=["']([^"']+)["'][^>]*type=["']image/i.exec(body)?.[1]
+          || (videoId ? 'https://i.ytimg.com/vi/' + encodeURIComponent(videoId) + '/hqdefault.jpg' : null), IMAGE_HOSTS[platform] || []),
         published: Date.parse(xmlTag(body, 'published') || xmlTag(body, 'pubDate') || xmlTag(body, 'updated')) || Date.now(),
       };
     }).filter(Boolean).slice(0, 12);
@@ -123,11 +142,15 @@ export async function fetchCreatorItems({ platform, account }, { env = process.e
       id: 'live:' + item.id, type: 'live',
       url: 'https://www.twitch.tv/' + account,
       title: item.title || account + ' is live',
+      author: item.user_name || null,
+      thumbnail: safeImageUrl(item.thumbnail_url, IMAGE_HOSTS.twitch),
       published: Date.parse(item.started_at) || Date.now(),
     })),
     ...(videos.data || []).map(item => ({
       id: 'video:' + item.id, type: 'video',
       url: item.url, title: item.title || account + ' uploaded a video',
+      author: item.user_name || null,
+      thumbnail: safeImageUrl(item.thumbnail_url, IMAGE_HOSTS.twitch),
       published: Date.parse(item.published_at) || Date.now(),
     })),
   ].filter(item => safePlatformUrl('twitch', item.url))
