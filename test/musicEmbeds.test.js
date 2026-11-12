@@ -166,14 +166,11 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
   // Owner's choice: "Requested by" with the display name where the time was, above the
-  // buttons, and the song's length on the right with the blue dot (no running timer).
+  // buttons, and on the same line, without a button, the song's length with the blue dot.
   const parts = panels[0].components[0].toJSON().components;
-  const section = parts.find(part => part.type === 9);
-  assert.equal(section.components[0].content, '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Dylano', 'the display name, not the username');
-  assert.equal(section.accessory.custom_id, 'music_time');
-  assert.equal(section.accessory.label, '3:00');
-  assert.equal(section.accessory.emoji.name, '🔵', 'the blue dot (until Cloudy\'s own is uploaded)');
-  assert.equal(parts.indexOf(section), parts.findIndex(part => part.type === 1) - 1, 'right above the buttons');
+  assert.equal(cardTexts(panels[0])[1], '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Dylano · 🔵 3:00', 'the display name and the length, no button');
+  assert.equal(parts.findIndex(part => part.type === 10 && /Requested by/.test(part.content)), parts.findIndex(part => part.type === 1) - 1, 'right above the buttons');
+  assert.ok(!parts.some(part => part.type === 9), 'no section: nothing on the right');
   assert.ok(!cardTexts(panels[0]).some(text => / \/ /.test(text)), 'no running timer');
   const pictures = parts.filter(part => part.type === 12);
   assert.equal(pictures.length, 2, 'the cover and the footer');
@@ -181,7 +178,7 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(parts.at(-1).items[0].media.url, PLAYER_FOOTER_PICTURE_URL);
   assert.equal(parts.at(-1).items[0].description, undefined, 'no ALT label');
   assert.equal(parts.at(-2).type, 1, 'right under the buttons');
-  assert.deepEqual(cardButtons(panels[0]), ['music_time', 'music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_remove', 'music_stop']);
+  assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_remove', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
   assert.equal(queue.length, 0);
