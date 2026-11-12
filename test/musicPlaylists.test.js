@@ -112,8 +112,10 @@ test('the - button opens Remove only and removes the active playlist using the e
   const form = await openRemove(client, ui);
   assert.equal(form.title, 'Remove from your list');
   assert.deepEqual(labels(form).map(label => label.label), ['Remove']);
-  assert.deepEqual(labels(form)[0].component.options.map(option => option.value), ['active', 'q:' + 'unused'].slice(0, 1).concat(labels(form)[0].component.options.slice(1).map(option => option.value)));
-  assert.equal(labels(form)[0].component.options[0].label, 'Road trip');
+  const removeOptions = labels(form)[0].component.options;
+  assert.equal(removeOptions[0].value, 'active', 'the playing playlist is offered for removal');
+  assert.equal(removeOptions[0].label, 'Road trip');
+  assert.ok(removeOptions.some(option => option.label === 'Song 9'), 'the queue remains selectable');
   assert.equal(ui.log.followUps.length, 0, 'the - click does not post a message');
   await submit(client, ui, form, { remove: ['active'] });
   assert.equal(notice(ui).description, '**Road trip** was removed.');
