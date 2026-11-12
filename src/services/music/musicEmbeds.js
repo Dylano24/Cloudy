@@ -99,6 +99,26 @@ export function musicProgressBar(positionMs, lengthMs) {
     return musicBarPieces(positionMs, lengthMs)?.map(key => feedEmoji(key)).join('') ?? null;
 }
 
+// The player card's bar is plain text (owner's choice: the emoji pieces popped in late
+// the first time a piece came by, and a text bar can never load late or blink): a heavy
+// line for what has played, the knob, and a light line for the rest. Box-drawing
+// characters only, so every cell has the same width and the bar never wraps. The knob
+// moves one cell at a time (a cell is about 1/18 of the song); the timer above it
+// still counts every second. Nothing here is a custom emoji.
+export const PLAYER_BAR_CELLS = 18;
+const BAR_PLAYED = '\u2501';
+const BAR_REST = '\u2500';
+const BAR_KNOB = '\u25CF';
+
+export function playerProgressText(positionMs, lengthMs) {
+    const length = Number(lengthMs);
+    if (!Number.isFinite(length) || length <= 0) return null;
+    const position = Number(positionMs);
+    const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
+    const knob = Math.min(PLAYER_BAR_CELLS - 1, Math.floor(fraction * PLAYER_BAR_CELLS));
+    return BAR_PLAYED.repeat(knob) + BAR_KNOB + BAR_REST.repeat(PLAYER_BAR_CELLS - 1 - knob);
+}
+
 // Cloudy's own clock for the timer on the player card (owner's choice: a
 // real-time timer). It counts real time from where the song was and follows the
 // node again only when the song is paused or resumed, or when they differ by more
@@ -319,6 +339,13 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
     });
 }
 
+// A button with a symbol is a little narrower than one with an emoji, and the owner wants
+// the buttons as wide as before: hair spaces (U+200A) on both sides widen the label by a
+// few points. A hair space is whitespace, never a visible mark; the symbol and its text
+// stay exactly what `PLAYER_BUTTON_SYMBOLS` says.
+const HAIR = '\u200A';
+const padLabel = (label, hairs = 1) => `${HAIR.repeat(hairs)}${label}${HAIR.repeat(hairs)}`;
+
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
     // Like Spotify (owner's choice): Shuffle, Previous, Play/Pause, Next, Repeat in
@@ -334,38 +361,38 @@ export function buildPlayerButtonRows(player, guildData) {
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
             .setStyle(modeStyle(guildData?.shuffle))
-            .setLabel(PLAYER_BUTTON_SYMBOLS.shuffle),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.shuffle)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PREVIOUS)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(PLAYER_BUTTON_SYMBOLS.previous),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.previous)),
         new ButtonBuilder()
             .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause),
+            .setLabel(padLabel(paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SKIP)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(PLAYER_BUTTON_SYMBOLS.next),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.next)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
             .setStyle(modeStyle(loop === 'track' || loop === 'queue'))
-            .setLabel(loop === 'track' ? PLAYER_BUTTON_SYMBOLS.repeatOne : PLAYER_BUTTON_SYMBOLS.repeat),
+            .setLabel(loop === 'track' ? padLabel(PLAYER_BUTTON_SYMBOLS.repeatOne, 2) : padLabel(PLAYER_BUTTON_SYMBOLS.repeat, 4)),
     );
 
     const stop = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(PLAYER_BUTTON_SYMBOLS.queue),
+            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.queue, 3)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(`${PLAYER_BUTTON_SYMBOLS.add} Add`),
+            .setLabel(padLabel(`${PLAYER_BUTTON_SYMBOLS.add} Add`)),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(`${PLAYER_BUTTON_SYMBOLS.stop} Stop`),
+            .setLabel(padLabel(`${PLAYER_BUTTON_SYMBOLS.stop} Stop`)),
     );
 
     return [controls, stop];
@@ -432,7 +459,7 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
     } else {
         const position = Math.min(timerPosition(player, guildData, lead), length);
         if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
-        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
+        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${playerProgressText(position, length)}`));
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
