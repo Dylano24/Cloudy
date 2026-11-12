@@ -20,7 +20,9 @@ import { CLOUDY_BRANDING } from '../cloudyBrandingService.js';
 import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
-import { assertCanControl, getPlayer, inspectMusicLink, playQuery } from './musicActions.js';
+import {
+  activeSource, assertCanControl, getPlayer, inspectMusicLink, removeSourceFromQueue, replaceQueue,
+} from './musicActions.js';
 import { prepareMusicQuery } from './musicLinks.js';
 
 const PREFIX = 'musicpl:';
@@ -98,46 +100,66 @@ const songs = count => `${count} ${count === 1 ? 'song' : 'songs'}`;
 const itemKind = item => (item.kind === 'song' ? 'song' : songs(item.count || 0));
 const itemName = item => String(item?.name || 'Untitled').replace(/\*/g, '').slice(0, 80);
 
-function listText(items) {
-  if (!items) return '**Your list**\nYour list could not be loaded right now. Open Add again in a moment.';
-  if (!items.length) return '**Your list**\nYour list is empty. Add a song or a playlist below.';
-  return ['**Your list**', ...items.slice(0, MAX_PLAYLISTS)
-    .map((item, index) => `${index + 1}. ${itemName(item)} · ${itemKind(item)}`)].join('\n').slice(0, 3900);
+// What plays now is marked ▶️ (owner's choice: the playlist of /play shows here as
+// active). One that is not in the list (a full list) shows first, unnumbered.
+const ACTIVE = '▶️';
+const isActive = (item, active) => Boolean(active?.url) && item?.url === active.url;
+const unsavedActive = (items, active) => (active?.url && !(items || []).some(item => isActive(item, active)) ? active : null);
+
+function listText(items, active = null) {
+  const extra = unsavedActive(items, active);
+  const lines = extra ? [`${ACTIVE} ${itemName(extra)} · ${itemKind(extra)}`] : [];
+  if (!items) lines.push('Your list could not be loaded right now. Open Add again in a moment.');
+  else if (!items.length && !extra) lines.push('Your list is empty. Add a song or a playlist below.');
+  else {
+    lines.push(...items.slice(0, MAX_PLAYLISTS).map((item, index) =>
+      `${index + 1}. ${isActive(item, active) ? ACTIVE + ' ' : ''}${itemName(item)} · ${itemKind(item)}`));
+  }
+  return ['**Your list**', ...lines].join('\n').slice(0, 3900);
 }
 
-function itemSelect(customId, items, placeholder, multiple) {
+function itemOption(item, active, value = item.id) {
+  const playing = isActive(item, active) || value === 'active';
+  return {
+    label: itemName(item).slice(0, 100),
+    description: `${itemKind(item)} • ${playing ? 'active' : item.ownerName || 'Unknown'}`.slice(0, 100),
+    value,
+    emoji: { name: playing ? ACTIVE : item.kind === 'song' ? '🎶' : '🎵' },
+  };
+}
+
+function itemSelect(customId, options, placeholder, multiple) {
   return new StringSelectMenuBuilder()
     .setCustomId(customId)
     .setPlaceholder(placeholder)
     .setRequired(false)
     .setMinValues(0)
-    .setMaxValues(multiple ? Math.min(items.length, MAX_PLAYLISTS) : 1)
-    .addOptions(items.slice(0, MAX_PLAYLISTS).map(item => ({
-      label: itemName(item).slice(0, 100),
-      description: `${itemKind(item)} • ${item.ownerName || 'Unknown'}`.slice(0, 100),
-      value: item.id,
-      emoji: { name: item.kind === 'song' ? '🎶' : '🎵' },
-    })));
+    .setMaxValues(multiple ? options.length : 1)
+    .addOptions(options);
 }
 
-// One form, opened at once by the player's Add button: the list itself, a field
-// to add a song or playlist, and (when the list has something) Start and Remove.
-// Every opening gets its own id. `items` null means the list could not be read.
-export function buildListModal(items) {
+// One form, opened at once by the player's Add button: the list itself (what plays
+// now marked ▶️), a field to add a song or playlist, Start (plays the chosen one in
+// place of what plays now) and Remove. Every opening gets its own id. `items`
+// null means the list could not be read.
+export function buildListModal(items, active = null) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name, or a song or playlist link');
   // No help lines under the fields (owner's choice: too much text).
   const labels = [new LabelBuilder().setLabel('Add a song or playlist').setTextInputComponent(add)];
-  if (items?.length) {
-    labels.push(
-      new LabelBuilder().setLabel('Start')
-        .setStringSelectMenuComponent(itemSelect('start', items, 'Choose what to play', false)),
-      new LabelBuilder().setLabel('Remove')
-        .setStringSelectMenuComponent(itemSelect('remove', items, 'Choose what to remove', true)),
-    );
+  const saved = (items || []).slice(0, MAX_PLAYLISTS).map(item => itemOption(item, active));
+  const extra = unsavedActive(items, active);
+  const removable = [...(extra ? [itemOption(extra, active, 'active')] : []), ...saved].slice(0, MAX_PLAYLISTS);
+  if (saved.length) {
+    labels.push(new LabelBuilder().setLabel('Start')
+      .setStringSelectMenuComponent(itemSelect('start', saved, 'Choose what to play', false)));
+  }
+  if (removable.length) {
+    labels.push(new LabelBuilder().setLabel('Remove')
+      .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove', true)));
   }
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items)))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active)))
     .addLabelComponents(...labels);
 }
 
@@ -187,8 +209,35 @@ async function listForForm(client, guildId) {
 // The player's Add button: the form with the list opens at once.
 export async function openPlaylistPanel(interaction, client) {
   const items = await listForForm(client, interaction.guildId);
-  await interaction.showModal(buildListModal(items));
+  await interaction.showModal(buildListModal(items, activeSource(getPlayer(client, interaction.guildId))));
 }
+
+// /play with a playlist link puts that playlist in the list (owner's choice: it
+// shows in Add as active). A list that is full or already has it stays as it is.
+export async function rememberPlayedPlaylist(client, guildId, playlist, user) {
+  if (!guildId || !/^https?:\/\//i.test(String(playlist?.url || ''))) return null;
+  try {
+    return await addPlaylist(client, guildId, {
+      url: playlist.url,
+      name: String(playlist.name || 'Playlist').slice(0, 80),
+      count: Number(playlist.count) || 0,
+      kind: 'playlist',
+      ownerId: user?.id,
+      ownerName: String(user?.username || 'Unknown').slice(0, 40),
+    });
+  } catch (error) {
+    if (error?.name !== 'CloudyError') logger.warn('[MUSIC_PLAYLISTS] Could not keep the played playlist: ' + (error?.message || error));
+    return null;
+  }
+}
+
+// The songs of a list item carry it, so Add can show it as active.
+const sourceOf = item => ({
+  url: item.url,
+  name: itemName(item),
+  count: Number(item.count) || 1,
+  kind: item.kind === 'song' ? 'song' : 'playlist',
+});
 
 // A song name or a song/playlist link: looked up once, then saved as its link.
 async function addToList(interaction, client, guildId, raw) {
@@ -233,7 +282,8 @@ async function sendNotice(interaction, state, lines, failed) {
 
 // One answer for the whole form: what was removed, added and started, in one
 // notice. A Start alone shows nothing (the player panel shows the songs), only
-// an error.
+// an error. Remove of what plays now also takes its songs out of the queue;
+// Start plays the chosen one in place of what plays now.
 async function handleListForm(interaction, client, state) {
   const guildId = interaction.guildId;
   const removeIds = selectedValues(interaction, 'remove');
@@ -257,14 +307,26 @@ async function handleListForm(interaction, client, state) {
   let failed = false;
   const fail = line => { failed = true; lines.push(line); };
 
+  const active = activeSource(getPlayer(client, guildId));
   for (const id of removeIds) {
     try {
+      if (id === 'active') {
+        // What plays now and is not in the list (a full list).
+        if (active && await removeSourceFromQueue(client, guildId, active.url, interaction.member)) {
+          lines.push(`**${itemName(active)}** was removed.`);
+        }
+        continue;
+      }
       const result = await removePlaylist(client, guildId, id, {
         userId: interaction.user.id,
         canManage: Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageGuild)),
       });
-      if (result.removed) lines.push(`**${itemName(result.entry)}** was removed.`);
-      else if (result.reason === 'forbidden') fail(`Only the person who added **${itemName(byId.get(id))}** or a moderator can remove it.`);
+      if (result.removed) {
+        lines.push(`**${itemName(result.entry)}** was removed.`);
+        await removeSourceFromQueue(client, guildId, result.entry.url, interaction.member);
+      } else if (result.reason === 'forbidden') {
+        fail(`Only the person who added **${itemName(byId.get(id))}** or a moderator can remove it.`);
+      }
     } catch (error) {
       fail(userMessageOf(error));
     }
@@ -285,7 +347,7 @@ async function handleListForm(interaction, client, state) {
       if (!item) throw new CloudyError('Missing playlist', ErrorTypes.USER_INPUT, 'That one is no longer in your list.');
       const player = getPlayer(client, guildId);
       if (player) assertCanControl(interaction.member, player);
-      await playQuery(client, interaction, item.url);
+      await replaceQueue(client, interaction, item.url, { source: sourceOf(item) });
     } catch (error) {
       fail(userMessageOf(error));
     }

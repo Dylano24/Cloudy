@@ -2,27 +2,43 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import {
-  addPlaylist, listPlaylists, removePlaylist, openPlaylistPanel, handleMusicPlaylistControls,
+  addPlaylist, listPlaylists, removePlaylist, openPlaylistPanel, handleMusicPlaylistControls, rememberPlayedPlaylist,
 } from '../src/services/music/musicPlaylists.js';
+import { playQuery } from '../src/services/music/musicActions.js';
+import { getGuildMusicData, deleteGuildMusicData } from '../src/services/music/playerStore.js';
 
 const track = n => ({ info: { title: 'Song ' + n, author: 'Artist', uri: 'https://example.com/' + n, length: 1000 } });
 const roadTrip = () => ({ loadType: 'playlist', playlistInfo: { name: 'Road trip' }, tracks: [track(1), track(2)] });
 function fakeBot(resolve) {
   const data = new Map();
-  const player = { queue: Object.assign([], { add(item) { this.push(item); } }), playing: false, paused: false, setVolume() {}, play() { this.playing = true; } };
+  const queue = Object.assign([], { add(item) { this.push(item); }, clear() { this.length = 0; } });
+  const player = {
+    queue, current: null, playing: false, paused: false, loop: 'none', stops: 0,
+    setVolume() {}, setLoop(mode) { this.loop = mode; }, pause(value) { this.paused = value; },
+    play() { this.current = queue.shift(); this.playing = true; return this; },
+    stop() { this.stops += 1; },
+    destroy() { this.destroyed = true; client.riffy.players.delete(this.guildId); },
+  };
   const client = {
+    channels: { cache: new Map() },
     db: {
       get: async key => structuredClone(data.get(key) ?? null),
       set: async (key, value) => { data.set(key, structuredClone(value)); return true; },
     },
     riffy: {
       players: new Map(),
-      createConnection: () => player,
+      createConnection: options => {
+        Object.assign(player, { guildId: options.guildId, voiceChannel: options.voiceChannel });
+        client.riffy.players.set(options.guildId, player);
+        return player;
+      },
       resolve: resolve || (async () => roadTrip()),
     },
   };
   return { client, data, player };
 }
+// A playlist link resolves to Road trip, anything else to one song.
+const byQuery = async ({ query }) => (/playlist|road/.test(query) ? roadTrip() : { loadType: 'search', tracks: [track(9)] });
 function fakeUi(guildId) {
   const log = { edits: [], followUps: [], modals: [], deleted: [], removed: [], deferredReplies: [], deferredUpdates: 0, root: null };
   const make = (customId, kind, extra = {}) => ({
@@ -131,7 +147,8 @@ test('Start plays one from the list without any message, Remove removes several 
   const two = await addPlaylist(client, 'g-start', { url: 'https://x/2', name: 'Two', count: 2, ownerId: 'owner', ownerName: 'Mila' });
 
   await submit(client, ui, await open(client, ui), { start: [one.id] });
-  assert.equal(player.queue.length, 2, 'the playlist is loaded');
+  assert.equal(player.current.info.title, 'Song 1', 'the playlist plays');
+  assert.equal(player.queue.length, 1);
   assert.deepEqual([ui.log.deferredUpdates, ui.log.deferredReplies.length, ui.log.edits.length, ui.log.followUps.length], [1, 0, 0, 0],
     'the player panel shows the songs; nothing else is posted');
 
@@ -181,4 +198,69 @@ test('a list from before the update is answered without changes', async () => {
   assert.equal(ui.log.deferredUpdates, 1);
   assert.equal((await listPlaylists(client, 'g-old')).length, 1);
   assert.equal(await handleMusicPlaylistControls(ui.make('music_queue', 'button'), client), false);
+});
+
+test('a playlist started with /play shows in Add as active, and Start plays another one in its place', async () => {
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-active');
+  const played = await playQuery(client, ui.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  assert.deepEqual(played.playlist, { url: 'https://open.spotify.com/playlist/road', name: 'Road trip', count: 2, kind: 'playlist' });
+  await rememberPlayedPlaylist(client, 'g-active', played.playlist, { id: 'owner', username: 'Mila' });
+  const chill = await addPlaylist(client, 'g-active', { url: 'https://x/playlist-chill', name: 'Chill mix', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
+
+  const form = await open(client, ui);
+  assert.equal(form.components[0].content, '**Your list**\n1. ▶️ Road trip · 2 songs\n2. Chill mix · 2 songs');
+  const [, , remove] = labels(form);
+  assert.deepEqual(remove.component.options.map(option => [option.label, option.emoji.name, option.description]),
+    [['Road trip', '▶️', '2 songs • active'], ['Chill mix', '🎵', '2 songs • Mila']]);
+
+  await submit(client, ui, form, { start: [chill.id] });
+  assert.equal(player.stops, 1, 'the song that played is skipped');
+  assert.equal(getGuildMusicData('g-active').endingTrack.outcome, 'skipped');
+  assert.deepEqual(player.queue.map(song => song.cloudySource.url), ['https://x/playlist-chill', 'https://x/playlist-chill'], 'only the new playlist waits');
+  assert.deepEqual([ui.log.edits.length, ui.log.followUps.length], [0, 0], 'no message');
+  deleteGuildMusicData('g-active');
+});
+
+test('Remove of what plays takes its songs out of the queue; with nothing left the player stops', async () => {
+  const { client, player } = fakeBot(byQuery);
+  const ui = fakeUi('g-remove-active');
+  const played = await playQuery(client, ui.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  await rememberPlayedPlaylist(client, 'g-remove-active', played.playlist, { id: 'owner', username: 'Mila' });
+  await playQuery(client, ui.make('play', 'command'), 'another song');
+  const [road] = await listPlaylists(client, 'g-remove-active');
+
+  await submit(client, ui, await open(client, ui), { remove: [road.id] });
+  assert.equal(notice(ui).description, '**Road trip** was removed.');
+  assert.deepEqual(player.queue.map(song => song.info.title), ['Song 9'], 'the other song stays');
+  assert.equal(player.stops, 1);
+  assert.equal(getGuildMusicData('g-remove-active').endingTrack.outcome, 'stopped');
+  assert.deepEqual(await listPlaylists(client, 'g-remove-active'), []);
+  deleteGuildMusicData('g-remove-active');
+
+  // Not in the list (a full list): it shows first, unnumbered, and Remove stops it.
+  const second = fakeBot(byQuery);
+  const ui2 = fakeUi('g-remove-only');
+  await playQuery(second.client, ui2.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  const form = await open(second.client, ui2);
+  assert.equal(form.components[0].content, '**Your list**\n▶️ Road trip · 2 songs');
+  assert.deepEqual(labels(form).map(label => label.label), ['Add a song or playlist', 'Remove']);
+  await submit(second.client, ui2, form, { remove: ['active'] });
+  assert.equal(second.player.destroyed, true, 'nothing else to play: stopped like the Stop button');
+  assert.equal(second.player.queue.length, 0);
+  deleteGuildMusicData('g-remove-only');
+});
+
+test('a Start that cannot be opened leaves what plays and the queue as they were', async () => {
+  let broken = false;
+  const { client, player } = fakeBot(async args => (broken ? { loadType: 'empty', tracks: [] } : byQuery(args)));
+  const ui = fakeUi('g-start-fail');
+  await playQuery(client, ui.make('play', 'command'), 'https://open.spotify.com/playlist/road');
+  const gone = await addPlaylist(client, 'g-start-fail', { url: 'https://x/gone', name: 'Gone', count: 3, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
+  broken = true;
+  await submit(client, ui, await open(client, ui), { start: [gone.id] });
+  assert.match(ui.log.followUps.at(-1).embeds[0].toJSON().description, /No results|could not be opened/);
+  assert.equal(player.stops, 0);
+  assert.deepEqual(player.queue.map(song => song.info.title), ['Song 2']);
+  deleteGuildMusicData('g-start-fail');
 });

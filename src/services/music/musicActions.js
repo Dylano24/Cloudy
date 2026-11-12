@@ -434,11 +434,85 @@ function withPlayLock(guildId, task) {
     return run;
 }
 
-export function playQuery(client, interaction, rawQuery) {
-    return withPlayLock(interaction?.guild?.id, () => runPlayQuery(client, interaction, rawQuery));
+// options.source: the list item (song or playlist) the songs come from, so the
+// Add form can show it as active (`cloudySource` on each song).
+export function playQuery(client, interaction, rawQuery, options = {}) {
+    return withPlayLock(interaction?.guild?.id, () => runPlayQuery(client, interaction, rawQuery, options));
 }
 
-async function runPlayQuery(client, interaction, rawQuery) {
+// The list item whose song plays now (paused counts), or null.
+export function activeSource(player) {
+    if (!player?.current || !(player.playing || player.paused)) return null;
+    return player.current.cloudySource || null;
+}
+
+// Ends the song that plays now for Start (replace) and Remove in the list. Repeat
+// would play it again or put it back at the end of the queue, so it is switched
+// off for this one stop; trackStart sets the stored loop mode again.
+function endCurrentTrack(player, guildData, outcome) {
+    guildData.lastSkip = { track: player.current, at: Date.now() };
+    markTrackEnding(guildData, player.current, outcome);
+    if (player.loop && player.loop !== 'none') player.setLoop('none');
+    player.stop();
+    if (player.paused) {
+        player.pause(false);
+        player.playing = true;
+        guildData.autoPaused = false;
+    }
+}
+
+// Start in the list (owner's choice: replace): the chosen song or playlist takes
+// the place of what plays now. The queue is emptied, the new songs are added and
+// the song that plays is skipped. When the new one cannot be opened the queue
+// stays exactly as it was.
+export function replaceQueue(client, interaction, rawQuery, options = {}) {
+    const guildId = interaction?.guild?.id;
+    return withPlayLock(guildId, async () => {
+        const player = getPlayer(client, guildId);
+        const busy = Boolean(player?.current && (player.playing || player.paused));
+        if (!busy) return runPlayQuery(client, interaction, rawQuery, options);
+        assertCanControl(interaction.member, player);
+        const kept = [...player.queue];
+        player.queue.clear();
+        let result;
+        try {
+            result = await runPlayQuery(client, interaction, rawQuery, options);
+        } catch (error) {
+            player.queue.clear();
+            for (const track of kept) player.queue.add(track);
+            throw error;
+        }
+        endCurrentTrack(player, getGuildMusicData(guildId), 'skipped');
+        return result;
+    });
+}
+
+// Remove of a list item that plays or waits in the queue (owner's choice): its
+// songs leave the queue and its song that plays now stops. With nothing else
+// left the player stops like the Stop button. Returns whether anything changed.
+export async function removeSourceFromQueue(client, guildId, url, member) {
+    const player = getPlayer(client, guildId);
+    if (!player || !url) return false;
+    const fromSource = track => track?.cloudySource?.url === url;
+    const playing = activeSource(player)?.url === url;
+    const queued = [...player.queue].some(fromSource);
+    if (!playing && !queued) return false;
+    assertCanControl(member, player);
+    const rest = [...player.queue].filter(track => !fromSource(track));
+    player.queue.clear();
+    for (const track of rest) player.queue.add(track);
+    const guildData = getGuildMusicData(guildId);
+    if (!playing) {
+        await refreshPlayerMessage(client, guildId);
+    } else if (!player.queue.length) {
+        await destroyPlayerSession(client, guildId, player, guildData);
+    } else {
+        endCurrentTrack(player, guildData, 'stopped');
+    }
+    return true;
+}
+
+async function runPlayQuery(client, interaction, rawQuery, { source = null } = {}) {
     await waitForMusicReady(client);
     assertInVoice(interaction.member);
     if (!getPlayer(client, interaction.guild.id)) await assertBotCanJoin(interaction);
@@ -457,8 +531,15 @@ async function runPlayQuery(client, interaction, rawQuery) {
 
     if (loadType === 'playlist' || loadType === 'PLAYLIST_LOADED') {
         // Every song is added, also one that is already in the queue (owner's choice).
+        const playlist = source || {
+            url: query,
+            name: String(playlistInfo?.name || 'Playlist').slice(0, 80),
+            count: tracks.length,
+            kind: 'playlist',
+        };
         for (const track of tracks) {
             track.info.requester = interaction.user;
+            track.cloudySource = playlist;
             player.queue.add(track);
         }
 
@@ -473,6 +554,8 @@ async function runPlayQuery(client, interaction, rawQuery) {
                 'Playlist added',
                 `**${playlistInfo?.name || 'Playlist'}**\nAdded ${tracks.length} track(s).`,
             ),
+            // /play puts a playlist link in the list (rememberPlayedPlaylist).
+            playlist: isLink ? playlist : null,
         };
     }
 
@@ -488,6 +571,7 @@ async function runPlayQuery(client, interaction, rawQuery) {
         }
 
         track.info.requester = interaction.user;
+        if (source) track.cloudySource = source;
 
         const willPlayNow = !player.playing && !player.paused;
         player.queue.add(track);
