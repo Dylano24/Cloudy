@@ -11,7 +11,7 @@ import {
 import { createEmbed } from '../../utils/embeds.js';
 import { getPaginationRow } from '../../utils/components.js';
 import { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
-import { feedEmoji, feedEmojiReady, MUSIC_FOOTER_PIECES } from '../feedEmojiService.js';
+import { feedEmoji, feedEmojiComponent, feedEmojiReady, MUSIC_FOOTER_PIECES } from '../feedEmojiService.js';
 
 export { MUSIC_BUTTON_IDS } from './musicButtonIds.js';
 
@@ -99,24 +99,31 @@ export function musicProgressBar(positionMs, lengthMs) {
     return musicBarPieces(positionMs, lengthMs)?.map(key => feedEmoji(key)).join('') ?? null;
 }
 
-// The player card's bar is plain text (owner's choice: the emoji pieces popped in late
-// the first time a piece came by, and a text bar can never load late or blink): a heavy
-// line for what has played, the knob, and a light line for the rest. Box-drawing
-// characters only, so every cell has the same width and the bar never wraps. The knob
-// moves one cell at a time (a cell is about 1/18 of the song); the timer above it
-// still counts every second. Nothing here is a custom emoji.
-export const PLAYER_BAR_CELLS = 18;
-const BAR_PLAYED = '\u2501';
-const BAR_REST = '\u2500';
-const BAR_KNOB = '\u25CF';
+// The player card's bar is a PICTURE (owner's choice): the same look as the old emoji
+// bar (white and rounded for what has played, a white knob, a dark grey line for the
+// rest), one picture for each of 216 knob places (about one a second for a song of 3
+// to 4 minutes), hosted on jsDelivr at a fixed commit so a link never changes
+// (assets/music-bar, 1714x104, transparent). The card only swaps the picture's link;
+// the emoji pieces of the old bar loaded late the first time a piece came by.
+export const PLAYER_BAR_STEPS = 216;
+const PLAYER_BAR_BASE = 'https://cdn.jsdelivr.net/gh/Dylano24/Cloudy@65a5005c066b6f09e4db1bec4813e6b704753879/assets/music-bar';
 
-export function playerProgressText(positionMs, lengthMs) {
+export function playerBarStep(positionMs, lengthMs) {
     const length = Number(lengthMs);
     if (!Number.isFinite(length) || length <= 0) return null;
     const position = Number(positionMs);
     const fraction = Number.isFinite(position) ? Math.max(0, Math.min(1, position / length)) : 0;
-    const knob = Math.min(PLAYER_BAR_CELLS - 1, Math.floor(fraction * PLAYER_BAR_CELLS));
-    return BAR_PLAYED.repeat(knob) + BAR_KNOB + BAR_REST.repeat(PLAYER_BAR_CELLS - 1 - knob);
+    return Math.round(fraction * (PLAYER_BAR_STEPS - 1));
+}
+
+export function playerBarPictureUrl(step) {
+    return `${PLAYER_BAR_BASE}/bar_${String(step).padStart(3, '0')}.png`;
+}
+
+/** The bar picture's link for this moment of the song, or null without a length. */
+export function playerBarPicture(positionMs, lengthMs) {
+    const step = playerBarStep(positionMs, lengthMs);
+    return step === null ? null : playerBarPictureUrl(step);
 }
 
 // Cloudy's own clock for the timer on the player card (owner's choice: a
@@ -210,44 +217,26 @@ export function buildMusicGuideEmbed() {
     });
 }
 
-// The player's buttons are text symbols, not emoji (owner's choice, after the custom
-// icons blinked): Discord's app loads the custom emoji of a button again every time
-// its message is redrawn, and the timer redraws the card every second. A symbol in a
-// button's label is drawn by the phone itself, so there is nothing to load again.
-// The two-bar and triangle symbols carry the text selector (U+FE0E) so they stay
-// white text and are not drawn as colour emoji. A mode that is on (shuffle, repeat)
-// is a green button instead of a green icon.
-export const PLAYER_BUTTON_SYMBOLS = Object.freeze({
-    shuffle: '\u21C4',
-    previous: '\u23EE\uFE0E',
-    pause: '\u23F8\uFE0E',
-    play: '\u25B6\uFE0E',
-    next: '\u23ED\uFE0E',
-    repeat: '\u21BB',
-    repeatOne: '\u21BB1',
-    queue: '\u2630',
-    add: '\u266B',
-    stop: '\u25A0',
-});
-
 // Owner's choice: /play starts the music and the player's buttons do everything
-// else, so the buttons are explained here by their own symbols, one short line each
-// in the order of the buttons (one symbol per line keeps the lines neatly under each
+// else, so the buttons are explained here by their own emoji, one short line each
+// in the order of the buttons (one emoji per line keeps the lines neatly under each
 // other). Only commands that are not on the player (for example a future Guess the
 // song) get a slash command line.
+// The player's buttons in their order, each with its own icon (Spotify's style;
+// the standard emoji until the icons are uploaded).
 const musicCommandsDescription = () => [
     '**Play**',
     '`/play` — Play a song or link.',
     '',
     '**Player buttons**',
-    `${PLAYER_BUTTON_SYMBOLS.shuffle} Shuffle the queue`,
-    `${PLAYER_BUTTON_SYMBOLS.previous} Previous song`,
-    `${PLAYER_BUTTON_SYMBOLS.pause} Pause or continue`,
-    `${PLAYER_BUTTON_SYMBOLS.next} Next song`,
-    `${PLAYER_BUTTON_SYMBOLS.repeat} Repeat song or queue`,
-    `${PLAYER_BUTTON_SYMBOLS.queue} Show the queue`,
-    `${PLAYER_BUTTON_SYMBOLS.add} Add, start or remove`,
-    `${PLAYER_BUTTON_SYMBOLS.stop} Stop and leave`,
+    `${feedEmoji('mc_shuffle')} Shuffle the queue`,
+    `${feedEmoji('mc_previous')} Previous song`,
+    `${feedEmoji('mc_pause')} Pause or continue`,
+    `${feedEmoji('mc_next')} Next song`,
+    `${feedEmoji('mc_repeat')} Repeat song or queue`,
+    `${feedEmoji('mc_queue')} Show the queue`,
+    '🎵 Add, start or remove',
+    '⏹️ Stop and leave',
 ].join('\n');
 
 export function buildMusicCommandsEmbed() {
@@ -339,60 +328,53 @@ export function buildQueueEmbed(queue, currentTrack, page = 0) {
     });
 }
 
-// A button with a symbol is a little narrower than one with an emoji, and the owner wants
-// the buttons as wide as before: hair spaces (U+200A) on both sides widen the label by a
-// few points. A hair space is whitespace, never a visible mark; the symbol and its text
-// stay exactly what `PLAYER_BUTTON_SYMBOLS` says.
-const HAIR = '\u200A';
-const padLabel = (label, hairs = 1) => `${HAIR.repeat(hairs)}${label}${HAIR.repeat(hairs)}`;
-
 export function buildPlayerButtonRows(player, guildData) {
     const paused = Boolean(player?.paused);
     // Like Spotify (owner's choice): Shuffle, Previous, Play/Pause, Next, Repeat in
-    // one row, grey, a mode that is on (shuffle, repeat) in green. The bottom row has
-    // Queue, Add (it opens the form at once) and, last, Stop. The icons are text
-    // symbols in the button's label (`PLAYER_BUTTON_SYMBOLS`): they never blink on the
-    // card's every-second redraw.
+    // one row, white icons on grey, the mode that is on in green, and Play/Pause in
+    // the middle stands out in green. The bottom row has Queue, 🎵 Add (it opens
+    // the form at once) and, last, the red Stop button.
     // No volume buttons (owner's choice): /music volume still sets it, and the old
     // button ids stay registered so a player message from before still answers.
     const loop = guildData?.loop || 'none';
-    const modeStyle = on => (on ? ButtonStyle.Success : ButtonStyle.Secondary);
     const controls = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SHUFFLE)
-            .setStyle(modeStyle(guildData?.shuffle))
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.shuffle)),
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(feedEmojiComponent(guildData?.shuffle ? 'mc_shuffle_on' : 'mc_shuffle')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PREVIOUS)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.previous)),
+            .setEmoji(feedEmojiComponent('mc_previous')),
         new ButtonBuilder()
             .setCustomId(paused ? MUSIC_BUTTON_IDS.RESUME : MUSIC_BUTTON_IDS.PAUSE)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(paused ? PLAYER_BUTTON_SYMBOLS.play : PLAYER_BUTTON_SYMBOLS.pause)),
+            .setEmoji(feedEmojiComponent(paused ? 'mc_play' : 'mc_pause')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.SKIP)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.next)),
+            .setEmoji(feedEmojiComponent('mc_next')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.LOOP)
-            .setStyle(modeStyle(loop === 'track' || loop === 'queue'))
-            .setLabel(loop === 'track' ? padLabel(PLAYER_BUTTON_SYMBOLS.repeatOne, 2) : padLabel(PLAYER_BUTTON_SYMBOLS.repeat, 4)),
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(feedEmojiComponent(loop === 'track' ? 'mc_repeat_one' : loop === 'queue' ? 'mc_repeat_on' : 'mc_repeat')),
     );
 
     const stop = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.QUEUE)
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(PLAYER_BUTTON_SYMBOLS.queue, 3)),
+            .setEmoji(feedEmojiComponent('mc_queue')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.PLAYLISTS)
+            .setLabel('Add')
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(`${PLAYER_BUTTON_SYMBOLS.add} Add`)),
+            .setEmoji(feedEmojiComponent('mc_note')),
         new ButtonBuilder()
             .setCustomId(MUSIC_BUTTON_IDS.STOP)
+            .setLabel('Stop')
             .setStyle(ButtonStyle.Secondary)
-            .setLabel(padLabel(`${PLAYER_BUTTON_SYMBOLS.stop} Stop`)),
+            .setEmoji(feedEmojiComponent('mc_stop')),
     );
 
     return [controls, stop];
@@ -459,7 +441,8 @@ export function buildPlayerCard(track, player, guildData, { ended = null, lead =
     } else {
         const position = Math.min(timerPosition(player, guildData, lead), length);
         if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
-        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${playerProgressText(position, length)}`));
+        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}`));
+        card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(playerBarPicture(position, length))));
     }
     if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
     const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');

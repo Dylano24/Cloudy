@@ -2,6 +2,7 @@ import test from 'node:test';
 import { cardButtons, cardCover, cardHeading, cardTexts } from './helpers/playerCard.js';
 import assert from 'node:assert/strict';
 import { ChannelType, Collection, MessageFlags } from 'discord.js';
+import { playerBarPictureUrl } from '../src/services/music/musicEmbeds.js';
 import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
@@ -78,21 +79,19 @@ test('public song announcement includes verified artwork, artist, album and queu
   assert.equal(formatMusicProgress(0, 0), null);
 });
 
-test('music guide keeps Cloudy branding and the commands explain the player buttons by their symbols', async () => {
-  const { PLAYER_BUTTON_SYMBOLS: symbols } = await import('../src/services/music/musicEmbeds.js');
+test('music guide keeps Cloudy branding and the commands explain the player buttons by emoji', () => {
   const guide = buildMusicGuideEmbed().toJSON();
   assert.equal(guide.title, 'Cloudy music');
   assert.match(guide.description, /Click the button below/);
   assert.ok(!guide.description.includes('/now playing'), 'the public panel must remain short');
   const commands = buildMusicCommandsEmbed().toJSON();
   assert.equal(commands.title, 'Music commands');
-  // The buttons of the player in their order, one short line each with one symbol, so the lines stay neatly under each other.
-  const all = commands.description.split('\n');
-  const lines = all.slice(all.indexOf('**Player buttons**') + 1);
-  assert.deepEqual(lines.map(line => line.split(' ')[0]), [symbols.shuffle, symbols.previous, symbols.pause, symbols.next, symbols.repeat, symbols.queue, symbols.add, symbols.stop]);
+  // The buttons of the player in their order, one short line each with one emoji, so the lines stay neatly under each other.
+  const lines = commands.description.split('\n').filter(line => /^\p{Extended_Pictographic}/u.test(line));
+  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['🔀', '⏮️', '⏸️', '⏭️', '🔁', '📋', '🎵', '⏹️']);
   for (const line of lines) {
     assert.ok(line.length <= 26, `Explanation must stay short: ${line}`);
-    assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the symbol and a few words: ${line}`);
+    assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the emoji and a few words: ${line}`);
   }
   // /play is the only slash command: the player covers the rest, other commands (such as a future Guess the song) get their own line.
   assert.deepEqual(commands.description.match(/`\/[a-z ]+`/g), ['`/play`']);
@@ -167,10 +166,12 @@ test('/play shows only the persistent player and cleans up its private acknowled
   // Requested by under the buttons after the white dot, the footer on the line under it
   // (14 emoji pieces once uploaded, as wide as the bar; until then the footer text).
   assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user\n-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
-  assert.match(cardTexts(panels[0])[1], /^-# 0:00 \/ 3:00\n/, 'the timer on the left right above the bar');
-  assert.match(cardTexts(panels[0])[1].split('\n')[1], /^[\u2501\u2500\u25CF]{18}$/, 'the bar is plain text: no emoji that can load late or blink');
+  assert.equal(cardTexts(panels[0])[1], '-# 0:00 / 3:00', 'the timer on the left right above the bar');
   const parts = panels[0].components[0].toJSON().components;
-  assert.equal(parts.filter(part => part.type === 12).length, 1, 'only the cover is a picture');
+  const pictures = parts.filter(part => part.type === 12);
+  assert.equal(pictures.length, 2, 'the cover and the bar are the only pictures');
+  assert.equal(pictures[1].items[0].media.url, playerBarPictureUrl(0), 'the bar is a picture too, with the knob at the start');
+  assert.ok(parts.findIndex(part => part.type === 12 && part === pictures[1]) > parts.findIndex(part => part.type === 10 && /^-# 0:00/.test(part.content)), 'the bar sits right under the timer');
   assert.equal(parts.at(-1).type, 10, 'the card ends with the footer text');
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
@@ -219,28 +220,20 @@ test('/music guide also shows the compact embed with its Commands button', async
 
 test('the player controls are in Spotify\'s order with Play/Pause in the middle; Queue, Add and Stop share the bottom row', async () => {
   const { buildPlayerButtonRows } = await import('../src/services/music/musicEmbeds.js');
-  const bare = label => label.replace(/\u200A/g, '');
   const rows = buildPlayerButtonRows({ paused: false }, { loop: 'none' }).map(row => row.toJSON().components);
   assert.deepEqual(rows.map(row => row.map(button => button.custom_id)), [
     ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop'],
     ['music_queue', 'music_playlists', 'music_stop'],
   ]);
-  // Text symbols in the label, never an emoji: Discord's app loads a button's custom emoji again each time the card
-  // is redrawn (every second for the timer), which made the icons blink; a symbol is drawn by the phone itself.
-  assert.ok(rows.flat().every(button => !button.emoji), 'no emoji on any button, custom or standard');
-  assert.deepEqual(rows[0].map(button => bare(button.label)), ['\u21C4', '\u23EE\uFE0E', '\u23F8\uFE0E', '\u23ED\uFE0E', '\u21BB'], 'icon-only buttons, so they stay in one row on a phone');
-  assert.ok(rows.flat().every(button => button.label.includes('\u200A')), 'hair spaces make the buttons as wide as the old icon buttons');
-  assert.ok(rows.flat().every(button => /^[\u200A]*\S/.test(button.label) && /\S[\u200A]*$/.test(button.label)), 'only padding around the label, never a visible mark');
+  assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
+  assert.deepEqual(rows[0].map(button => button.emoji.name), ['🔀', '⏮️', '⏸️', '⏭️', '🔁'], 'standard emoji until the icons are uploaded');
   assert.deepEqual(rows.flat().map(button => button.style), [2, 2, 2, 2, 2, 2, 2, 2], 'every button grey, also Play/Pause and Stop');
-  assert.deepEqual(rows[1].map(button => bare(button.label)), ['\u2630', '\u266B Add', '\u25A0 Stop'], 'the saved playlists button says Add');
-  const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track', shuffle: true }).map(row => row.toJSON().components);
+  assert.deepEqual(rows[1].map(button => button.label || button.emoji.name), ['📋', 'Add', 'Stop'], 'the saved playlists button says Add');
+  assert.equal(rows[1][1].emoji.name, '🎵', 'with the music emoji');
+  const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
   assert.equal(paused[0][2].custom_id, 'music_resume');
-  assert.equal(bare(paused[0][2].label), '\u25B6\uFE0E');
-  assert.equal(bare(paused[0][4].label), '\u21BB1');
-  assert.deepEqual(paused[0].map(button => button.style), [3, 2, 2, 2, 3], 'a mode that is on (shuffle, repeat) is a green button');
-  const queueLoop = buildPlayerButtonRows({ paused: false }, { loop: 'queue' }).map(row => row.toJSON().components);
-  assert.equal(queueLoop[0][4].style, 3);
-  assert.equal(bare(queueLoop[0][4].label), '\u21BB');
+  assert.equal(paused[0][2].emoji.name, '▶️');
+  assert.equal(paused[0][4].emoji.name, '🔂');
 });
 
 test('the card shows the sharpest copy of the cover, however the song was added', async () => {
@@ -269,18 +262,48 @@ test('a button gets Cloudy\'s uploaded icon as an emoji object, else the standar
   assert.equal(emojiComponentFromMarkup('▶️', '▶️'), '▶️');
 });
 
-test('the player bar is plain text of a fixed width whose knob moves from the start to the end of the song', async () => {
-  const { playerProgressText, PLAYER_BAR_CELLS } = await import('../src/services/music/musicEmbeds.js');
+test('the player bar is a picture: 216 knob places from the start to the end of any song', async () => {
+  const { playerBarPicture, playerBarStep, playerBarPictureUrl: urlFor, PLAYER_BAR_STEPS } = await import('../src/services/music/musicEmbeds.js');
+  assert.equal(PLAYER_BAR_STEPS, 216);
   const length = 295_000;
-  const bars = Array.from({ length: 296 }, (_, second) => playerProgressText(second * 1_000, length));
-  assert.ok(bars.every(bar => bar.length === PLAYER_BAR_CELLS && /^[\u2501\u2500\u25CF]+$/.test(bar)), 'always the same width, only line and knob characters');
-  assert.equal(bars[0], '\u25CF' + '\u2500'.repeat(PLAYER_BAR_CELLS - 1), 'the knob at the start');
-  assert.equal(bars.at(-1), '\u2501'.repeat(PLAYER_BAR_CELLS - 1) + '\u25CF', 'the knob at the end');
-  const knobs = bars.map(bar => bar.indexOf('\u25CF'));
-  assert.ok(knobs.every((knob, index) => index === 0 || (knob >= knobs[index - 1] && knob - knobs[index - 1] <= 1)), 'the knob never goes back and moves one cell at a time');
-  assert.equal(new Set(knobs).size, PLAYER_BAR_CELLS, 'and it visits every cell');
-  assert.equal(playerProgressText(500_000, length), bars.at(-1), 'past the end stays at the end');
-  assert.equal(playerProgressText(-5, length), bars[0], 'never before the start');
-  assert.equal(playerProgressText(1_000, 0), null, 'no bar without a length');
-  assert.equal(playerProgressText(1_000, undefined), null);
+  const steps = Array.from({ length: 296 }, (_, second) => playerBarStep(second * 1_000, length));
+  assert.equal(steps[0], 0, 'the knob at the start');
+  assert.equal(steps.at(-1), 215, 'the knob at the end');
+  assert.ok(steps.every((step, index) => index === 0 || (step >= steps[index - 1] && step - steps[index - 1] <= 2)), 'the knob never goes back and moves one or two places a second');
+  assert.ok(new Set(steps).size >= 205, 'it moves (almost) every second');
+  assert.equal(playerBarStep(500_000, length), 215, 'past the end stays at the end');
+  assert.equal(playerBarStep(-5, length), 0, 'never before the start');
+  assert.equal(playerBarPicture(1_000, 0), null, 'no bar without a length');
+  assert.equal(playerBarPicture(1_000, undefined), null);
+  assert.match(urlFor(7), /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/music-bar\/bar_007\.png$/, 'a fixed commit, so a link never changes');
+});
+
+test('every bar picture exists, is transparent and has the same size', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { PLAYER_BAR_STEPS } = await import('../src/services/music/musicEmbeds.js');
+  const directory = new URL('../assets/music-bar/', import.meta.url);
+  const files = (await readdir(directory)).filter(name => name.endsWith('.png')).sort();
+  assert.deepEqual(files, Array.from({ length: PLAYER_BAR_STEPS }, (_, step) => `bar_${String(step).padStart(3, '0')}.png`));
+  for (const name of [files[0], files[107], files.at(-1)]) {
+    const png = await readFile(new URL(name, directory));
+    assert.equal(png.subarray(1, 4).toString(), 'PNG');
+    assert.equal(png.readUInt32BE(16), 1714, `${name} is 1714 px wide`);
+    assert.equal(png.readUInt32BE(20), 104, `${name} is 104 px high`);
+    assert.equal(png[25], 6, `${name} has an alpha channel (transparent background)`);
+  }
+});
+
+test('all bar pictures are requested once after a start, and a picture that fails never stops the others', async () => {
+  const { warmPlayerBarPictures } = await import('../src/services/music/musicBarWarmup.js');
+  const asked = [];
+  const fetchImpl = async url => {
+    asked.push(url);
+    if (url.endsWith('bar_010.png')) throw new Error('network');
+    return { ok: !url.endsWith('bar_020.png'), arrayBuffer: async () => new ArrayBuffer(1) };
+  };
+  const warmed = await warmPlayerBarPictures(fetchImpl);
+  assert.equal(asked.length, 216);
+  assert.equal(new Set(asked).size, 216, 'each picture once');
+  assert.equal(warmed, 214, 'a failed and a refused picture are not counted, the rest are');
+  assert.equal(await warmPlayerBarPictures(null), 0, 'without fetch nothing happens');
 });
