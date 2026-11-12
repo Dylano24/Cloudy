@@ -111,7 +111,8 @@ export function songPosition(player, guildData = null, now = Date.now()) {
     const node = livePlayerPosition(player, now);
     const track = player?.current;
     if (!guildData || !track) return node;
-    const paused = Boolean(player.paused);
+    // Without a voice connection nothing plays: the timer stands still, as when paused.
+    const paused = Boolean(player.paused) || player.connected === false;
     const clock = guildData.songClock;
     if (clock?.track === track && clock.paused === paused) {
         const own = paused ? clock.base : clock.base + Math.max(0, now - clock.at);
@@ -147,7 +148,10 @@ export function formatClock(ms) {
 export function livePlayerPosition(player, now = Date.now()) {
     const position = Math.max(0, Number(player?.position) || 0);
     const reportedAt = Number(player?.cloudyPositionAt) || 0;
-    if (!reportedAt || player?.paused || !player?.current) return position;
+    // A node without a voice connection (`connected` false in its report) plays nothing:
+    // the bar stays where it is instead of running on, or jumping back to the node's
+    // position at every report.
+    if (!reportedAt || player?.paused || !player?.current || player?.connected === false) return position;
     return position + Math.max(0, now - reportedAt);
 }
 
@@ -357,20 +361,13 @@ export function getQueuePageSize() {
     return QUEUE_PAGE_SIZE;
 }
 
-// The player is two messages that sit under each other (owner's choice: the buttons
-// keep Cloudy's own icons and nothing may blink). Discord's app loads every custom
-// emoji of a button again each time its message is redrawn, and the timer needs a
-// redraw every second, so the buttons are not in the message of the timer:
-//  - the CARD (`buildPlayerCard`, redrawn every second): the cover on top (no ALT
-//    label), the title and the artist, the timer (where the song is / its length)
-//    on its own small line on the left right above the bar, and the bar with its
-//    knob;
-//  - the CONTROLS (`buildPlayerControls`, redrawn only when something on it really
-//    changes: Pause/Resume, Shuffle, Repeat, a new song): the buttons (all grey),
-//    "Requested by" after the white dot and under it the Cloudy footer.
-// A record of an ended song is the card alone: "Played", "Skipped", ... above the
-// title, only the song's length, no bar and no buttons, with "Requested by" and the
-// footer at its end (its controls message is removed). No "Now playing" line and no logo.
+// The player as one card like Spotify's Now Playing (owner's choice: the buttons
+// inside it): the cover on top (no ALT label), the title and the artist, the
+// timer (where the song is / its length, every second) on its own small line on
+// the left right above the bar, the bar with its knob, the controls (all grey),
+// "Requested by" after the white dot and under it the Cloudy footer. A record of
+// an ended song says "Played", "Skipped", ... above the title, shows only the
+// song's length and has no bar and no buttons. No "Now playing" line and no logo.
 export const PLAYER_CARD_HEADINGS = ['Played', 'Skipped', 'Stopped', 'Could not play'];
 // The footer (owner's choice: small, white, on one line and the same on a PC as
 // on a phone) is the footer text drawn over 14 emoji pieces, as wide as the bar
@@ -399,56 +396,34 @@ function timerPosition(player, guildData, lead) {
     return position;
 }
 
-const PLAYER_ACCENT = 0xFFFFFF;
-const playerText = content => new TextDisplayBuilder().setContent(content);
-const playerPayload = card => ({ flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } });
-
-// "Requested by" after the white dot, and the Cloudy footer on the line under it.
-function requestedByAndFooter(info) {
-    const requester = String(info?.requester?.username || info?.requester?.tag || 'Unknown').replace(/\n/g, ' ');
-    return playerText(`-# ${feedEmoji('dot')} Requested by ${requester}\n${playerFooterLine()}`);
-}
-
 export function buildPlayerCard(track, player, guildData, { ended = null, lead = 0 } = {}) {
     const info = track?.info || {};
+    const text = content => new TextDisplayBuilder().setContent(content);
     const title = String(info.title || 'Unknown track').replace(/\n/g, ' ').slice(0, 200);
     const artist = String(info.author || 'Unknown artist').replace(/\n/g, ' ').slice(0, 200);
-    const card = new ContainerBuilder().setAccentColor(PLAYER_ACCENT);
+    const card = new ContainerBuilder().setAccentColor(0xFFFFFF);
     const cover = getTrackArtwork(track);
     if (cover) card.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(cover)));
-    card.addTextDisplayComponents(playerText(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
+    card.addTextDisplayComponents(text(`${ended ? `-# ${ended}\n` : ''}### ${title}\n${artist}`));
     const length = Number(info.length);
     const timed = !info.isStream && Number.isFinite(length) && length > 0;
     if (!timed) {
-        card.addTextDisplayComponents(playerText('-# Live'));
+        card.addTextDisplayComponents(text('-# Live'));
     } else if (ended) {
-        card.addTextDisplayComponents(playerText(`-# ${formatClock(length)}`));
+        card.addTextDisplayComponents(text(`-# ${formatClock(length)}`));
     } else {
         const position = Math.min(timerPosition(player, guildData, lead), length);
         if (guildData) guildData.cardSecond = Math.floor(position / SECOND_MS);
-        card.addTextDisplayComponents(playerText(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
+        card.addTextDisplayComponents(text(`-# ${formatClock(position)} / ${formatClock(length)}\n${musicProgressBar(position, length)}`));
     }
-    // A record carries "Requested by" and the footer itself: it has no controls message.
-    if (ended) card.addTextDisplayComponents(requestedByAndFooter(info));
-    return playerPayload(card);
+    if (!ended) card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
+    const requester = String(info.requester?.username || info.requester?.tag || 'Unknown').replace(/\n/g, ' ');
+    card.addTextDisplayComponents(text(`-# ${feedEmoji('dot')} Requested by ${requester}\n${playerFooterLine()}`));
+    return { flags: MessageFlags.IsComponentsV2, components: [card], allowedMentions: { parse: [] } };
 }
 
-// The message under the card: the buttons, "Requested by" and the footer. It is
-// edited only when its payload really changes, so the buttons are not redrawn
-// (and their emoji not loaded again) every second.
-export function buildPlayerControls(track, player, guildData) {
-    const card = new ContainerBuilder().setAccentColor(PLAYER_ACCENT);
-    card.addActionRowComponents(...buildPlayerButtonRows(player, guildData));
-    card.addTextDisplayComponents(requestedByAndFooter(track?.info));
-    return playerPayload(card);
-}
-
-// The timer line of the live card ("1:06 / 4:55" then the bar), or "Live" for a stream.
-const LIVE_TIMER_LINE = /^-# \d+(?::\d\d){1,2} \/ \d+(?::\d\d){1,2}(?:\n|$)/;
-
-// A message that is one of Cloudy's player messages: the live card (its timer
-// line), the controls under it (its music buttons) or a record of an ended song
-// (its heading); the controls and records carry the Cloudy footer.
+// A message that is one of these cards: Cloudy's player (its music buttons) or a
+// record of an ended song (its heading), both with the Cloudy footer.
 export function isPlayerCardMessage(message) {
     const texts = [];
     let musicButtons = false;
@@ -463,7 +438,6 @@ export function isPlayerCardMessage(message) {
         }
     };
     walk(message?.components);
-    if (texts.some(content => LIVE_TIMER_LINE.test(content) || content === '-# Live')) return true;
     if (!footer && !texts.some(content => PLAYER_CARD_FOOTER_MARKS.some(mark => content.includes(mark)))) return false;
     const heading = new RegExp(`^-# (${PLAYER_CARD_HEADINGS.join('|')})\\n### `);
     return musicButtons || texts.some(content => heading.test(content));
