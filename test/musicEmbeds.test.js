@@ -2,7 +2,6 @@ import test from 'node:test';
 import { cardButtons, cardCover, cardHeading, cardTexts } from './helpers/playerCard.js';
 import assert from 'node:assert/strict';
 import { ChannelType, Collection, MessageFlags } from 'discord.js';
-import { playerBarPictureUrl } from '../src/services/music/musicEmbeds.js';
 import { buildNowPlayingEmbed, buildQueueEmbed, buildMusicGuideEmbed, buildMusicCommandsEmbed, buildMusicRequestEmbed, formatMusicProgress } from '../src/services/music/musicEmbeds.js';
 import { InteractionHelper } from '../src/utils/interactionHelper.js';
 import playCommand from '../src/commands/Music/play.js';
@@ -166,12 +165,9 @@ test('/play shows only the persistent player and cleans up its private acknowled
   // Requested by under the buttons after the white dot, the footer on the line under it
   // (14 emoji pieces once uploaded, as wide as the bar; until then the footer text).
   assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user\n-# **© Cloudy Inc. • Quality. Innovation. Performance.**');
-  assert.equal(cardTexts(panels[0])[1], '-# 0:00 / 3:00', 'the timer on the left right above the bar');
+  assert.match(cardTexts(panels[0])[1], /^-# 0:00 \/ 3:00\n/, 'the timer on the left right above the bar');
   const parts = panels[0].components[0].toJSON().components;
-  const pictures = parts.filter(part => part.type === 12);
-  assert.equal(pictures.length, 2, 'the cover and the bar are the only pictures');
-  assert.equal(pictures[1].items[0].media.url, playerBarPictureUrl(0), 'the bar is a picture too, with the knob at the start');
-  assert.ok(parts.findIndex(part => part.type === 12 && part === pictures[1]) > parts.findIndex(part => part.type === 10 && /^-# 0:00/.test(part.content)), 'the bar sits right under the timer');
+  assert.equal(parts.filter(part => part.type === 12).length, 1, 'only the cover is a picture');
   assert.equal(parts.at(-1).type, 10, 'the card ends with the footer text');
   assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
@@ -260,50 +256,4 @@ test('a button gets Cloudy\'s uploaded icon as an emoji object, else the standar
   assert.deepEqual(emojiComponentFromMarkup('<a:spin:42>', '▶️'), { id: '42', name: 'spin', animated: true });
   assert.equal(emojiComponentFromMarkup(undefined, '▶️'), '▶️');
   assert.equal(emojiComponentFromMarkup('▶️', '▶️'), '▶️');
-});
-
-test('the player bar is a picture: 216 knob places from the start to the end of any song', async () => {
-  const { playerBarPicture, playerBarStep, playerBarPictureUrl: urlFor, PLAYER_BAR_STEPS } = await import('../src/services/music/musicEmbeds.js');
-  assert.equal(PLAYER_BAR_STEPS, 216);
-  const length = 295_000;
-  const steps = Array.from({ length: 296 }, (_, second) => playerBarStep(second * 1_000, length));
-  assert.equal(steps[0], 0, 'the knob at the start');
-  assert.equal(steps.at(-1), 215, 'the knob at the end');
-  assert.ok(steps.every((step, index) => index === 0 || (step >= steps[index - 1] && step - steps[index - 1] <= 2)), 'the knob never goes back and moves one or two places a second');
-  assert.ok(new Set(steps).size >= 205, 'it moves (almost) every second');
-  assert.equal(playerBarStep(500_000, length), 215, 'past the end stays at the end');
-  assert.equal(playerBarStep(-5, length), 0, 'never before the start');
-  assert.equal(playerBarPicture(1_000, 0), null, 'no bar without a length');
-  assert.equal(playerBarPicture(1_000, undefined), null);
-  assert.match(urlFor(7), /^https:\/\/cdn\.jsdelivr\.net\/gh\/Dylano24\/Cloudy@[0-9a-f]{40}\/assets\/music-bar\/bar_007\.png$/, 'a fixed commit, so a link never changes');
-});
-
-test('every bar picture exists, is transparent and has the same size', async () => {
-  const { readdir, readFile } = await import('node:fs/promises');
-  const { PLAYER_BAR_STEPS } = await import('../src/services/music/musicEmbeds.js');
-  const directory = new URL('../assets/music-bar/', import.meta.url);
-  const files = (await readdir(directory)).filter(name => name.endsWith('.png')).sort();
-  assert.deepEqual(files, Array.from({ length: PLAYER_BAR_STEPS }, (_, step) => `bar_${String(step).padStart(3, '0')}.png`));
-  for (const name of [files[0], files[107], files.at(-1)]) {
-    const png = await readFile(new URL(name, directory));
-    assert.equal(png.subarray(1, 4).toString(), 'PNG');
-    assert.equal(png.readUInt32BE(16), 1714, `${name} is 1714 px wide`);
-    assert.equal(png.readUInt32BE(20), 104, `${name} is 104 px high`);
-    assert.equal(png[25], 6, `${name} has an alpha channel (transparent background)`);
-  }
-});
-
-test('all bar pictures are requested once after a start, and a picture that fails never stops the others', async () => {
-  const { warmPlayerBarPictures } = await import('../src/services/music/musicBarWarmup.js');
-  const asked = [];
-  const fetchImpl = async url => {
-    asked.push(url);
-    if (url.endsWith('bar_010.png')) throw new Error('network');
-    return { ok: !url.endsWith('bar_020.png'), arrayBuffer: async () => new ArrayBuffer(1) };
-  };
-  const warmed = await warmPlayerBarPictures(fetchImpl);
-  assert.equal(asked.length, 216);
-  assert.equal(new Set(asked).size, 216, 'each picture once');
-  assert.equal(warmed, 214, 'a failed and a refused picture are not counted, the rest are');
-  assert.equal(await warmPlayerBarPictures(null), 0, 'without fetch nothing happens');
 });
