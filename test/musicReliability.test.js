@@ -578,3 +578,25 @@ test('two reports in a row without a voice connection mark the node, so the next
   assert.equal(isBadNode(fine), false);
   deleteGuildMusicData('no-sound');
 });
+
+test('with Discord answering at varying speed (150-700 ms, sometimes 1.4 s) every second is shown once, in order, none skipped or repeated', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const f = liveFixture('jitter-timer');
+  let seed = 7;
+  const random = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  const shown = [];
+  const slowEdit = async payload => {
+    await new Promise(resolve => setTimeout(resolve, random() < 0.05 ? 1_400 : 150 + random() * 550));
+    shown.push(payload);
+  };
+  f.channel.messages.fetch = async () => ({ edit: slowEdit });
+  f.channel.send = async payload => { await slowEdit(payload); return { id: 'panel-1' }; };
+  const flush = async () => { for (let i = 0; i < 8; i += 1) await settle(); };
+  f.client.riffy.emit('trackStart', f.player, f.player.current);
+  await flush();
+  for (let i = 0; i < 1_200; i += 1) { t.mock.timers.tick(50); await flush(); }
+  const seconds = shown.map(payload => /-# (\d+):(\d\d) \//.exec(cardTexts(payload).join('\n'))).filter(Boolean).map(match => Number(match[1]) * 60 + Number(match[2]));
+  assert.ok(seconds.length >= 58, `about one edit per second over a minute (${seconds.length})`);
+  for (let i = 1; i < seconds.length; i += 1) assert.equal(seconds[i] - seconds[i - 1], 1, `second ${seconds[i - 1]} is followed by ${seconds[i]}`);
+  deleteGuildMusicData('jitter-timer');
+});
