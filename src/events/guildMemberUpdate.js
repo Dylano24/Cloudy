@@ -2,6 +2,7 @@ import { Events, AuditLogEvent } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
+import { automodReasonText } from '../utils/automodReason.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -43,11 +44,14 @@ export default {
             guildId: newMember.guild.id,
             eventType: EVENT_TYPES.MODERATION_TIMEOUT,
             data: {
-              title: isAutoModAction ? 'Automod timeout' : 'Timeout log',
+              // Titles (owner's choice): "Auto timeout" and "Timeout"; an
+              // AutoMod reason reads "Message spam detected (AutoMod)".
+              title: isAutoModAction ? 'Auto timeout' : 'Timeout',
+              automod: isAutoModAction,
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
                 `**Timed-out by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
-                `**Reason:** ${reason}`,
+                `**Reason:** ${isAutoModAction ? automodReasonText(reason) : reason}`,
                 `**Duration:** ${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}`,
                 `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
               ],

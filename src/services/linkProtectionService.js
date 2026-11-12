@@ -240,7 +240,7 @@ async function deleteRecentLinkMessagesFromUser(message) {
 
             await Promise.allSettled(
                 matchingMessages.map(candidate => {
-                    rememberMessageDeleter(candidate, message.client.user, 'automod');
+                    rememberMessageDeleter(candidate, message.client.user, 'automod', { reason: automodReasonText('Link spam') });
                     return candidate.delete();
                 })
             );
@@ -318,7 +318,10 @@ export async function enforceLinkProtection(message) {
         return false;
     }
 
-    rememberMessageDeleter(message, message.client.user, 'automod');
+    rememberMessageDeleter(message, message.client.user, 'automod', {
+        reason: automodReasonText(containsMaliciousLink ? 'Potentially malicious link'
+            : isLinkSpam ? 'Link spam' : 'Link posted in the wrong channel'),
+    });
     await message.delete().catch(error => {
         logger.warn('Could not delete blocked link message:', error);
     });
@@ -358,3 +361,4 @@ export async function enforceLinkProtection(message) {
     return false;
 }
 import { rememberMessageDeleter } from './deletionAttributionService.js';
+import { automodReasonText } from '../utils/automodReason.js';

@@ -71,7 +71,7 @@ test('Claim and Reveal link to exact giveaway #N; Close and expiry retain #N wit
       event + ' must not duplicate its title with an Action field');
   }
   assert.equal(base('closed').title, 'Giveaway claim closed');
-  assert.equal(base('expired').title, 'Giveaway auto expiry');
+  assert.equal(base('expired').title, 'Giveaway claim auto deletion');
   assert.equal(base('closed').color, 0xFF7A00, 'manual Close keeps the existing orange line');
   assert.equal(base('expired').color, 0x7A1712, 'automatic expiry uses the standard Cloudy red line');
 });
@@ -126,7 +126,7 @@ test('historical migration keeps #numbers/dates; title-only migration drops lega
   assert.equal(field(archived.embeds[0], 'Date'), '<t:1793754780:F>');
   await refreshGiveawayClaimTitlesWithoutAction(w.client);
   assert.equal(edits, 2);
-  assert.equal(archived.embeds[0].title, 'Giveaway auto expiry');
+  assert.equal(archived.embeds[0].title, 'Giveaway claim auto deletion');
   assert.equal(archived.embeds[0].color, 0x7A1712);
   assert.equal(archived.embeds[0].fields.some(item => item.name === 'Action'), false);
   assert.equal(field(archived.embeds[0], 'Giveaway'), '#1');
@@ -232,7 +232,7 @@ test('existing Claim, Reveal, Close and legacy expiry lose only Action; expiry g
       'do not change original Giveaway #6, date, member, prize, private channel or reason');
     assert.deepEqual(current.thumbnail, previous.thumbnail);
     assert.deepEqual(current.footer, previous.footer);
-    assert.equal(current.title, i === 3 ? 'Giveaway auto expiry' : previous.title);
+    assert.equal(current.title, i === 3 ? 'Giveaway claim auto deletion' : previous.title);
     assert.equal(current.color, i === 3 ? 0x7A1712 : previous.color);
   }
   assert.deepEqual(foreign.embeds[0], originals[0]);

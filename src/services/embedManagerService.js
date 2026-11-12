@@ -124,15 +124,16 @@ const TEMPLATE_CHANNEL_IDS = new Set([
 
 const TEMPLATE_RULES = new Map([
     ['1539375620885323826', [
-        { key: 'kick-log', label: 'Kick log', match: /\bkick\s+log\b/i },
+        // New titles without "log" (owner's choice): Kick, Timeout, Ban.
+        { key: 'kick-log', label: 'Kick', match: /\bkick\s+log\b|^\s*kick\s*$/i },
     ]],
     ['1539371111240831078', [
         { key: 'untimeout-log', label: 'Untimeout log', match: /\bun[-\s]?time[-\s]?out\s+log\b|\buntimeout\s+log\b/i },
-        { key: 'timeout-log', label: 'Timeout log', match: /\btime[-\s]?out\s+log\b|\btimeout\s+log\b/i },
+        { key: 'timeout-log', label: 'Timeout', match: /\btime[-\s]?out\s+log\b|\btimeout\s+log\b|^\s*time[-\s]?out\s*$/i },
     ]],
     ['1539259457404412036', [
         { key: 'unban-log', label: 'Unban log', match: /\bunban\s+log\b/i },
-        { key: 'ban-log', label: 'Ban log', match: /\bban\s+log\b/i },
+        { key: 'ban-log', label: 'Ban', match: /\bban\s+log\b|^\s*ban\s*$/i },
     ]],
     ['1539372511089926244', [
         { key: 'report-log', label: 'Report log', match: /\breport(?:s)?\s+log\b|\breport\b/i },

@@ -54,17 +54,20 @@ const INTERACTION_MESSAGE_TTL_MS = 20 * 60_000;
 const BULK_DELETE_ROUTE = /^\/channels\/\d+\/messages\/bulk-delete$/;
 const RECORDER_INSTALLED = Symbol('cloudyDeletionRecorder');
 
-export function rememberMessageDeleter(message, user, source = 'staff') {
+export function rememberMessageDeleter(message, user, source = 'staff', { reason = null } = {}) {
   const key = `${message.guild?.id}:${message.id}`;
   const automod = source === 'automod';
   const intent = {
     id: user?.id,
-    label: automod ? (user?.id ? `<@${user.id}> (AutoMod)` : 'AutoMod') : user?.id ? `<@${user.id}>` : 'Unknown',
+    // "Deleted by" names only who deleted it (owner's choice); "(AutoMod)"
+    // is shown on the Reason line instead.
+    label: user?.id ? `<@${user.id}>` : automod ? 'AutoMod' : 'Unknown',
     source,
     type: automod ? DELETION_TYPES.automod : DELETION_TYPES.staff,
     // Whether the deleter itself is a bot (AutoMod is Cloudy).
     bot: automod || user?.bot === true,
   };
+  if (reason) intent.reason = String(reason);
   intents.set(key, intent);
   const timer = setTimeout(() => { if (intents.get(key) === intent) intents.delete(key); }, 120_000);
   timer.unref?.();
