@@ -150,7 +150,7 @@ test('/play shows only the persistent player and cleans up its private acknowled
   const interaction = {
     guild: { id: 'test-music-server' },
     channel: { id: 'music-channel' },
-    member: { voice: { channel: { id: 'voice-channel' } } },
+    member: { voice: { channel: { id: 'voice-channel' } }, displayName: 'Dylano' },
     user: { id: 'test-user', username: 'Test user' },
     options: { getString: () => 'Song' },
     deleteReply: async () => { deletedReply = true; },
@@ -165,19 +165,23 @@ test('/play shows only the persistent player and cleans up its private acknowled
   assert.equal(cardCover(panels[0]), track.info.artworkUrl);
   assert.equal(cardHeading(panels[0]), null, 'no "Now playing" line');
   assert.ok(cardTexts(panels[0]).includes('### Song\nArtist'));
-  // Only the song's length (owner's choice: no running timer, no bar).
-  assert.equal(cardTexts(panels[0])[1], '-# 3:00', 'only the song\'s length');
-  // "Requested by" after the white dot, under the buttons (owner's choice), then the footer picture.
-  assert.equal(cardTexts(panels[0]).at(-1), '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Test user');
+  // Owner's choice: "Requested by" with the display name where the time was, above the
+  // buttons, and the song's length on the right with the blue dot (no running timer).
   const parts = panels[0].components[0].toJSON().components;
+  const section = parts.find(part => part.type === 9);
+  assert.equal(section.components[0].content, '-# <:W87205667glowingdotwhite:1543291335036108830> Requested by Dylano', 'the display name, not the username');
+  assert.equal(section.accessory.custom_id, 'music_time');
+  assert.equal(section.accessory.label, '3:00');
+  assert.equal(section.accessory.emoji.name, '🔵', 'the blue dot (until Cloudy\'s own is uploaded)');
+  assert.equal(parts.indexOf(section), parts.findIndex(part => part.type === 1) - 1, 'right above the buttons');
+  assert.ok(!cardTexts(panels[0]).some(text => / \/ /.test(text)), 'no running timer');
   const pictures = parts.filter(part => part.type === 12);
   assert.equal(pictures.length, 2, 'the cover and the footer');
   assert.equal(parts.at(-1).type, 12, 'the card ends with the footer picture');
   assert.equal(parts.at(-1).items[0].media.url, PLAYER_FOOTER_PICTURE_URL);
   assert.equal(parts.at(-1).items[0].description, undefined, 'no ALT label');
-  assert.equal(parts.at(-2).type, 10, 'Requested by right above the footer');
-  assert.equal(parts.at(-3).type, 1, 'and right under the buttons');
-  assert.deepEqual(cardButtons(panels[0]), ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_remove', 'music_stop']);
+  assert.equal(parts.at(-2).type, 1, 'right under the buttons');
+  assert.deepEqual(cardButtons(panels[0]), ['music_time', 'music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop', 'music_queue', 'music_playlists', 'music_remove', 'music_stop']);
   assert.equal(panels[0].components.length, 1, 'the buttons are inside the card');
   assert.deepEqual(panels[0].allowedMentions, { parse: [] });
   assert.equal(queue.length, 0);

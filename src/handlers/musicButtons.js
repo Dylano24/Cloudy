@@ -54,6 +54,11 @@ async function handleMusicButton(interaction, client) {
     const guildData = getGuildMusicData(interaction.guild.id);
     const customId = interaction.customId;
 
+    // The song's length on the card: nothing to do, and the card is not redrawn.
+    if (customId === MUSIC_BUTTON_IDS.TIME) {
+        return interaction.deferUpdate();
+    }
+
     // Saved playlists can be opened and added to by everyone; starting one
     // checks the voice channel itself.
     if (customId === MUSIC_BUTTON_IDS.PLAYLISTS) {

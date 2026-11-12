@@ -463,14 +463,14 @@ test('a click is answered after the timer edit that is still being sent, never b
   await refreshPlayerMessage(f.client, 'click-order');
   const order = [];
   let finishEdit;
-  f.channel.messages.fetch = async () => ({ edit: payload => new Promise(resolve => { finishEdit = () => { order.push(`tick:${cardButtons(payload)[2]}`); resolve(); }; }) });
+  f.channel.messages.fetch = async () => ({ edit: payload => new Promise(resolve => { finishEdit = () => { order.push(`tick:${cardButtons(payload).filter(id => id !== 'music_time')[2]}`); resolve(); }; }) });
   getGuildMusicData('click-order').lastPanel = null;
   const tick = refreshPlayerMessage(f.client, 'click-order');
   await settle();
   const click = {
     customId: 'music_pause', guild: { id: 'click-order' }, user: { id: 'member' }, message: { id: 'panel-1' },
     member: { voice: { channel: { id: 'voice' } } }, deferred: false, replied: false,
-    async update(payload) { this.replied = true; order.push(`click:${cardButtons(payload)[2]}`); },
+    async update(payload) { this.replied = true; order.push(`click:${cardButtons(payload).filter(id => id !== 'music_time')[2]}`); },
     async deferUpdate() { this.deferred = true; },
   };
   const answer = musicButtonHandler.execute(click, f.client);
@@ -513,6 +513,20 @@ test('Pause, Resume and Loop on the player are answered with the new panel in on
   assert.ok(ids(answers[1]).includes('music_pause'));
   await musicButtonHandler.execute(click('music_loop'), f.client);
   assert.equal(getGuildMusicData('quality-click').loop, 'track');
+  assert.equal(answers.length, 3);
+  assert.equal(f.edits.length, 0);
+
+  // Shuffle with nothing in the queue changes nothing on the card: only acknowledged,
+  // so Discord does not redraw the card and its icons.
+  f.player.queue.length = 0;
+  const shuffle = click('music_shuffle');
+  await musicButtonHandler.execute(shuffle, f.client);
+  assert.equal(answers.length, 3, 'no new panel sent for a click that changes nothing');
+  assert.equal(shuffle.deferrals, 1);
+  // The song's length on the right does nothing.
+  const time = click('music_time');
+  await musicButtonHandler.execute(time, f.client);
+  assert.equal(time.deferrals, 1);
   assert.equal(answers.length, 3);
   assert.equal(f.edits.length, 0);
 

@@ -323,8 +323,12 @@ export async function answerWithPlayerPanel(interaction, client, guildId) {
             const payload = buildPlayerCard(track, player, guildData, { lead: panelLead(guildData) });
             const second = guildData.cardSecond;
             const panel = JSON.stringify(payload);
+            // A click that changes nothing on the card (Shuffle with an empty queue) is only
+            // acknowledged: Discord does not redraw the card and its icons.
+            const unchanged = guildData.lastPanel?.messageId === guildData.playerMessageId && guildData.lastPanel.panel === panel;
             try {
-                await interaction.update(payload);
+                if (unchanged) await interaction.deferUpdate();
+                else await interaction.update(payload);
                 guildData.lastPanel = { messageId: guildData.playerMessageId, panel };
                 guildData.panelTrack = track;
                 rememberShownSecond(guildData, track, second);
