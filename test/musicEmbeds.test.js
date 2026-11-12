@@ -79,19 +79,21 @@ test('public song announcement includes verified artwork, artist, album and queu
   assert.equal(formatMusicProgress(0, 0), null);
 });
 
-test('music guide keeps Cloudy branding and the commands explain the player buttons by emoji', () => {
+test('music guide keeps Cloudy branding and the commands explain the player buttons by their symbols', async () => {
+  const { PLAYER_BUTTON_SYMBOLS: symbols } = await import('../src/services/music/musicEmbeds.js');
   const guide = buildMusicGuideEmbed().toJSON();
   assert.equal(guide.title, 'Cloudy music');
   assert.match(guide.description, /Click the button below/);
   assert.ok(!guide.description.includes('/now playing'), 'the public panel must remain short');
   const commands = buildMusicCommandsEmbed().toJSON();
   assert.equal(commands.title, 'Music commands');
-  // The buttons of the player in their order, one short line each with one emoji, so the lines stay neatly under each other.
-  const lines = commands.description.split('\n').filter(line => /^\p{Extended_Pictographic}/u.test(line));
-  assert.deepEqual(lines.map(line => line.split(' ')[0]), ['🔀', '⏮️', '⏸️', '⏭️', '🔁', '📋', '🎵', '⏹️']);
+  // The buttons of the player in their order, one short line each with one symbol, so the lines stay neatly under each other.
+  const all = commands.description.split('\n');
+  const lines = all.slice(all.indexOf('**Player buttons**') + 1);
+  assert.deepEqual(lines.map(line => line.split(' ')[0]), [symbols.shuffle, symbols.previous, symbols.pause, symbols.next, symbols.repeat, symbols.queue, symbols.add, symbols.stop]);
   for (const line of lines) {
     assert.ok(line.length <= 26, `Explanation must stay short: ${line}`);
-    assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the emoji and a few words: ${line}`);
+    assert.ok(!line.includes('**') && !line.includes(' — '), `No names or dashes, just the symbol and a few words: ${line}`);
   }
   // /play is the only slash command: the player covers the rest, other commands (such as a future Guess the song) get their own line.
   assert.deepEqual(commands.description.match(/`\/[a-z ]+`/g), ['`/play`']);
@@ -227,15 +229,22 @@ test('the player controls are in Spotify\'s order with Play/Pause in the middle;
     ['music_shuffle', 'music_previous', 'music_pause', 'music_skip', 'music_loop'],
     ['music_queue', 'music_playlists', 'music_stop'],
   ]);
-  assert.ok(rows[0].every(button => !button.label), 'icons only, so they stay in one row on a phone');
-  assert.deepEqual(rows[0].map(button => button.emoji.name), ['🔀', '⏮️', '⏸️', '⏭️', '🔁'], 'standard emoji until the icons are uploaded');
+  // Text symbols in the label, never an emoji (owner's choice): Discord's app loads a custom emoji again on
+  // every redraw of the card (every second for the timer), so the icons blinked; a symbol never does.
+  const bare = label => label.replace(/[\u2060\u2009]/g, '');
+  assert.ok(rows.flat().every(button => !button.emoji), 'no emoji on any button, custom or standard');
+  assert.deepEqual(rows[0].map(button => bare(button.label)), ['\u292E', '\u2759\u25C0\uFE0E', '\u23F8\uFE0E', '\u25B6\uFE0E\u2759', '\u21BB'], 'the symbols the owner picked');
+  assert.deepEqual(rows[1].map(button => bare(button.label)), ['\u2630', '\u266B Add', '\u25A0 Stop'], 'the saved playlists button says Add');
+  assert.ok(rows.flat().every(button => button.label.startsWith('\u2060') && button.label.endsWith('\u2060')), 'invisible ends keep the widening spaces');
   assert.deepEqual(rows.flat().map(button => button.style), [2, 2, 2, 2, 2, 2, 2, 2], 'every button grey, also Play/Pause and Stop');
-  assert.deepEqual(rows[1].map(button => button.label || button.emoji.name), ['📋', 'Add', 'Stop'], 'the saved playlists button says Add');
-  assert.equal(rows[1][1].emoji.name, '🎵', 'with the music emoji');
-  const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track' }).map(row => row.toJSON().components);
+  const paused = buildPlayerButtonRows({ paused: true }, { loop: 'track', shuffle: true }).map(row => row.toJSON().components);
   assert.equal(paused[0][2].custom_id, 'music_resume');
-  assert.equal(paused[0][2].emoji.name, '▶️');
-  assert.equal(paused[0][4].emoji.name, '🔂');
+  assert.equal(bare(paused[0][2].label), '\u25B6\uFE0E');
+  assert.equal(bare(paused[0][4].label), '\u21BB1', 'repeat this song');
+  assert.deepEqual(paused[0].map(button => button.style), [3, 2, 2, 2, 3], 'a mode that is on (shuffle, repeat) is a green button');
+  const queueLoop = buildPlayerButtonRows({ paused: false }, { loop: 'queue' }).map(row => row.toJSON().components);
+  assert.equal(queueLoop[0][4].style, 3);
+  assert.equal(bare(queueLoop[0][4].label), '\u21BB');
 });
 
 test('the card shows the sharpest copy of the cover, however the song was added', async () => {
