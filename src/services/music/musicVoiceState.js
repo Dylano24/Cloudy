@@ -1,6 +1,6 @@
 import { successEmbed } from '../../utils/embeds.js';
 import { getGuildMusicData } from './playerStore.js';
-import { applyPause, applyResume, getPlayer } from './musicActions.js';
+import { applyPause, applyResume, getPlayer, watchJamHost } from './musicActions.js';
 
 export async function handleMusicVoiceState(client, oldState, newState) {
     if (!client.riffy) {
@@ -23,6 +23,8 @@ export async function handleMusicVoiceState(client, oldState, newState) {
     }
 
     const guildData = getGuildMusicData(guildId);
+    // Like a Spotify Jam: the jam ends when its host stays away for 30 seconds.
+    watchJamHost(client, guildId, player, oldState, newState);
     const humansInChannel = voiceChannel.members.filter((member) => !member.user.bot);
     const hasUsers = humansInChannel.size > 0;
 

@@ -1,8 +1,9 @@
-// The music player's list (owner's choice): songs and playlists a server keeps to
-// start later. The player's 🎵 Add button opens one form at once that shows the
-// list and has a field to add a song or playlist, a Start choice and a Remove
-// choice. An item is its link, so starting a playlist always loads its current
-// songs. Stored per server in PostgreSQL (guild:<id>:music-playlists), never in memory.
+// The music player's list (owner's choice): songs and playlists for this session.
+// The player's 🎵 Add button opens one form at once that shows the list and has a
+// field to add a song or playlist, a Start choice, a Remove choice and the Jam. An
+// item is its link, so starting a playlist always loads its current songs. The list
+// lives only in memory for the session (owner's choice: nothing is kept): Stop, the
+// bot leaving and a restart empty it. Lists stored before are deleted.
 import {
   EmbedBuilder,
   LabelBuilder,
@@ -22,17 +23,17 @@ import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import {
-  MAX_QUEUE_ITEMS, activeSource, assertCanControl, getPlayer, inspectMusicLink, isJamOn, playQuery, playQueuedNow,
+  MAX_QUEUE_ITEMS, activeSource, assertCanControl, canEndJam, getPlayer, inspectMusicLink, isJamOn, playQuery, playQueuedNow,
   queuedSources, removeSourceFromQueue, replaceQueue, setJam, trackPickKey,
 } from './musicActions.js';
 import { prepareMusicQuery } from './musicLinks.js';
+import { getGuildMusicData } from './playerStore.js';
 
 const PREFIX = 'musicpl:';
 const MAX_PLAYLISTS = 25; // one Discord select menu
 const MAX_PER_MEMBER = 10;
-// Discord waits 3 seconds for the form; a slow database never makes Add fail.
-const LIST_WAIT_MS = 1_500;
 const queues = new Map();
+const forgotten = new Set();
 
 const storageKey = guildId => 'guild:' + guildId + ':music-playlists';
 const makeId = () => randomUUID().slice(0, 12);
@@ -52,15 +53,23 @@ async function lockGuild(guildId, task) {
   }
 }
 
+// A list that an earlier version stored in the database is deleted once (owner's
+// choice: no songs stay saved).
+function forgetStoredList(client, guildId) {
+  const key = String(guildId);
+  if (forgotten.has(key)) return;
+  forgotten.add(key);
+  void Promise.resolve().then(() => client.db?.delete?.(storageKey(guildId))).catch(() => {});
+}
+
 async function readPlaylists(client, guildId) {
-  const saved = await client.db.get(storageKey(guildId));
-  return Array.isArray(saved?.items) ? saved.items : [];
+  forgetStoredList(client, guildId);
+  const { list } = getGuildMusicData(guildId);
+  return Array.isArray(list) ? [...list] : [];
 }
 
 async function writePlaylists(client, guildId, items) {
-  if (await client.db.set(storageKey(guildId), { items }) === false) {
-    throw new Error('Could not save the playlists.');
-  }
+  getGuildMusicData(guildId).list = items;
 }
 
 export async function listPlaylists(client, guildId) {
@@ -128,8 +137,7 @@ function listEntries(items, active, queued) {
   return entries;
 }
 
-// In a jam the Playing and Queue lines also say who added it, and the small line
-// says that everyone's songs take turns.
+// In a jam the Playing and Queue lines also say who added it (like Spotify).
 // Every line stays on one line on a phone (owner's choice: the text runs neatly
 // under each other, nothing wraps back to the left): a long name is shortened
 // with "…" so the line after the dot is at most 40 characters.
@@ -140,14 +148,15 @@ function fitLine(label, name, suffix) {
   return `${label}${text}${suffix}`;
 }
 
-function listText(items, active = null, queued = [], jam = false) {
+function listText(items, active = null, queued = [], jam = null) {
   const entries = listEntries(items, active, queued);
   const waiting = entries.filter(entry => entry.state === 'queue');
   const by = entry => (jam && entry.state !== 'list' && entry.by ? ` · ${String(entry.by).slice(0, 12)}` : '');
   const line = (dot, label, entry) => `${dot} ${fitLine(label, itemName(entry.source), ` · ${itemKind(entry.source)}${by(entry)}`)}`;
-  // The small line about the queue sits right under the heading (owner's choice).
+  // The small line about the queue sits right under the heading (owner's choice);
+  // in a jam it names the host, like Spotify's "<name>'s Jam".
   const lines = [jam
-    ? `-# Jam: everyone's songs take turns · max ${MAX_QUEUE_ITEMS} in the queue`
+    ? `-# ${jam.hostName || 'Someone'}'s Jam · max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`
     : `-# Max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`];
   for (const entry of entries) {
     if (entry.state === 'playing') lines.push(line(feedEmoji('online'), 'Playing: ', entry));
@@ -188,7 +197,7 @@ function itemSelect(customId, options, placeholder) {
 // Queue, the rest), a field to add a song or playlist, Start (plays the chosen one
 // in place of what plays now) and Remove, in the same order as the list. Every
 // opening gets its own id. `items` null means the list could not be read.
-export function buildListModal(items, active = null, queued = [], jam = false, tracks = []) {
+export function buildListModal(items, { active = null, queued = [], jam = null, tracks = [], canEnd = false } = {}) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
   // No help lines under the fields (owner's choice: too much text). In a jam the
@@ -208,8 +217,8 @@ export function buildListModal(items, active = null, queued = [], jam = false, t
     labels.push(new LabelBuilder().setLabel('Remove')
       .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove')));
   }
-  // In a jam this field also lists the songs in the queue (owner's choice): one
-  // chosen plays at once. Its last choice ends the jam.
+  // In a jam this field lists the songs in the queue (owner's choice): one chosen
+  // plays at once. Only the host or a moderator also gets "End the jam".
   const picks = jam ? [...(tracks || [])].slice(0, MAX_PLAYLISTS - 1).map((track, index) => ({
     label: String(track?.info?.title || 'Unknown track').replace(/\*/g, '').slice(0, 100),
     description: String(track?.info?.requester?.username || 'Unknown').slice(0, 100),
@@ -217,10 +226,13 @@ export function buildListModal(items, active = null, queued = [], jam = false, t
     emoji: { name: '🎶' },
   })) : [];
   // No emoji on Start/End, and a "Choose ..." placeholder like the other fields (owner's choice).
-  labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', jam
-    ? [...picks, { label: 'End the jam', value: 'end' }]
-    : [{ label: 'Start a jam', value: 'start', description: "Everyone's songs take turns" }],
-  jam ? (picks.length ? 'Choose a song to play now' : 'Choose to end the jam') : 'Choose to start a jam')));
+  const jamChoices = jam
+    ? [...picks, ...(canEnd ? [{ label: 'End the jam', value: 'end', description: 'Stops the music for everyone' }] : [])]
+    : [{ label: 'Start a jam', value: 'start', description: 'Everyone in the voice channel can add songs' }];
+  if (jamChoices.length) {
+    labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', jamChoices,
+      jam ? (picks.length ? 'Choose a song to play now' : 'Choose to end the jam') : 'Choose to start a jam')));
+  }
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued, jam)))
     .addLabelComponents(...labels);
@@ -256,24 +268,18 @@ async function silentAck(interaction) {
   }
 }
 
-async function listForForm(client, guildId) {
-  let timer;
-  const slow = new Promise(resolve => {
-    timer = setTimeout(() => resolve(null), LIST_WAIT_MS);
-    timer.unref?.();
-  });
-  try {
-    return await Promise.race([listPlaylists(client, guildId).catch(() => null), slow]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // The player's Add button: the form with the list opens at once.
 export async function openPlaylistPanel(interaction, client) {
-  const items = await listForForm(client, interaction.guildId);
-  const player = getPlayer(client, interaction.guildId);
-  await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player), isJamOn(interaction.guildId), player?.queue));
+  const guildId = interaction.guildId;
+  const items = await listPlaylists(client, guildId);
+  const player = getPlayer(client, guildId);
+  await interaction.showModal(buildListModal(items, {
+    active: activeSource(player),
+    queued: queuedSources(player),
+    jam: getGuildMusicData(guildId).jam,
+    tracks: player?.queue,
+    canEnd: canEndJam(guildId, interaction.user.id, interaction.memberPermissions),
+  }));
 }
 
 // The songs of a list item carry it, so Add can show it as active.
@@ -358,7 +364,7 @@ async function handleListForm(interaction, client, state) {
   if (jamChoice === 'start' || jamChoice === 'end') {
     try {
       await setJam(client, interaction, jamChoice === 'start');
-      lines.push(jamChoice === 'start' ? "Jam started: everyone's songs take turns." : 'The jam has ended.');
+      lines.push(jamChoice === 'start' ? 'Jam started: everyone in the voice channel can add songs.' : 'The jam has ended.');
     } catch (error) {
       fail(userMessageOf(error));
     }
