@@ -311,6 +311,10 @@ function reportSectionText(value) {
   return String(value || '').replace(/^\u200b\n+/, '').replace(/(?:\n\u200b|\n)+$/, '');
 }
 
+// Less space than an empty line: an empty line in Discord's small text, the same small
+// gap as in the Server wiped post (`SMALL_GAP` in gameFeedService.js).
+export const REPORT_SMALL_GAP = '-# \u200b';
+
 // Only compact the gaps highlighted in the report notification.
 // Preserve the gap after the intro and every other section.
 function compactHighlightedReportGaps(description) {
@@ -322,10 +326,11 @@ function compactHighlightedReportGaps(description) {
     .replace(/(\*\*Moderation action\*\*\n[\s\S]*?)\n\n(?=\*\*Reason\*\*\n)/, '$1\n')
     // Restore this gap on both new and previously compacted Discord messages.
     .replace(/(\*\*Reason\*\*\n[\s\S]*?)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n\n')
-    // Reporter notice (owner's choice, highlighted): the thanks follows the outcome text
-    // and Auto-close follows the thanks without an empty line, also on existing notices.
-    .replace(/(server rules\.|deemed necessary\.)\n+(?=Thank you for bringing this)/, '$1\n')
-    .replace(/(fair and safe\.)\n+(?=\*\*Auto-close\*\*\n)/, '$1\n');
+    // Reporter notice (owner's choice, highlighted: "less space", not none): a small-text
+    // empty line between the outcome text and the thanks, and between the thanks and
+    // Auto-close, also on existing notices (a full empty line or none is replaced).
+    .replace(/(server rules\.|deemed necessary\.)\n+(?:-# \u200b\n+)?(?=Thank you for bringing this)/, `$1\n${REPORT_SMALL_GAP}\n`)
+    .replace(/(fair and safe\.)\n+(?:-# \u200b\n+)?(?=\*\*Auto-close\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`);
 }
 
 function reportNoticeDescription(intro, fields) {

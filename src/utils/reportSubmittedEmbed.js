@@ -13,8 +13,8 @@ export function buildReportSubmittedEmbed({ reportNumber, reportedMemberId, repo
   const embed = createEmbed({
     title: 'Report submitted',
     description: 'Your report has been successfully submitted to our moderation team.'
-      // No empty line before the thanks (owner's choice, highlighted).
-      + '\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.',
+      // Less space before the thanks (owner's choice, highlighted): an empty line in small text.
+      + '\n-# \u200b\nThank you for bringing this to our attention. Our team will review the reported message and take appropriate action if necessary.',
     fields,
   });
   // Preserve the reporter's exact message and reason, including emoji and whitespace.
