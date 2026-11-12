@@ -13,7 +13,7 @@ import {
     buildQueuePaginationRow,
     getQueuePageSize,
 } from './musicEmbeds.js';
-import { refreshPlayerMessage, retirePlayerPanel, markTrackEnding } from './playerHandler.js';
+import { clearPlayerMessages, isTrackRunning, refreshPlayerMessage, markTrackEnding } from './playerHandler.js';
 import { prepareMusicQuery } from './musicLinks.js';
 import { finishRequestMessage } from './musicRequestMessages.js';
 import { logger } from '../../utils/logger.js';
@@ -441,6 +441,12 @@ export function playQuery(client, interaction, rawQuery, options = {}) {
     return withPlayLock(interaction?.guild?.id, () => runPlayQuery(client, interaction, rawQuery, options));
 }
 
+// Something plays or is paused: /play then adds to the queue (owner's choice),
+// never in place of the song that runs.
+function isBusy(player) {
+    return Boolean(player?.playing || player?.paused || isTrackRunning(player));
+}
+
 // Where a song came from: the list item (or /play playlist), else the song itself.
 function sourceOfTrack(track) {
     if (track?.cloudySource) return track.cloudySource;
@@ -689,7 +695,7 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
             player.queue.add(track);
         }
 
-        if (!player.playing && !player.paused) {
+        if (!isBusy(player)) {
             await startPlayback(client, interaction, player);
         }
         // The panel shows the new queue at once, not only at the next 15-second refresh.
@@ -718,7 +724,7 @@ async function runPlayQuery(client, interaction, rawQuery, { source = null } = {
         track.info.requester = interaction.user;
         if (source) track.cloudySource = source;
 
-        const willPlayNow = !player.playing && !player.paused;
+        const willPlayNow = !isBusy(player);
         player.queue.add(track);
         const queuePosition = player.queue.length;
 
@@ -1091,25 +1097,15 @@ export async function destroyPlayerSession(client, guildId, player, guildData, {
     guildData.autoPaused = false;
     guildData.queuePages?.clear();
 
-    // The song's panel stays as its "Stopped" record (owner's choice); a panel
-    // that shows another song is removed as before.
-    const retired = player?.current
-        ? await retirePlayerPanel(client, guildId, player.current, 'stopped', player)
-        : false;
-    if (!retired && guildData.playerMessageId && guildData.playerChannelId) {
-        try {
-            const channel = client.channels.cache.get(guildData.playerChannelId);
-            if (channel) {
-                const msg = await channel.messages.fetch(guildData.playerMessageId);
-                await msg.delete();
-            }
-        } catch {
-            // message already deleted
-        }
-    }
-
+    // Closing the music leaves nothing old behind (owner's choice): the panel and
+    // every Played/Skipped record of the session go, with any old panel.
+    const panelChannelId = guildData.playerChannelId;
     guildData.playerMessageId = null;
     guildData.playerChannelId = null;
+    guildData.lastPanel = null;
+    guildData.panelTrack = null;
+    guildData.sessionCleaned = false;
+    await clearPlayerMessages(client, guildId, [panelChannelId]);
 
     if (player) {
         void finishRequestMessage(client, player.current);

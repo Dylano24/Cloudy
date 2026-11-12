@@ -239,12 +239,25 @@ test('a finished song stays as Played, a skipped one as Skipped, and the next so
   deleteGuildMusicData('records-flow');
 });
 
-test('Stop keeps the song as Stopped; a song that could not be loaded shows Could not play', async () => {
+test('Stop leaves nothing old: the panel, the records and an old panel go; a song that could not be loaded shows Could not play', async () => {
+  const { buildNowPlayingEmbed, buildMusicRequestEmbed, buildMusicGuideEmbed } = await import('../src/services/music/musicEmbeds.js');
   const f = liveFixture('records-stop');
+  f.client.user = { id: 'cloudy' };
   f.client.riffy.emit('trackStart', f.player, f.player.current);
   await settle(); await settle();
+  const removed = [];
+  const message = (id, embed, author = 'cloudy') => ({ id, author: { id: author }, embeds: [embed], delete: async () => { removed.push(id); } });
+  const channelMessages = new Collection([
+    ['panel-1', message('panel-1', buildNowPlayingEmbed(f.player.current, f.player, {}))],
+    ['played', message('played', buildMusicRequestEmbed(song('earlier'), { playNow: true }).setTitle('Played'))],
+    ['old-panel', message('old-panel', buildNowPlayingEmbed(song('old'), { paused: true, queue: [] }, {}))],
+    ['guide', message('guide', buildMusicGuideEmbed())],
+    ['member', message('member', buildNowPlayingEmbed(song('copy'), f.player, {}), 'someone')],
+  ]);
+  const fetchOne = f.channel.messages.fetch;
+  f.channel.messages.fetch = async options => (options && typeof options === 'object' ? channelMessages : fetchOne(options));
   await destroyPlayerSession(f.client, 'records-stop', f.player, getGuildMusicData('records-stop'));
-  assert.deepEqual(f.records.map(r => [r.title, r.components.length]), [['Stopped', 0]]);
+  assert.deepEqual(removed.sort(), ['old-panel', 'panel-1', 'played'], 'only Cloudy\'s own player messages, the guide stays');
   assert.equal(f.player.destroyed, true);
   deleteGuildMusicData('records-stop');
 
@@ -457,4 +470,24 @@ test('Pause, Resume and Loop on the player are answered with the new panel in on
   assert.equal(old.deferrals, 1, 'a click elsewhere is acknowledged');
   assert.equal(f.edits.length, 1, 'and the panel itself is edited');
   deleteGuildMusicData('quality-click');
+});
+
+test('/play while a song runs always queues, also when Riffy says it is not playing', async () => {
+  const f = liveFixture('busy-play');
+  f.player.queue.length = 0;
+  f.client.riffy.createConnection = () => f.player;
+  f.client.riffy.resolve = async ({ query }) => ({ loadType: 'track', tracks: [song(query)] });
+  f.client.riffy.emit('trackStart', f.player, f.player.current);
+  await settle(); await settle();
+  // A voice reconnect left the flag wrong while the song still runs.
+  f.player.playing = false;
+  const interaction = {
+    guild: { id: 'busy-play', members: { me: {} } }, channel: { id: 'panel-channel' }, user: { id: 'member' },
+    member: { voice: { channel: { id: 'voice', name: 'General', permissionsFor: () => ({ has: () => true }) } } },
+  };
+  const result = await playQuery(f.client, interaction, 'next one');
+  assert.equal(result.embed.toJSON().title, 'Added to queue');
+  assert.equal(f.player.plays, 0, 'the running song was not replaced');
+  assert.deepEqual(f.player.queue.map(t => t.info.title), ['next one']);
+  deleteGuildMusicData('busy-play');
 });

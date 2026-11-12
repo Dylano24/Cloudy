@@ -18,3 +18,11 @@ export function isMusicPlayerEmbed(embed) {
   if (!PANEL_TITLES.has(title)) return false;
   return Array.isArray(data.fields) && data.fields.some(field => field?.name === 'Requested by');
 }
+
+// The player panel or one of its Played/Skipped/Stopped records (not the Queue,
+// Commands or list screens): what closing the music removes from the channel.
+export function isPlayerPanelEmbed(embed) {
+  const data = embed?.toJSON ? embed.toJSON() : (embed?.data || embed);
+  if (!isMusicPlayerEmbed(data)) return false;
+  return PANEL_TITLES.has(String(data.title || '').trim().toLowerCase());
+}

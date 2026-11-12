@@ -123,6 +123,18 @@ BASE_EMOJIS.ban_link = { name: 'cloudy_link', id: '1568299107930341608', fallbac
 // more empty room around it, uploaded under a new name.
 BASE_EMOJIS.ban_reason = { ...BASE_EMOJIS.ban_reason, name: 'ban_reason_small', file: '../../assets/feed-emojis/ban_reason_small.gif' };
 BASE_EMOJIS.ban_reason_green = { ...BASE_EMOJIS.ban_reason_green, name: 'ban_reason_green_small', file: '../../assets/feed-emojis/ban_reason_green_small.gif' };
+// Music player controls in Spotify's style (owner's choice): white glyphs drawn in
+// assets/music-icons (green when a mode is on), and the progress bar's knob.
+for (const [key, fallback] of [
+  ['mc_play', '▶️'], ['mc_pause', '⏸️'], ['mc_previous', '⏮️'], ['mc_next', '⏭️'],
+  ['mc_shuffle', '🔀'], ['mc_shuffle_on', '🔀'], ['mc_repeat', '🔁'], ['mc_repeat_on', '🔁'],
+  ['mc_repeat_one', '🔂'], ['mc_queue', '📋'],
+]) {
+  BASE_EMOJIS[key] = { name: `cloudy_${key}`, file: `../../assets/music-icons/${key}.png`, fallback };
+}
+for (const piece of ['lk', 'mk', 'rk', 'rkf']) {
+  BASE_EMOJIS[`bar_${piece}`] = { name: `vb_${piece}`, file: `../../assets/music-icons/bar_${piece}.png`, fallback: '●' };
+}
 const FEED_EMOJIS = Object.freeze(BASE_EMOJIS);
 const resolved = new Map();
 
@@ -134,6 +146,18 @@ export function weaponEmoji(text) {
     if (aliases.some(alias => normalized.includes(alias))) return feedEmoji(`w_${key}`);
   }
   return '';
+}
+
+// The same emoji for a button: Cloudy's uploaded copy as { id, name, animated },
+// or the standard emoji it falls back to while it is not uploaded.
+export function emojiComponentFromMarkup(markup, fallback = '') {
+  const match = /^<(a?):(\w+):(\d+)>$/.exec(String(markup || ''));
+  if (match) return { id: match[3], name: match[2], animated: match[1] === 'a' };
+  return fallback;
+}
+
+export function feedEmojiComponent(key) {
+  return emojiComponentFromMarkup(resolved.get(key), FEED_EMOJIS[key]?.fallback || '');
 }
 
 export function feedEmoji(key) {
