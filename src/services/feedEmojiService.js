@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { logger } from '../utils/logger.js';
 import { runLocalCommand } from './cloudyFeedVideoClip.js';
-import { musicControlSvg } from './music/musicControlArtwork.js';
+import { musicControlPng } from './music/musicControlPngData.js';
 
 const BASE_EMOJIS = {
   online: { name: 'glowing_dot_green', id: '1567760480439771286', fallback: '<a:glowing_dot_green:1567760480439771286>' },
@@ -282,26 +282,6 @@ async function download(id) {
   return null;
 }
 
-// Convert a static preview vector into the PNG required by Discord emojis.
-// This runs only when the versioned application emoji does not exist yet.
-async function renderMusicControlPng(key) {
-  const svg = musicControlSvg(key);
-  if (!svg) return null;
-  const directory = await mkdtemp(path.join(tmpdir(), 'cloudy-music-icon-'));
-  try {
-    const input = path.join(directory, 'icon.svg');
-    const output = path.join(directory, 'icon.png');
-    await writeFile(input, svg);
-    await runLocalCommand('ffmpeg', [
-      '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', input, '-frames:v', '1', output,
-    ], 30_000);
-    return await readFile(output);
-  } finally {
-    await rm(directory, { recursive: true, force: true }).catch(() => {});
-  }
-}
-
 export async function ensureFeedEmojis(client) {
   const manager = client.application?.emojis;
   if (!manager?.fetch) return;
@@ -327,7 +307,7 @@ export async function ensureFeedEmojis(client) {
       if (!own && emoji.byNameOnly) { missing.push(emoji.name); continue; }
       if (!own) {
         let image = emoji.musicControlArt
-          ? await renderMusicControlPng(emoji.musicControlArt)
+          ? musicControlPng(emoji.musicControlArt)
           : emoji.file
             ? await readFile(new URL(emoji.file, import.meta.url)).catch(() => null)
             : await download(emoji.id);
