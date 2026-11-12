@@ -97,6 +97,7 @@ test('Add opens one form at once with the list, a song or playlist field, Start 
   assert.deepEqual([remove.label, remove.component.custom_id, remove.component.min_values, remove.component.max_values, remove.component.required],
     ['Remove', 'remove', 0, 2, false]);
   assert.deepEqual(remove.component.options.map(option => option.label), ['Chill mix', 'Blinding Lights']);
+  assert.ok(labels(form).every(label => !label.description), 'no help lines under the fields');
 });
 
 test('a song name, a song link and a playlist link are each added to the list', async () => {
