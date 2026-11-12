@@ -76,6 +76,7 @@ function submit(client, ui, form, { add = '', start = [], remove = [] } = {}, ex
 const labels = form => form.components.filter(item => item.type === 18);
 const notice = ui => ui.log.edits.at(-1).embeds[0].toJSON();
 const DOT = '<a:glowing_dot_green:1567760480439771286>';
+const WHITE = '<:W87205667glowingdotwhite:1543291335036108830>';
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 test('songs and playlists are saved per server with limits, and only the owner or a moderator removes one', async () => {
@@ -106,7 +107,7 @@ test('Add opens one form at once with the list, a song or playlist field, Start 
   const firstId = form.custom_id;
   form = await open(client, ui);
   assert.notEqual(form.custom_id, firstId, 'every opening gets its own id');
-  assert.equal(form.components[0].content, '**Your list**\n1. Chill mix · 34 songs\n2. Blinding Lights · song');
+  assert.equal(form.components[0].content, `**Your list**\n${WHITE} Chill mix · 34 songs\n${WHITE} Blinding Lights · song`);
   const [add, start, remove] = labels(form);
   assert.equal(add.label, 'Add a song or playlist');
   assert.deepEqual([start.label, start.component.custom_id, start.component.min_values, start.component.max_values, start.component.required],
@@ -135,7 +136,7 @@ test('a song name, a song link and a playlist link are each added to the list', 
     ['song', 'https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl', 1, 'owner'],
     ['playlist', 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', 2, 'owner'],
   ]);
-  assert.match((await open(client, ui)).components[0].content, /3\. Road trip · 2 songs/, 'the next Add shows it in the list');
+  assert.match((await open(client, ui)).components[0].content, /Road trip · 2 songs$/, 'the next Add shows it in the list');
 
   await submit(client, ui, await open(client, ui), { add: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M' });
   assert.match(notice(ui).description, /already in your list/);
@@ -213,7 +214,7 @@ test('a playlist started with /play shows in Add as active, and Start plays anot
   const chill = await addPlaylist(client, 'g-active', { url: 'https://x/playlist-chill', name: 'Chill mix', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
 
   const form = await open(client, ui);
-  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs\n1. Chill mix · 2 songs`);
+  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs\n${WHITE} Chill mix · 2 songs`);
   const [, , remove] = labels(form);
   assert.deepEqual(remove.component.options.map(option => [option.label, option.emoji.name, option.description]),
     [['Road trip', '🎵', '2 songs • playing'], ['Chill mix', '🎵', '2 songs • Mila']]);
@@ -227,7 +228,7 @@ test('a playlist started with /play shows in Add as active, and Start plays anot
   // The node starts the first song of Chill mix: it moves to the top, also in the choices.
   player.play();
   const next = await open(client, ui);
-  assert.equal(next.components[0].content, `**Your list**\n${DOT} Playing: Chill mix · 2 songs\n1. Road trip · 2 songs`);
+  assert.equal(next.components[0].content, `**Your list**\n${DOT} Playing: Chill mix · 2 songs\n${WHITE} Road trip · 2 songs`);
   assert.deepEqual(labels(next).slice(1).map(label => label.component.options.map(option => option.label)),
     [['Chill mix', 'Road trip'], ['Chill mix', 'Road trip']]);
   deleteGuildMusicData('g-active');
@@ -282,7 +283,7 @@ test('a song played with /play shows on top as Playing, and Remove stops it', as
   await addPlaylist(client, 'g-plain', { url: 'https://x/playlist-1', name: 'One', count: 2, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
   await playQuery(client, ui.make('play', 'command'), 'another song');
   const form = await open(client, ui);
-  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Song 9 · song\n1. One · 2 songs`);
+  assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Song 9 · song\n${WHITE} One · 2 songs`);
   const remove = labels(form).at(-1);
   assert.deepEqual(remove.component.options.map(option => [option.value, option.label, option.emoji.name, option.description]),
     [['active', 'Song 9', '🎶', 'song • playing'], [(await listPlaylists(client, 'g-plain'))[0].id, 'One', '🎵', '2 songs • Mila']]);
