@@ -22,7 +22,8 @@ import { CLOUDY_RED_COLOR } from '../../utils/embedColorPolicy.js';
 import { CloudyError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import {
-  MAX_QUEUE_ITEMS, activeSource, assertCanControl, getPlayer, inspectMusicLink, queuedSources, removeSourceFromQueue, replaceQueue,
+  MAX_QUEUE_ITEMS, activeSource, assertCanControl, getPlayer, inspectMusicLink, isJamOn, playQuery, queuedSources,
+  removeSourceFromQueue, replaceQueue, setJam,
 } from './musicActions.js';
 import { prepareMusicQuery } from './musicLinks.js';
 
@@ -119,7 +120,7 @@ function listEntries(items, active, queued) {
     const item = savedFor(source);
     if (item && used.has(item.id)) return;
     if (item) used.add(item.id);
-    entries.push({ state, item, source: item || source });
+    entries.push({ state, item, source: item || source, by: source.by || null });
   };
   if (active) take('playing', active);
   for (const source of queued || []) take('queue', source);
@@ -127,22 +128,26 @@ function listEntries(items, active, queued) {
   return entries;
 }
 
-function listText(items, active = null, queued = []) {
+// In a jam the Playing and Queue lines also say who added it, and the small line
+// says that everyone's songs take turns.
+function listText(items, active = null, queued = [], jam = false) {
   const entries = listEntries(items, active, queued);
   const waiting = entries.filter(entry => entry.state === 'queue');
-  const line = (dot, label, source) => `${dot} ${label}${itemName(source)} · ${itemKind(source)}`;
+  const by = entry => (jam && entry.state !== 'list' && entry.by ? ` · ${entry.by}` : '');
+  const line = (dot, label, entry) => `${dot} ${label}${itemName(entry.source)} · ${itemKind(entry.source)}${by(entry)}`;
   const lines = [];
   const playing = entries.some(entry => entry.state === 'playing');
   let noted = false;
   const note = () => {
-    if (playing && !noted) lines.push(`-# Max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`);
+    if (!noted && jam) lines.push(`-# Jam: everyone's songs take turns · max ${MAX_QUEUE_ITEMS} in the queue`);
+    else if (!noted && playing) lines.push(`-# Max ${MAX_QUEUE_ITEMS} songs or playlists in the queue`);
     noted = true;
   };
   for (const entry of entries) {
     if (entry.state === 'list') note();
-    if (entry.state === 'playing') lines.push(line(feedEmoji('online'), 'Playing: ', entry.source));
-    else if (entry.state === 'queue' && waiting.indexOf(entry) < MAX_QUEUE_LINES) lines.push(line(feedEmoji('report_blue'), 'Queue: ', entry.source));
-    else if (entry.state === 'list') lines.push(line(feedEmoji('dot'), '', entry.source));
+    if (entry.state === 'playing') lines.push(line(feedEmoji('online'), 'Playing: ', entry));
+    else if (entry.state === 'queue' && waiting.indexOf(entry) < MAX_QUEUE_LINES) lines.push(line(feedEmoji('report_blue'), 'Queue: ', entry));
+    else if (entry.state === 'list') lines.push(line(feedEmoji('dot'), '', entry));
     if (entry.state === 'queue' && waiting.indexOf(entry) === MAX_QUEUE_LINES) {
       lines.push(`${feedEmoji('report_blue')} Queue: +${waiting.length - MAX_QUEUE_LINES} more`);
     }
@@ -179,11 +184,12 @@ function itemSelect(customId, options, placeholder) {
 // Queue, the rest), a field to add a song or playlist, Start (plays the chosen one
 // in place of what plays now) and Remove, in the same order as the list. Every
 // opening gets its own id. `items` null means the list could not be read.
-export function buildListModal(items, active = null, queued = []) {
+export function buildListModal(items, active = null, queued = [], jam = false) {
   const add = new TextInputBuilder().setCustomId('add').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(500).setPlaceholder('Song name or playlist link');
-  // No help lines under the fields (owner's choice: too much text).
-  const labels = [new LabelBuilder().setLabel('Add a song or playlist').setTextInputComponent(add)];
+  // No help lines under the fields (owner's choice: too much text). In a jam the
+  // field and Start add to the jam's queue in turn instead.
+  const labels = [new LabelBuilder().setLabel(jam ? 'Add to the jam' : 'Add a song or playlist').setTextInputComponent(add)];
   const entries = listEntries(items, active, queued);
   const saved = entries.filter(entry => entry.item).slice(0, MAX_PLAYLISTS).map(entry => entryOption(entry, entry.item.id));
   const removable = entries
@@ -191,15 +197,19 @@ export function buildListModal(items, active = null, queued = []) {
     .map(entry => entryOption(entry, entry.item ? entry.item.id : entry.state === 'playing' ? 'active' : queueKey(entry.source.url)))
     .slice(0, MAX_PLAYLISTS);
   if (saved.length) {
-    labels.push(new LabelBuilder().setLabel('Start')
+    labels.push(new LabelBuilder().setLabel(jam ? 'Add from your list' : 'Start')
       .setStringSelectMenuComponent(itemSelect('start', saved, 'Choose what to play')));
   }
   if (removable.length) {
     labels.push(new LabelBuilder().setLabel('Remove')
       .setStringSelectMenuComponent(itemSelect('remove', removable, 'Choose what to remove')));
   }
+  labels.push(new LabelBuilder().setLabel('Jam').setStringSelectMenuComponent(itemSelect('jam', [jam
+    ? { label: 'End the jam', value: 'end', emoji: { name: '⏹️' } }
+    : { label: 'Start a jam', value: 'start', description: "Everyone's songs take turns", emoji: { name: '🎉' } }],
+  jam ? 'Jam is on' : 'Start a jam')));
   return new ModalBuilder().setCustomId(PREFIX + 'modal:' + makeId()).setTitle('Add to your list')
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued)))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText(items, active, queued, jam)))
     .addLabelComponents(...labels);
 }
 
@@ -250,7 +260,7 @@ async function listForForm(client, guildId) {
 export async function openPlaylistPanel(interaction, client) {
   const items = await listForForm(client, interaction.guildId);
   const player = getPlayer(client, interaction.guildId);
-  await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player)));
+  await interaction.showModal(buildListModal(items, activeSource(player), queuedSources(player), isJamOn(interaction.guildId)));
 }
 
 // The songs of a list item carry it, so Add can show it as active.
@@ -310,12 +320,13 @@ async function handleListForm(interaction, client, state) {
   const guildId = interaction.guildId;
   const removeIds = selectedValues(interaction, 'remove');
   const [startId] = selectedValues(interaction, 'start');
+  const [jamChoice] = selectedValues(interaction, 'jam');
   const raw = typedValue(interaction, 'add');
-  if (!removeIds.length && !raw && !startId) {
+  if (!removeIds.length && !raw && !startId && !jamChoice) {
     await interaction.deferUpdate().catch(() => {});
     return;
   }
-  if (!removeIds.length && !raw) {
+  if (!removeIds.length && !raw && !jamChoice) {
     await interaction.deferUpdate();
     state.quiet = true;
   } else {
@@ -328,6 +339,16 @@ async function handleListForm(interaction, client, state) {
   const lines = [];
   let failed = false;
   const fail = line => { failed = true; lines.push(line); };
+
+  if (jamChoice === 'start' || jamChoice === 'end') {
+    try {
+      await setJam(client, interaction, jamChoice === 'start');
+      lines.push(jamChoice === 'start' ? "Jam started: everyone's songs take turns." : 'The jam has ended.');
+    } catch (error) {
+      fail(userMessageOf(error));
+    }
+  }
+  const jam = isJamOn(guildId);
 
   const player = getPlayer(client, guildId);
   const active = activeSource(player);
@@ -359,8 +380,14 @@ async function handleListForm(interaction, client, state) {
 
   if (raw) {
     try {
-      const entry = await addToList(interaction, client, guildId, raw);
-      lines.push(`**${itemName(entry)}** was added · ${itemKind(entry)}.`);
+      if (jam) {
+        // In a jam the field adds to the queue, in this member's turn; nothing is saved.
+        const { added } = await playQuery(client, interaction, raw);
+        lines.push(`**${itemName(added)}** was added to the jam.`);
+      } else {
+        const entry = await addToList(interaction, client, guildId, raw);
+        lines.push(`**${itemName(entry)}** was added · ${itemKind(entry)}.`);
+      }
     } catch (error) {
       fail(userMessageOf(error));
     }
@@ -372,7 +399,9 @@ async function handleListForm(interaction, client, state) {
       if (!item) throw new CloudyError('Missing playlist', ErrorTypes.USER_INPUT, 'That one is no longer in your list.');
       const player = getPlayer(client, guildId);
       if (player) assertCanControl(interaction.member, player);
-      await replaceQueue(client, interaction, item.url, { source: sourceOf(item) });
+      // In a jam it waits for this member's turn; otherwise it replaces what plays.
+      if (jam) await playQuery(client, interaction, item.url, { source: sourceOf(item) });
+      else await replaceQueue(client, interaction, item.url, { source: sourceOf(item) });
     } catch (error) {
       fail(userMessageOf(error));
     }

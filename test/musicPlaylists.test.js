@@ -62,14 +62,14 @@ function fakeUi(guildId) {
   return { log, make };
 }
 // The player's Add button opens the form at once.
-async function open(client, ui) {
-  await openPlaylistPanel(ui.make('music_playlists', 'button', { reply: async payload => { ui.log.root = payload; } }), client);
+async function open(client, ui, extra = {}) {
+  await openPlaylistPanel(ui.make('music_playlists', 'button', { reply: async payload => { ui.log.root = payload; }, ...extra }), client);
   return ui.log.modals.at(-1);
 }
-function submit(client, ui, form, { add = '', start = [], remove = [] } = {}, extra = {}) {
+function submit(client, ui, form, { add = '', start = [], remove = [], jam = [] } = {}, extra = {}) {
   const fields = {
     getTextInputValue: id => (id === 'add' ? add : ''),
-    getStringSelectValues: id => ({ start, remove })[id] || [],
+    getStringSelectValues: id => ({ start, remove, jam })[id] || [],
   };
   return handleMusicPlaylistControls(ui.make(form.custom_id, 'modal', { fields, ...extra }), client);
 }
@@ -102,7 +102,7 @@ test('Add opens one form at once with the list, a song or playlist field, Start 
   assert.equal(form.title, 'Add to your list');
   assert.match(form.components[0].content, /Your list is empty/);
   assert.deepEqual(labels(form).map(label => [label.label, label.component.custom_id, label.component.required]),
-    [['Add a song or playlist', 'add', false]], 'an empty list has only the Add field');
+    [['Add a song or playlist', 'add', false], ['Jam', 'jam', false]], 'an empty list has only the Add field and Jam');
 
   await addPlaylist(client, 'g-form', { url: 'https://x/1', name: 'Chill mix', count: 34, kind: 'playlist', ownerId: 'owner', ownerName: 'Mila' });
   await addPlaylist(client, 'g-form', { url: 'https://x/2', name: 'Blinding Lights', count: 1, kind: 'song', ownerId: 'owner', ownerName: 'Mila' });
@@ -232,7 +232,7 @@ test('a playlist started with /play shows in Add as Playing without being saved,
   const next = await open(client, ui);
   assert.equal(next.components[0].content, `**Your list**\n${DOT} Playing: Chill mix · 2 songs\n${MAX_NOTE}`);
   assert.deepEqual(labels(next).slice(1).map(label => label.component.options.map(option => option.label)),
-    [['Chill mix'], ['Chill mix']]);
+    [['Chill mix'], ['Chill mix'], ['Start a jam']]);
   deleteGuildMusicData('g-active');
 });
 
@@ -256,7 +256,7 @@ test('Remove of what plays takes its songs out of the queue; with nothing left t
   await playQuery(second.client, ui2.make('play', 'command'), 'https://open.spotify.com/playlist/road');
   const form = await open(second.client, ui2);
   assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Road trip · 2 songs\n${MAX_NOTE}`);
-  assert.deepEqual(labels(form).map(label => label.label), ['Add a song or playlist', 'Remove']);
+  assert.deepEqual(labels(form).map(label => label.label), ['Add a song or playlist', 'Remove', 'Jam']);
   await submit(second.client, ui2, form, { remove: ['active'] });
   assert.equal(second.player.destroyed, true, 'nothing else to play: stopped like the Stop button');
   assert.equal(second.player.queue.length, 0);
@@ -284,7 +284,7 @@ test('a song played with /play shows on top as Playing, and Remove stops it', as
   await playQuery(client, ui.make('play', 'command'), 'another song');
   const form = await open(client, ui);
   assert.equal(form.components[0].content, `**Your list**\n${DOT} Playing: Song 9 · song\n${MAX_NOTE}\n${WHITE} One · 2 songs`);
-  const remove = labels(form).at(-1);
+  const remove = labels(form).find(label => label.label === 'Remove');
   assert.deepEqual(remove.component.options.map(option => [option.value, option.label, option.emoji.name, option.description]),
     [['active', 'Song 9', '🎶', 'song • playing'], [(await listPlaylists(client, 'g-plain'))[0].id, 'One', '🎵', '2 songs • Mila']]);
   await submit(client, ui, form, { remove: ['active'] });
@@ -343,4 +343,51 @@ test('at most 10 songs or playlists wait in the queue; Start still replaces', as
   await submit(client, ui, await open(client, ui), { start: [mix.id] });
   assert.deepEqual(player.queue.map(song => song.cloudySource.url), ['https://x/playlist-mix', 'https://x/playlist-mix'], 'Start replaces the full queue');
   deleteGuildMusicData('g-full');
+});
+
+test('a jam: everyone adds and the songs take turns per person; it ends with Stop', async () => {
+  const { arrangeJamQueue, destroyPlayerSession } = await import('../src/services/music/musicActions.js');
+  // The turn order: one song per person, whoever plays now goes last.
+  const song = (title, who) => ({ info: { title, uri: 'https://example.com/' + title, requester: { id: who, username: who } } });
+  const turns = { current: song('A0', 'A'), queue: Object.assign([song('A1', 'A'), song('A2', 'A'), song('B1', 'B'), song('B2', 'B'), song('C1', 'C')], { add(t) { this.push(t); }, clear() { this.length = 0; } }) };
+  arrangeJamQueue(turns);
+  assert.deepEqual(turns.queue.map(t => t.info.title), ['B1', 'C1', 'A1', 'B2', 'A2']);
+
+  const { client, player } = fakeBot(async ({ query }) => ({ loadType: 'search', tracks: [track(query)] }));
+  const ui = fakeUi('g-jam');
+  const sam = { user: { id: 'sam', username: 'Sam' }, memberPermissions: { has: () => false } };
+  await playQuery(client, ui.make('play', 'command'), 'first song');
+  let form = await open(client, ui);
+  const jamField = labels(form).find(label => label.label === 'Jam');
+  assert.deepEqual(jamField.component.options.map(option => [option.value, option.label]), [['start', 'Start a jam']]);
+
+  await submit(client, ui, form, { jam: ['start'] });
+  assert.equal(notice(ui).description, "Jam started: everyone's songs take turns.");
+  assert.ok(getGuildMusicData('g-jam').jam);
+
+  // Mila adds two songs, then Sam adds one through the form: Sam's song comes second.
+  await playQuery(client, ui.make('play', 'command'), 'mila one');
+  await playQuery(client, ui.make('play', 'command'), 'mila two');
+  form = await open(client, ui, sam);
+  assert.deepEqual(labels(form).map(label => label.label), ['Add to the jam', 'Remove', 'Jam']);
+  await submit(client, ui, form, { add: 'sam one' }, sam);
+  assert.equal(notice(ui).description, '**Song sam one** was added to the jam.');
+  assert.deepEqual(player.queue.map(t => t.info.requester.username), ['Sam', 'Mila', 'Mila'],
+    'Mila plays now, so Sam is next; then Mila again');
+  assert.deepEqual(await listPlaylists(client, 'g-jam'), [], 'nothing from the jam is saved');
+
+  form = await open(client, ui);
+  assert.equal(form.components[0].content, [
+    '**Your list**',
+    `${DOT} Playing: Song first song · song · Mila`,
+    `${BLUE} Queue: Song sam one · song · Sam`,
+    `${BLUE} Queue: Song mila one · song · Mila`,
+    `${BLUE} Queue: Song mila two · song · Mila`,
+    "-# Jam: everyone's songs take turns · max 10 in the queue",
+  ].join('\n'));
+  assert.deepEqual(labels(form).at(-1).component.options.map(option => option.value), ['end']);
+
+  await destroyPlayerSession(client, 'g-jam', player, getGuildMusicData('g-jam'));
+  assert.equal(getGuildMusicData('g-jam').jam, null, 'Stop ends the jam');
+  deleteGuildMusicData('g-jam');
 });
