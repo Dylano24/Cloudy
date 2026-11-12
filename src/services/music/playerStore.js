@@ -28,6 +28,8 @@ export class GuildMusicData {
         // Previous (⏮️): its last click, and whether the next song start is the way back.
         this.lastBack = null;
         this.goingBack = false;
+        // Jam (Add form): everyone's songs take turns until it ends or the player stops.
+        this.jam = null;
     }
 }
 
