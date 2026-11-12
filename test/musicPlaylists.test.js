@@ -359,7 +359,8 @@ test('a jam: everyone adds and the songs take turns per person; it ends with Sto
   await playQuery(client, ui.make('play', 'command'), 'first song');
   let form = await open(client, ui);
   const jamField = labels(form).find(label => label.label === 'Jam');
-  assert.deepEqual(jamField.component.options.map(option => [option.value, option.label]), [['start', 'Start a jam']]);
+  assert.deepEqual(jamField.component.options.map(option => [option.value, option.label, option.emoji]), [['start', 'Start a jam', undefined]]);
+  assert.equal(jamField.component.placeholder, 'Choose to start a jam');
 
   await submit(client, ui, form, { jam: ['start'] });
   assert.equal(notice(ui).description, "Jam started: everyone's songs take turns.");
@@ -389,6 +390,7 @@ test('a jam: everyone adds and the songs take turns per person; it ends with Sto
   assert.equal(jamPicks.placeholder, 'Choose a song to play now');
   assert.deepEqual(jamPicks.options.map(option => [option.label, option.description]),
     [['Song sam one', 'Sam'], ['Song mila one', 'Mila'], ['Song mila two', 'Mila'], ['End the jam', undefined]]);
+  assert.equal(jamPicks.options.at(-1).emoji, undefined, 'no emoji on End the jam');
 
   // Choosing a song in the Jam field plays it at once; the others keep their place.
   const stopsBefore = player.stops;
