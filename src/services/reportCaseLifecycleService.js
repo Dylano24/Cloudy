@@ -330,7 +330,12 @@ function compactHighlightedReportGaps(description) {
     // empty line between the outcome text and the thanks, and between the thanks and
     // Auto-close, also on existing notices (a full empty line or none is replaced).
     .replace(/(server rules\.|deemed necessary\.)\n+(?:-# \u200b\n+)?(?=Thank you for bringing this)/, `$1\n${REPORT_SMALL_GAP}\n`)
-    .replace(/(fair and safe\.)\n+(?:-# \u200b\n+)?(?=\*\*Auto-close\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`);
+    .replace(/(fair and safe\.)\n+(?:-# \u200b\n+)?(?=\*\*Auto-close\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`)
+    // And (owner's choice, highlighted later): between "Reviewed" and its sentence, between
+    // that sentence and Reported member, and between the outcome and its explanation.
+    .replace(/(Reviewed)\n+(?:-# \u200b\n+)?(?=Your report has been reviewed)/, `$1\n${REPORT_SMALL_GAP}\n`)
+    .replace(/(by our moderation team\.)\n+(?:-# \u200b\n+)?(?=\*\*Reported member\*\*\n)/, `$1\n${REPORT_SMALL_GAP}\n`)
+    .replace(/(Action taken|No action taken)\n+(?:-# \u200b\n+)?(?=Appropriate action has been taken|No further action was deemed necessary)/, `$1\n${REPORT_SMALL_GAP}\n`);
 }
 
 function reportNoticeDescription(intro, fields) {

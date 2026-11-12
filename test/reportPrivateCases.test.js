@@ -170,7 +170,8 @@ test('Delete asks for a required reason before acting; two adjacent private case
   assert.ok(json(reporterNotice.embeds[0]).description.includes('fair and safe.\n-# \u200b\n**Auto-close**'), 'a small gap (an empty line in small text) between the thanks and Auto-close (owner\'s choice)');
   assert.match(outcome(targetNotice), /glowingdotred/);
   assert.ok(noticeSection(targetNotice, 'Moderation action').startsWith(feedEmoji('report_orange')));
-  assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed\n\n'));
+  assert.ok(json(reporterNotice.embeds[0]).description.startsWith(feedEmoji('report_blue') + ' Reviewed\n-# \u200b\nYour report'), 'a small gap under Reviewed (owner\'s choice)');
+  assert.ok(json(reporterNotice.embeds[0]).description.includes('by our moderation team.\n-# \u200b\n**Reported member**\n'), 'a small gap above Reported member (owner\'s choice)');
   assert.match(noticeSection(targetNotice, 'Moderation action'), /Message removed/);
   assert.match(outcome(reporterNotice), /Action taken/);
   assert.doesNotMatch(outcome(reporterNotice), /Message removed/);
@@ -187,7 +188,7 @@ test('Delete asks for a required reason before acting; two adjacent private case
     assert.ok(!embed.description.endsWith('\n\n'), 'no extra spacing after the last section');
     assert.ok(!embed.fields?.length, 'private notice sections are rendered as one description for consistent spacing');
     if (notice === reporterNotice) {
-      assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n\nAppropriate action/);
+      assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n-# \u200b\nAppropriate action/, 'a small gap under Action taken (owner\'s choice)');
       assert.ok(embed.description.includes('server rules.\n-# \u200b\nThank you'), 'a small gap between the outcome text and the thanks (owner\'s choice)');
       assert.ok(embed.description.includes('<@target>\n**Reported message**\n'), 'member and reported message are closer');
     } else {
@@ -225,11 +226,11 @@ test('report update footers match the visible channel number and repair existing
     const old = json(notice.embeds[0]);
     notice.embeds = [{ ...old,
       // Simulate an older, field-based notice to verify migration on restart.
-      description: old.description.split('\n\n**')[0].replace('Reviewed\n\n', 'Reviewed\n'),
+      description: old.description.split(/\n(?:-# \u200b\n|\n)(?=\*\*)/)[0].replace('Reviewed\n-# \u200b\n', 'Reviewed\n'),
       footer: { text: 'Cloudy Inc. Moderation team • R103' },
       fields: noticeSections(notice).map(name => ({
         name,
-        value: noticeSection(notice, name).replace('Action taken\n\n', 'Action taken\n')
+        value: noticeSection(notice, name).replace('Action taken\n-# \u200b\n', 'Action taken\n')
           .replace('server rules.\n\n', 'server rules.\n'),
       })),
     }];
@@ -244,7 +245,9 @@ test('report update footers match the visible channel number and repair existing
     assert.ok(!embed.description.endsWith('\n\u200b'));
     assert.ok(embed.description.includes('Original message text\n**Review outcome**\n'));
     if (audience === 'reporter') {
-      assert.match(embed.description, /Reviewed\n\nYour report/);
+      assert.ok(embed.description.includes('Reviewed\n-# \u200b\nYour report'));
+      assert.ok(embed.description.includes('by our moderation team.\n-# \u200b\n**Reported member**'));
+      assert.match(noticeSection(notice, 'Review outcome'), /Action taken\n-# \u200b\nAppropriate action/);
       assert.ok(embed.description.includes('server rules.\n-# \u200b\nThank you'), 'an existing notice gets the small gap too');
       assert.ok(embed.description.includes('fair and safe.\n-# \u200b\n**Auto-close**'));
       assert.ok(!embed.description.includes('\u200b\n-# \u200b'), 'never two small gaps after a second refresh');
