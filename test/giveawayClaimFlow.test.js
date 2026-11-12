@@ -642,7 +642,7 @@ test('claim logs hide raw IDs and manual close uses the ticket orange side line'
   };
   for (const event of ['opened', 'revealed', 'closed', 'expired']) {
     const embed = buildGiveawayClaimLog({ event, ...metadata }).embeds[0];
-    const member = embed.fields.find(field => field.name === 'Member');
+    const member = embed.fields.find(field => field.name === 'Claimed by');
     const channel = embed.fields.find(field => field.name === 'Private channel');
     assert.equal(member.value, '<@' + WINNER + '>');
     assert.equal(channel.value, ['closed', 'expired'].includes(event)
@@ -665,11 +665,13 @@ test('existing giveaway claim logs remove ID suffixes and recolor Close without 
       claimChannelId: originalChannel, giveawayNumber: 1,
       giveaway: { prize: 'Prize', channelId: '156000000000000087' },
     }).embeds[0];
+    // Logs posted before "Claimed by": a Member field, and closed ones kept #N as text.
     return {
       ...embed,
       color: event === 'closed' ? 0xFFFFFF : embed.color,
       fields: embed.fields.map(field => {
-        if (field.name === 'Member') return { ...field, value: field.value + ' (\x60' + WINNER + '\x60)' };
+        if (field.name === 'Claimed by') return { ...field, name: 'Member', value: field.value + ' (\x60' + WINNER + '\x60)' };
+        if (field.name === 'Giveaway' && event === 'closed') return { ...field, value: '#1' };
         if (field.name === 'Private channel') return { ...field, value: '<#' + originalChannel + '> (\x60' + originalChannel + '\x60)' };
         return field;
       }),
