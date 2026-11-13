@@ -50,7 +50,8 @@ export default {
               automod: isAutoModAction,
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
-                `**Timed-out by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
+                // Cloudy itself (Auto timeout) is shown without its #tag (owner's choice).
+                `**Timed-out by:** ${!executor ? 'Unknown' : executor.id === newMember.client.user?.id ? executor.toString() : `${executor.toString()} (${executor.tag})`}`,
                 `**Reason:** ${isAutoModAction ? automodReasonText(reason) : reason}`,
                 `**Duration:** ${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}`,
                 `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
