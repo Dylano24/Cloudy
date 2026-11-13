@@ -37,3 +37,7 @@ Body: `eventKey` (idempotency key), `event` (`grant` | `renew` | `expire` | `ref
 ### Needs a real server before going live
 
 Not verified against a real Rust Console server yet: the exact reply text of `kit givetoplayer` (success vs failure), whether the player must be online, whether chat lines are broadcast over RCON and in which format, and whether the chosen host (Nitrado or GPORTAL) exposes RCON to server owners. Real-money kit sales also need the game's and the host's commercial rules checked first.
+
+## Setup message for new servers
+
+`src/services/dashboardOnboarding.js`, called from `guildCreate`: when Cloudy joins a server other than `GUILD_ID`, it posts one embed with an "Open the dashboard" link button (`CLOUDY_DASHBOARD_URL` + `/bot/<server id>`) in the system channel, or else the first text channel it may post in. No mentions. Sent once per server (`guild:<id>:dashboard:onboarding`). Off until `CLOUDY_DASHBOARD_URL` (https) is set.

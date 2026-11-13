@@ -170,6 +170,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 ## Cloudy Store billing and Rust Console kits
 
 - Paid Premium and Rust Console kit delivery come from Cloudy Store (Tip4Serv) over the signed dashboard connection only (`billing/premium`, `billing/rust/...` in `dashboardApi.js`; Discord-token requests get 403; degraded storage answers 503). Both are off until configured. Paid time is kept apart from owner grants (`billing` in the plan record), every event is idempotent per key, and a refund removes only what its payment added. Kit delivery is at most once (`needs_review` when an answer is lost after sending, never resent automatically), `mock` never accepts live payments, staff actions need Cloudy's owner. Details and the items still unverified on a real server: `docs/billing-and-rust-delivery.md`.
+- When Cloudy joins a server other than `GUILD_ID`, it posts one setup message with the dashboard link (`dashboardOnboarding.js`), once per server, only when `CLOUDY_DASHBOARD_URL` is set.
 
 ## Web server
 
