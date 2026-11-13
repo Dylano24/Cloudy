@@ -167,6 +167,10 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - A reported photo or video is copied at report time (`preserveReportAttachments`: pictures as a Cloudy media link, videos on the `/deleted-media` page, else the original link) and stored as `reportedAttachments`; both private notices link it under "Reported message" (`reportAttachmentLines`), so it still opens after the message was deleted.
 - A report case channel that is already gone at the 24-hour mark was removed by hand in Discord: it is logged as closed ("Closed by: Unknown"), never as the automatic deletion. `expiryStartedAt` is saved before Cloudy removes a channel itself, so an automatic deletion interrupted by a restart is still logged as "24-hour expiry".
 
+## Cloudy Store billing and Rust Console kits
+
+- Paid Premium and Rust Console kit delivery come from Cloudy Store (Tip4Serv) over the signed dashboard connection only (`billing/premium`, `billing/rust/...` in `dashboardApi.js`; Discord-token requests get 403; degraded storage answers 503). Both are off until configured. Paid time is kept apart from owner grants (`billing` in the plan record), every event is idempotent per key, and a refund removes only what its payment added. Kit delivery is at most once (`needs_review` when an answer is lost after sending, never resent automatically), `mock` never accepts live payments, staff actions need Cloudy's owner. Details and the items still unverified on a real server: `docs/billing-and-rust-delivery.md`.
+
 ## Web server
 
 - Request limits are per visitor and per kind of request (`src/utils/requestRateLimit.js`): the Embed Builder's browser editor 1200 per minute, hosted media 600 per minute, everything else the configured general limit (100 per 15 minutes). `GET /health` and `GET /ready` are never limited. On Railway one proxy hop is trusted so `req.ip` is the visitor's own address (`trustProxySetting`; elsewhere set `TRUST_PROXY_HOPS`).
