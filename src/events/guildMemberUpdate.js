@@ -3,6 +3,7 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { enforceProtectedIdentityProfile } from '../services/protectedIdentityService.js';
 import { automodReasonText } from '../utils/automodReason.js';
+import { formatLogActor } from '../utils/logActor.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -50,8 +51,7 @@ export default {
               automod: isAutoModAction,
               lines: [
                 `**User:** ${newMember.user.toString()} (${newMember.user.tag})`,
-                // Cloudy itself (Auto timeout) is shown without its #tag (owner's choice).
-                `**Timed-out by:** ${!executor ? 'Unknown' : executor.id === newMember.client.user?.id ? executor.toString() : `${executor.toString()} (${executor.tag})`}`,
+                `**Timed-out by:** ${formatLogActor(executor, newMember.client.user?.id)}`,
                 `**Reason:** ${isAutoModAction ? automodReasonText(reason) : reason}`,
                 `**Duration:** ${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}`,
                 `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
