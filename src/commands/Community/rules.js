@@ -10,6 +10,8 @@ import { dashboardLink } from '../Core/dashboard.js';
 // privately; members with Manage Server can post them in the channel.
 
 export default {
+  // Registered for every server Cloudy is in, not only Cloudy Inc.
+  globalRegistration: true,
   data: new SlashCommandBuilder()
     .setName('rules')
     .setDescription('Show the rules of this server')
