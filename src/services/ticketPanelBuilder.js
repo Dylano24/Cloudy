@@ -10,12 +10,15 @@ import {
   CLOUDY_TICKET_FOOTER,
   forceCloudyTicketFooter,
 } from '../utils/ticket/ticketBranding.js';
+import { isCloudyHomeGuild } from '../utils/cloudyHomeGuild.js';
 
 export const DEFAULT_TICKET_PANEL_TITLE = 'Contact the support';
 export const DEFAULT_TICKET_PANEL_MESSAGE = `If you need assistance or have something to report, simply hit the **Start Chat** button below and our team will get back to you as soon as possible.
 
 Before submitting a request, please make sure the answer to your question cannot already be found in our **FAQ** section using the button at the bottom right.`;
 export const DEFAULT_TICKET_BUTTON_LABEL = 'Start Chat';
+// A customer's server has no Cloudy FAQ channel: its standard text leaves the FAQ out.
+export const CUSTOMER_TICKET_PANEL_MESSAGE = 'If you need assistance or have something to report, simply hit the button below and our team will get back to you as soon as possible.';
 export const TICKET_FAQ_CHANNEL_ID = '1554538586001645679';
 export const TICKET_START_CHAT_EMOJI = ORIGINAL_START_CHAT_EMOJI;
 export { CLOUDY_TICKET_FOOTER };
@@ -38,6 +41,19 @@ export function buildTicketPanelComponents(client, guildId, config = {}, sourceR
     .setStyle(ButtonStyle.Secondary).setEmoji(startChatEmoji(client)).toJSON()]}];
   const isFaqLink = button => Number(button.style) === ButtonStyle.Link
     && /faq|support assistant|cloudy assistant/i.test(String(button.label || ''));
+  if (!isCloudyHomeGuild(resolvedGuildId)) {
+    // A customer's server: a help button only when it chose a channel for it, with its own label.
+    const faq = /^\d{17,20}$/.test(String(config.ticketFaqChannelId || '')) ? String(config.ticketFaqChannelId) : null;
+    const label = typeof config.ticketFaqLabel === 'string' && config.ticketFaqLabel.trim() ? config.ticketFaqLabel.trim().slice(0, 80) : 'FAQ';
+    const kept = rows.map(row => row.components.filter(button => !isFaqLink(button))).filter(row => row.length);
+    const result = kept.map(components => new ActionRowBuilder().addComponents(components.map(button => new ButtonBuilder(button))));
+    if (faq) {
+      const link = new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${resolvedGuildId}/${faq}`);
+      const last = result.at(-1);
+      if (last && last.components.length < 5) last.addComponents(link); else result.push(new ActionRowBuilder().addComponents(link));
+    }
+    return result;
+  }
   // The former FAQ link led to the AI assistant. The owner explicitly moved
   // FAQ to this channel; preserve any different, deliberately configured ID.
   const configured = String(config.ticketFaqChannelId || '');
@@ -76,7 +92,7 @@ export function buildTicketPanelPayload(client, guildId, config = {}) {
     : DEFAULT_TICKET_PANEL_TITLE;
   const panelMessage = typeof config.ticketPanelMessage === 'string' && config.ticketPanelMessage.trim()
     ? config.ticketPanelMessage
-    : DEFAULT_TICKET_PANEL_MESSAGE;
+    : isCloudyHomeGuild(resolvedGuildId) ? DEFAULT_TICKET_PANEL_MESSAGE : CUSTOMER_TICKET_PANEL_MESSAGE;
 
   const embed = new EmbedBuilder()
     .setTitle(panelTitle)

@@ -236,16 +236,19 @@ export const MODULES = {
       enabled: T.bool, channelId: T.id, welcomePing: T.bool, welcomeMessage: T.area(2000),
       goodbyeEnabled: T.bool, goodbyeChannelId: T.id, goodbyePing: T.bool, leaveMessage: T.area(2000),
       'leaveEmbed.title': T.text(256), 'leaveEmbed.color': T.color, 'leaveEmbed.footer': T.text(2048), 'leaveEmbed.image': T.url(500),
+      'welcomeEmbed.title': T.text(256), 'welcomeEmbed.color': T.color, 'welcomeEmbed.image': T.url(500),
     },
     async read({ client, guild }) {
       const config = await getWelcomeConfig(client, guild.id);
       const leave = config.leaveEmbed || {};
+      const card = config.welcomeEmbed || {};
       return {
         enabled: config.enabled === true, channelId: config.channelId || null, welcomePing: config.welcomePing === true,
         welcomeMessage: str(config.welcomeMessage), goodbyeEnabled: config.goodbyeEnabled === true,
         goodbyeChannelId: config.goodbyeChannelId || null, goodbyePing: config.goodbyePing === true, leaveMessage: str(config.leaveMessage),
         'leaveEmbed.title': str(leave.title), 'leaveEmbed.color': colorHex(leave.color) || '#7A1712',
         'leaveEmbed.footer': str(leave.footer), 'leaveEmbed.image': typeof leave.image === 'string' ? leave.image : str(leave.image?.url),
+        'welcomeEmbed.title': str(card.title), 'welcomeEmbed.color': colorHex(card.color) || '#FFFFFF', 'welcomeEmbed.image': str(card.image),
       };
     },
     async write({ client, guild }, changes) {
@@ -253,15 +256,22 @@ export const MODULES = {
       const config = await getWelcomeConfig(client, guild.id, { strict: true });
       const updates = {};
       const leaveEmbed = { ...(config.leaveEmbed || {}) };
+      const welcomeEmbed = { ...(config.welcomeEmbed || {}) };
       let leaveChanged = false;
+      let welcomeChanged = false;
       for (const [path, value] of Object.entries(changes)) {
-        if (path.startsWith('leaveEmbed.')) {
+        if (path.startsWith('welcomeEmbed.')) {
+          const key = path.slice('welcomeEmbed.'.length);
+          if (value === '') delete welcomeEmbed[key]; else welcomeEmbed[key] = value;
+          welcomeChanged = true;
+        } else if (path.startsWith('leaveEmbed.')) {
           const key = path.slice('leaveEmbed.'.length);
           if (key === 'image' && value === '') delete leaveEmbed.image; else leaveEmbed[key] = value;
           leaveChanged = true;
         } else updates[path] = value;
       }
       if (leaveChanged) updates.leaveEmbed = leaveEmbed;
+      if (welcomeChanged) updates.welcomeEmbed = welcomeEmbed;
       await updateWelcomeConfig(client, guild.id, updates);
     },
   },
@@ -395,6 +405,7 @@ export const MODULES = {
     fields: {
       ticketStaffRoleId: T.id, maxTicketsPerUser: T.num(1, 10), ticketPanelChannelId: T.id, ticketPanelMessage: T.area(4000),
       ticketButtonLabel: T.text(80), ticketCategoryId: T.id, ticketClosedCategoryId: T.id, ticketLogsChannelId: T.id, ticketTranscriptChannelId: T.id,
+      ticketPanelTitle: T.text(256), ticketFaqChannelId: T.id, ticketFaqLabel: T.text(80), ticketOpenTitle: T.text(256), ticketOpenMessage: T.area(4000),
     },
     async read({ client, guild }) {
       const config = await getGuildConfig(client, guild.id);
@@ -403,6 +414,8 @@ export const MODULES = {
         ticketPanelChannelId: config.ticketPanelChannelId || null, ticketPanelMessage: str(config.ticketPanelMessage), ticketButtonLabel: str(config.ticketButtonLabel),
         ticketCategoryId: config.ticketCategoryId || null, ticketClosedCategoryId: config.ticketClosedCategoryId || null,
         ticketLogsChannelId: config.ticketLogsChannelId || null, ticketTranscriptChannelId: config.ticketTranscriptChannelId || null,
+        ticketPanelTitle: str(config.ticketPanelTitle), ticketFaqChannelId: config.ticketFaqChannelId || null, ticketFaqLabel: str(config.ticketFaqLabel),
+        ticketOpenTitle: str(config.ticketOpenTitle), ticketOpenMessage: str(config.ticketOpenMessage),
       };
     },
     async write({ client, guild }, changes) {
