@@ -80,3 +80,45 @@ test('/dashboard links to this server\'s dashboard page and tells the plan', asy
   assert.equal(json.name, 'dashboard');
   assert.equal(json.default_member_permissions, String(1n << 5n), 'Manage Server only');
 });
+
+// ---------------------------------------------------------------- rules
+
+test('/rules shows the server\'s own rules card', async () => {
+  const { buildRulesEmbed, rulesOf } = await import('../src/services/serverRules.js');
+  const guild = { name: 'Raid Night', iconURL: () => 'https://cdn.example/icon.png' };
+  assert.equal(buildRulesEmbed({ rules: rulesOf({}), guild }), null, 'no rules yet: nothing to show');
+  assert.equal(buildRulesEmbed({ rules: { text: '   ' }, guild }), null);
+  const card = buildRulesEmbed({ rules: { text: '1. Be kind on {server}.', color: '#E51B2E' }, guild }).toJSON();
+  assert.equal(card.title, 'Raid Night rules');
+  assert.equal(card.description, '1. Be kind on Raid Night.');
+  assert.equal(card.color, 0xE51B2E);
+  assert.equal(card.thumbnail.url, 'https://cdn.example/icon.png');
+  const titled = buildRulesEmbed({ rules: { title: 'House rules', text: 'No cheating.', color: 'red' }, guild }).toJSON();
+  assert.equal(titled.title, 'House rules');
+  assert.equal(titled.color, 0xFFFFFF, 'an invalid colour falls back to white');
+  assert.equal(rulesOf({ rules: ['not', 'an', 'object'] }).text, undefined);
+});
+
+test('/rules: reading is private, posting for everyone needs Manage Server', async () => {
+  const { default: rules } = await import('../src/commands/Community/rules.js');
+  const json = rules.data.toJSON();
+  assert.equal(json.name, 'rules');
+  assert.equal(json.default_member_permissions ?? null, null, 'every member can read the rules');
+  assert.deepEqual(json.options.map(option => option.name), ['post']);
+
+  const replies = [];
+  const interaction = (post, manage) => ({
+    id: '333333333333333333', user: { id: '444444444444444444' }, createdTimestamp: Date.now(),
+    guildId: CUSTOMER, guild: { name: 'Raid Night', iconURL: () => null },
+    client: {},
+    options: { getBoolean: () => post },
+    memberPermissions: { has: () => manage },
+    replied: false, deferred: false,
+    reply: async payload => { replies.push(payload); },
+    isRepliable: () => true,
+  });
+  await rules.execute(interaction(true, false));
+  const refused = replies.at(-1);
+  assert.match(JSON.stringify(refused.embeds[0]), /Manage Server/);
+  assert.ok(refused.flags, 'the refusal is private');
+});
