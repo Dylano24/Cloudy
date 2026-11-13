@@ -49,7 +49,7 @@ export function clearKnownMissingKeys() {
 
 function requiresPersistentStorage(key) {
     if (typeof key !== 'string') return false;
-    return /^guild:[^:]+:config$/.test(key) || /^guild:[^:]+:ticket:/.test(key);
+    return /^guild:[^:]+:config$/.test(key) || /^guild:[^:]+:ticket:/.test(key) || key.startsWith('rust-console:');
 }
 
 function persistentStorageError(key, operation) {
