@@ -111,6 +111,8 @@ test('AutoMod timeout log is titled "Auto timeout" with the reason "Message spam
   assert.equal(sent[0].id, AUTOMOD_LOG_CHANNEL_ID, 'AutoMod timeouts stay in the AutoMod log');
   assert.equal(sent[0].embed.title, 'Auto timeout');
   assert.equal(line(sent[0].embed.description, 'Reason'), 'Message spam detected (AutoMod)');
+  // Cloudy is shown without its #tag (owner's choice).
+  assert.equal(line(sent[0].embed.description, 'Timed-out by'), '<@cloudy>');
 });
 
 test('a staff timeout log is titled "Timeout" and keeps its own reason', async t => {
@@ -119,4 +121,5 @@ test('a staff timeout log is titled "Timeout" and keeps its own reason', async t
   assert.equal(sent[0].id, TIMEOUT_LOG_CHANNEL_ID);
   assert.equal(sent[0].embed.title, 'Timeout');
   assert.equal(line(sent[0].embed.description, 'Reason'), 'Being rude');
+  assert.equal(line(sent[0].embed.description, 'Timed-out by'), '<@mod> (mod)');
 });

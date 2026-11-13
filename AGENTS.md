@@ -66,7 +66,7 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 - Unban and untimeout logs, including AutoMod: `#00C49D`.
 - `Invite created`: `#FFFFFF`.
 - `Member joined using invite`: `#00C49D`.
-- AutoMod timeouts use title `Auto timeout` and show the reason as `Message spam detected (AutoMod)` (owner's choice; `automodReasonText`, the Discord audit reason keeps its `Automod:` form). They are routed to the AutoMod log by `data.automod`, not by their title.
+- AutoMod timeouts use title `Auto timeout` and show the reason as `Message spam detected (AutoMod)` (owner's choice; `automodReasonText`, the Discord audit reason keeps its `Automod:` form). They are routed to the AutoMod log by `data.automod`, not by their title. `Timed-out by` shows Cloudy itself as `@Cloudy Manager` only, without its `#tag` (owner's choice).
 - Kick, ban and timeout logs are titled `Kick`, `Ban` and `Timeout` (owner's choice: no "log"); `Unban log` and `Untime-out log` keep their titles. Title matchers (`TEMPLATE_RULES` in `embedManagerService.js`, `canonicalEmbedCommand`) accept the old and the new titles.
 - Actual timeout removal uses title `Untime-out log`.
 - Never send visible `Member ... · Case #...` moderation embeds. Cases may remain stored internally.
