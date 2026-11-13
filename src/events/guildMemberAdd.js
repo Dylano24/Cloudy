@@ -1,4 +1,6 @@
 import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { isCloudyHomeGuild } from '../utils/cloudyHomeGuild.js';
+import { buildCustomerWelcomeEmbed } from '../services/customerWelcomeCard.js';
 import { botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig, updateWelcomeConfig, setBirthday as dbSetBirthday } from '../utils/database.js';
@@ -144,7 +146,11 @@ export default {
                         const memberPosition = `You are the **${memberNumber}**${getOrdinalSuffix(memberNumber)} member of the server`;
                         const ping = welcome.welcomePing ? user.toString() : undefined;
 
-                        if (perms.has(PermissionFlagsBits.EmbedLinks)) {
+                        if (perms.has(PermissionFlagsBits.EmbedLinks) && !isCloudyHomeGuild(guild.id)) {
+                            // A customer's server: its own card from the dashboard, nothing of Cloudy Inc.
+                            const card = buildCustomerWelcomeEmbed({ welcome, guild, user, memberCount: guild.memberCount, format: formatWelcomeMessage });
+                            await channel.send({ content: ping, embeds: [card], allowedMentions: { users: [user.id] } });
+                        } else if (perms.has(PermissionFlagsBits.EmbedLinks)) {
                             const [rules, linkAccount, shop, contact] = await Promise.all(
                                 ['rules', 'linkYourAccount', 'shop', 'contactSupport'].map(key =>
                                     resolveCloudyChannel(member.client, key, { guild, textOnly: true })

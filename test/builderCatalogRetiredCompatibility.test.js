@@ -33,6 +33,7 @@ const deployedNames = [
   "creator-notify",
   "crime",
   "daily",
+  "dashboard",
   "deposit",
   "dm",
   "economy",

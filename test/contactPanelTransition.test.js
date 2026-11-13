@@ -15,6 +15,8 @@ const transition = await import('../src/services/ticketPanelTransitionService.js
 let index = 0;
 function world(t, {rejectConfig = false} = {}) {
   const guildId = String(1800000000000000000n + BigInt(++index));
+  // These tests describe Cloudy Inc.'s own panel (with the Cloudy assistant button).
+  process.env.GUILD_ID = guildId;
   const channelId = '1800000000000000001';
   const emoji = {id: '1800000000000000099', name: 'cloudy_support_bot_white', animated: false};
   const values = new Map([[getGuildConfigKey(guildId), {ticketPanelChannelId: channelId,
