@@ -8,6 +8,7 @@ import { getGuildBirthdays, deleteBirthday } from '../utils/database.js';
 import { deleteUserLevelData } from '../services/leveling/leveling.js';
 import { logger } from '../utils/logger.js';
 import { fetchRecentAuditEntry } from '../services/recentAuditLogService.js';
+import { formatLogActor } from '../utils/logActor.js';
 
 export default {
   name: Events.GuildMemberRemove,
@@ -35,7 +36,7 @@ export default {
                         title: 'Kick',
                         lines: [
                             `**User:** ${user.toString()} (${user.tag})`,
-                            `**Kicked by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
+                            `**Kicked by:** ${formatLogActor(executor, guild.client.user?.id)}`,
                             `**Reason:** ${reason}`,
                             `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
                         ],
