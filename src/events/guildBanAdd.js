@@ -3,6 +3,7 @@ import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getColor } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
 import { fetchRecentAuditEntry } from '../services/recentAuditLogService.js';
+import { formatLogActor } from '../utils/logActor.js';
 
 export default {
   name: Events.GuildBanAdd,
@@ -33,7 +34,7 @@ export default {
           color: getColor('red'),
           lines: [
             `**User:** ${user.toString()} (${user.tag})`,
-            `**Banned by:** ${executor ? `${executor.toString()} (${executor.tag})` : 'Unknown'}`,
+            `**Banned by:** ${formatLogActor(executor, guild.client.user?.id)}`,
             `**Reason:** ${reason}`,
             `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
           ],
