@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 import { getGuildConfig, setGuildConfig } from '../services/config/guildConfig.js';
 import { registerCommands } from '../handlers/loaders/commandLoader.js';
 import { repairGuild } from './cloudySelfReadPermissionsReady.js';
+import { sendSetupWelcome } from '../services/dashboardOnboarding.js';
 
 // A new server gets Cloudy's slash commands right away, through the same
 // startup sync script (one server only, in a separate process).
@@ -48,6 +49,10 @@ export default {
         }
       } else {
         syncCommandsForNewGuild(guild.id);
+        // A customer's server: point its admins to the dashboard once (off until CLOUDY_DASHBOARD_URL is set).
+        await sendSetupWelcome(guild, client).catch(error => {
+          logger.warn(`[ONBOARDING] Could not send the setup message in ${guild.id}: ${error?.message || error}`);
+        });
       }
     } catch (error) {
       logger.error(`Error initializing guild ${guild?.id} on join:`, error);
