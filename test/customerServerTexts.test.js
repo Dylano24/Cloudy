@@ -122,3 +122,14 @@ test('/rules: reading is private, posting for everyone needs Manage Server', asy
   assert.match(JSON.stringify(refused.embeds[0]), /Manage Server/);
   assert.ok(refused.flags, 'the refusal is private');
 });
+
+test('/rules and /dashboard are registered for every server, not only Cloudy Inc.', async () => {
+  const { isPlayerCommand } = await import('../src/config/playerCommands.js');
+  const { default: rules } = await import('../src/commands/Community/rules.js');
+  const { default: dashboard } = await import('../src/commands/Core/dashboard.js');
+  assert.equal(rules.globalRegistration, true);
+  assert.equal(dashboard.globalRegistration, true);
+  // The sync gives non-player commands Administrator-only defaults; /rules is for everyone.
+  assert.equal(isPlayerCommand('rules'), true);
+  assert.equal(dashboard.data.toJSON().default_member_permissions, String(1 << 5), 'Manage Server');
+});

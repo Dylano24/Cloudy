@@ -24,6 +24,8 @@ export function planLine(plan) {
 }
 
 export default {
+  // Registered for every server Cloudy is in, not only Cloudy Inc.
+  globalRegistration: true,
   data: new SlashCommandBuilder()
     .setName('dashboard')
     .setDescription('Open the Cloudy Bot dashboard for this server')
