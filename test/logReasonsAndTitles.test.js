@@ -123,3 +123,13 @@ test('a staff timeout log is titled "Timeout" and keeps its own reason', async t
   assert.equal(line(sent[0].embed.description, 'Reason'), 'Being rude');
   assert.equal(line(sent[0].embed.description, 'Timed-out by'), '<@mod> (mod)');
 });
+
+import { formatLogActor } from '../src/utils/logActor.js';
+
+test('Cloudy as actor of a ban, kick or timeout is @Cloudy Manager without its #tag; staff keep their tag', () => {
+  const cloudy = { id: 'cloudy', tag: 'Cloudy Manager#7270', toString: () => '<@cloudy>' };
+  const staff = { id: 'mod', tag: 'mod', toString: () => '<@mod>' };
+  assert.equal(formatLogActor(cloudy, 'cloudy'), '<@cloudy>');
+  assert.equal(formatLogActor(staff, 'cloudy'), '<@mod> (mod)');
+  assert.equal(formatLogActor(null, 'cloudy'), 'Unknown');
+});
