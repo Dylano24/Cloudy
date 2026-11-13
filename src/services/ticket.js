@@ -1,4 +1,5 @@
 import { requireTicketCloseReason } from './ticketActionPolicy.js';
+import { customTicketOpening } from './ticketCustomText.js';
 import { hideClosedTicket } from './ticketClosedAccessService.js';
 // ticket.js
 
@@ -194,9 +195,11 @@ export async function createTicket(
       });
     }
     
+    // A server's own opening text from the dashboard, else Cloudy's standard text.
+    const custom = customTicketOpening(config, { user: member.toString(), reason, number: ticketNumber, server: guild.name });
     const embed = forceCloudyTicketFooter(createEmbed({
-    title: `Ticket #${ticketNumber}`,
-    description:
+    title: custom?.title || `Ticket #${ticketNumber}`,
+    description: custom?.description ||
       `${member.toString()}, we’ve received your request!\n\n`
       + 'To help us process your ticket as quickly as possible, please provide any additional details you believe may be useful, along with any screenshots or files that could help us better understand your situation.\n\n'
       + '**Please do not tag or spam our staff members for updates.** We can see your messages and have received all the information you’ve provided. If you don’t receive an immediate response, it simply means that we may be busy elsewhere or handling other requests.\n\n'

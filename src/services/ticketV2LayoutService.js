@@ -5,6 +5,8 @@ import {
   EmbedBuilder,
   MessageFlags,
 } from 'discord.js';
+import { customTicketOpening } from './ticketCustomText.js';
+import { getGuildConfig } from './config/guildConfig.js';
 import { getTicketData, saveTicketData } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { CLOUDY_TICKET_FOOTER } from '../utils/ticket/ticketBranding.js';
@@ -89,13 +91,14 @@ function makeTicketActionRow(ticketData) {
   );
 }
 
-function buildTicketEmbed(ticketData, number, guildId) {
+function buildTicketEmbed(ticketData, number, guildId, config = null, serverName = '') {
   const reason = String(ticketData.reason || 'No reason provided').slice(0, 1024);
+  const custom = customTicketOpening(config, { user: `<@${ticketData.userId}>`, reason, number, server: serverName });
 
   const baseEmbed = new EmbedBuilder()
     .setColor(0xFFFFFF)
-    .setTitle(`Ticket #${number}`)
-    .setDescription(
+    .setTitle(custom?.title || `Ticket #${number}`)
+    .setDescription(custom?.description ||
       `<@${ticketData.userId}>, ${RECEIVED_INTRO}`
       + `\n\n${RECEIVED_DETAILS}`
       + `\n\n${STAFF_NOTICE}`
@@ -186,7 +189,8 @@ export async function renderTicketV2(channel, preferredMessage = null) {
       if (number !== 'Unknown') ticketData.ticketNumber = number;
 
       const isClosed = String(ticketData.status || 'open').toLowerCase() === 'closed';
-      const embed = buildTicketEmbed(ticketData, number, channel.guild.id);
+      const config = await getGuildConfig(channel.client, channel.guild.id).catch(() => null);
+      const embed = buildTicketEmbed(ticketData, number, channel.guild.id, config, channel.guild.name);
       const components = isClosed ? [] : [makeTicketActionRow(ticketData)];
 
       if (message.flags?.has?.(MessageFlags.IsComponentsV2)) {

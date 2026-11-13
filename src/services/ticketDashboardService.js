@@ -71,6 +71,11 @@ const NULLABLE_FIELDS = new Set([
   'ticketStaffRoleId',
   'ticketLogsChannelId',
   'ticketTranscriptChannelId',
+  'ticketPanelTitle',
+  'ticketFaqChannelId',
+  'ticketFaqLabel',
+  'ticketOpenTitle',
+  'ticketOpenMessage',
 ]);
 
 function dashboardError(message, userMessage) {
@@ -206,6 +211,19 @@ export async function validateTicketDashboardValue(_client, guild, field, value)
       throw dashboardError('Selected staff role is invalid.', 'Choose a normal server role that Cloudy can use for ticket staff.');
     }
     return role.id;
+  }
+
+  if (field === 'ticketFaqChannelId') {
+    const channel = await fetchGuildChannel(guild, value);
+    if (!channel) throw dashboardError('Selected channel no longer exists.', 'That channel could not be found. Choose another channel.');
+    return channel.id;
+  }
+
+  if (['ticketPanelTitle', 'ticketFaqLabel', 'ticketOpenTitle', 'ticketOpenMessage'].includes(field)) {
+    const max = field === 'ticketOpenMessage' ? 4000 : field === 'ticketFaqLabel' ? 80 : 256;
+    const text = String(value).trim();
+    if (text.length > max) throw dashboardError('Ticket text is too long.', `Keep this text under ${max} characters.`);
+    return text || null;
   }
 
   if (field === 'maxTicketsPerUser') {
@@ -355,6 +373,11 @@ export async function saveTicketDashboardSetting(client, guild, field, value) {
   const allowedFields = new Set([
     'ticketPanelMessage',
     'ticketButtonLabel',
+    'ticketPanelTitle',
+    'ticketFaqChannelId',
+    'ticketFaqLabel',
+    'ticketOpenTitle',
+    'ticketOpenMessage',
     'ticketCategoryId',
     'ticketClosedCategoryId',
     'ticketStaffRoleId',
@@ -373,7 +396,7 @@ export async function saveTicketDashboardSetting(client, guild, field, value) {
     dmOnClose: false,
   });
 
-  if (field === 'ticketPanelMessage' || field === 'ticketButtonLabel') {
+  if (['ticketPanelMessage', 'ticketButtonLabel', 'ticketPanelTitle', 'ticketFaqChannelId', 'ticketFaqLabel'].includes(field)) {
     const updated = await updateLiveTicketPanel(client, guild, saved).catch(() => false);
     if (!updated && saved.ticketPanelChannelId) {
       await repostTicketPanel(client, guild);

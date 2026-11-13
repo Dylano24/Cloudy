@@ -28,6 +28,7 @@ const PLAYER_COMMAND_NAMES = [
   'baseconvert',
   'calculate',
   'countdown',
+  'rules',
   'hexcolor',
   'vote',
   'randomuser',
