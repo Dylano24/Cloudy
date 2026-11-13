@@ -74,6 +74,7 @@ const deployedNames = [
   "report",
   "rob",
   "roulette",
+  "rules",
   // /rustcommunity was added with the optional Rust community tools (4e3ed48).
   "rustcommunity",
   "say",

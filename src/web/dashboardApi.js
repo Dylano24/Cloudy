@@ -275,6 +275,22 @@ export const MODULES = {
       await updateWelcomeConfig(client, guild.id, updates);
     },
   },
+  rules: {
+    fields: { 'rules.title': T.text(256), 'rules.text': T.area(4000), 'rules.color': T.color },
+    async read({ client, guild }) {
+      const rules = (await getGuildConfig(client, guild.id)).rules || {};
+      return { 'rules.title': str(rules.title), 'rules.text': str(rules.text), 'rules.color': colorHex(rules.color) || '#FFFFFF' };
+    },
+    async write({ client, guild }, changes) {
+      const config = await getGuildConfig(client, guild.id);
+      const rules = { ...(config.rules && typeof config.rules === 'object' ? config.rules : {}) };
+      for (const [path, value] of Object.entries(changes)) {
+        const key = path.slice('rules.'.length);
+        if (value === '') delete rules[key]; else rules[key] = value;
+      }
+      await updateGuildConfig(client, guild.id, { rules }, { source: 'dashboard' });
+    },
+  },
   autoroles: {
     fields: { roleIds: T.ids(1) },
     async read({ client, guild }) {
