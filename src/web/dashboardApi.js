@@ -637,15 +637,17 @@ const CHANNEL_TYPES = {
 const NEEDED_PERMISSIONS = ['ViewChannel', 'SendMessages', 'EmbedLinks', 'AttachFiles', 'ReadMessageHistory', 'ManageMessages', 'ManageRoles', 'ManageChannels', 'KickMembers', 'BanMembers', 'ModerateMembers', 'ViewAuditLog', 'Connect', 'Speak'];
 
 // ---------------------------------------------------------------- plan
-// Every server gets a free trial that starts with its first saved change.
-// After it, saving needs Premium. Cloudy's owner always has full access.
+// Cloudy Bot has no free trial: every setting can be viewed, saving needs
+// Premium (owner grant or paid on Cloudy Store). A trial a server already had
+// before keeps working until it ends; none is started any more. Cloudy's owner
+// always has full access.
 
-export const PLAN = { priceEur: 13, trialDays: 7, maxMonths: 24 };
+export const PLAN = { priceEur: 13, maxMonths: 24 };
 const DAY_MS = 86_400_000;
 const planKey = guildId => `guild:${guildId}:dashboard:plan`;
 
 export function planState(record, { isOwner = false, nowMs }) {
-  const base = { priceEur: PLAN.priceEur, trialDays: PLAN.trialDays };
+  const base = { priceEur: PLAN.priceEur };
   if (isOwner) return { ...base, status: 'owner', canSave: true, until: null };
   // Owner grants (premiumUntil) and paid time from Cloudy Store (billing) both count.
   const premiumUntil = Math.max(Date.parse(record?.premiumUntil || '') || 0, billingPremiumEnd(record, nowMs));
@@ -656,7 +658,7 @@ export function planState(record, { isOwner = false, nowMs }) {
   // A subscription that ended also means the server already had Premium: no new trial.
   const lastPaidEnd = Math.max(premiumUntil, Date.parse(record?.billing?.subscription?.periodEnd || '') || 0);
   if (trialEndsAt || lastPaidEnd) return { ...base, status: 'expired', canSave: false, until: new Date(Math.max(trialEndsAt, lastPaidEnd)).toISOString() };
-  return { ...base, status: 'new', canSave: true, until: null };
+  return { ...base, status: 'new', canSave: false, until: null };
 }
 
 const PLAN_REQUIRED = 'Saving needs Cloudy Bot Premium (€13.00 per month). You can still view and try every setting.';
@@ -711,15 +713,6 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
   async function planFor(guildId, actorId) {
     const record = await client.db.get(planKey(guildId), null);
     return planState(record, { isOwner: (await ownerIds()).has(actorId), nowMs: now() });
-  }
-  function startTrial(guildId, actorId) {
-    return withLock(`${guildId}:plan`, async () => {
-      const record = await client.db.get(planKey(guildId), null);
-      if (record?.trialEndsAt) return;
-      const startedAt = now();
-      await client.db.set(planKey(guildId), { ...(record || {}), trialStartedAt: new Date(startedAt).toISOString(), trialEndsAt: new Date(startedAt + PLAN.trialDays * DAY_MS).toISOString(), trialStartedBy: actorId });
-      await audit(guildId, { actor: actorId, module: 'plan', keys: ['trial:start'] });
-    });
   }
   async function audit(guildId, entry) {
     try {
@@ -869,10 +862,9 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
           await mod.write(ctx, changes, current);
           const values = await mod.read(ctx);
           const revision = revisionOf(values);
-          if (plan.status === 'new') await startTrial(guild.id, actorId);
           await audit(guild.id, { actor: actorId, module: route[3], keys: Object.keys(changes), revisionBefore, revisionAfter: revision });
           logger.info(`[DASHBOARD] ${actorId} updated ${route[3]} in ${guild.id}: ${Object.keys(changes).join(', ')}`);
-          return send(200, { revision, values, plan: plan.status === 'new' ? await planFor(guild.id, actorId) : plan });
+          return send(200, { revision, values, plan });
         });
       }
 
@@ -884,7 +876,6 @@ export function createDashboardHandler({ client, env = process.env, nonces = cre
         if (!plan.canSave) return send(402, { error: PLAN_REQUIRED, code: 'plan_required', plan });
         return await withLock(`${guild.id}:${route[3]}`, async () => {
           const message = await action(ctx);
-          if (plan.status === 'new') await startTrial(guild.id, actorId);
           await audit(guild.id, { actor: actorId, module: route[3], keys: [`action:${route[5]}`] });
           return send(200, { ok: true, message });
         });

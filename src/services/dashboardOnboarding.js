@@ -46,7 +46,7 @@ export function setupMessage(guild, url) {
     description: [
       `Set Cloudy up for **${guild.name}** on the website: log channels, welcome messages, tickets, verification and more. Every change applies in Discord right away.`,
       '',
-      'Only the server owner, Administrators and members with Manage Server can open it. The 7-day free trial starts with your first saved change.',
+      'Only the server owner, Administrators and members with Manage Server can open it. Saving changes needs Cloudy Bot Premium (€13 per month per server).',
     ].join('\n'),
   });
   const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Open the dashboard').setStyle(ButtonStyle.Link).setURL(url));

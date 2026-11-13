@@ -12,7 +12,7 @@ Body: `eventKey` (idempotency key), `event` (`grant` | `renew` | `expire` | `ref
 
 - Stored in the existing plan record `guild:<id>:dashboard:plan` under `billing` (`paidUntil`, `subscription`, `grants`, `processed`). Owner grants (`premiumUntil`) stay separate, so a refund only removes what that payment added, and the owner's "off" never cancels a paying customer.
 - A repeated `eventKey` changes nothing (`duplicate`); a second event for the same `paymentRef` (Tip4Serv sends `payment.success` and `subscription.created` for one checkout) is `already_granted`.
-- Subscriptions: active until the paid period end plus a 3-day grace for late renewal webhooks; a renewal continues the cycle from the old period end. `expire` ends it; an ended subscription never starts a new free trial.
+- Subscriptions: active until the paid period end plus a 3-day grace for late renewal webhooks; a renewal continues the cycle from the old period end. `expire` ends it. There is no free trial: without Premium, settings are visible but saving is refused.
 - Paying before Cloudy is in the server is allowed (`inGuild: false`); the time is waiting when Cloudy joins.
 
 ## Rust Console kit delivery (`billing/rust/...`)

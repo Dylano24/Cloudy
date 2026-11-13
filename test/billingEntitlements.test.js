@@ -73,7 +73,7 @@ test('subscriptions renew from the end of the paid period and keep a short grace
   assert.equal(planState(created.record, { nowMs: periodEnd + SUBSCRIPTION_GRACE_MS + 1 }).status, 'expired');
 });
 
-test('an expired subscription ends Premium and never restarts the free trial', () => {
+test('an expired subscription ends Premium and saving needs Premium again', () => {
   const created = applyBillingEvent({}, sub(), NOW).record;
   const expired = applyBillingEvent(created, sub({ event: 'expire', eventKey: 'tip4serv:1:2:9::subscription.expired' }), NOW + 10 * DAY);
   assert.equal(expired.result, 'expired');

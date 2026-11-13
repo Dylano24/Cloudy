@@ -46,9 +46,11 @@ function fakeClient() {
   };
 }
 
-function makeHandler(overrides = {}) {
+function makeHandler({ premium = true, ...overrides } = {}) {
   const state = { values: { enabled: false, channelId: null }, writes: [] };
   const { client, store } = fakeClient();
+  // Saving needs Premium (there is no free trial); most tests run on a Premium server.
+  if (premium) store.set(`guild:${GUILD}:dashboard:plan`, { premiumUntil: new Date(NOW + 365 * 86_400_000).toISOString() });
   const modules = {
     counting: {
       fields: { enabled: { t: 'bool' }, channelId: { t: 'id' } },
@@ -225,7 +227,8 @@ test('a refused write leaves no unhandled rejection and the next write still run
   const onRejection = reason => rejections.push(reason);
   process.on('unhandledRejection', onRejection);
   try {
-    const { client } = fakeClient();
+    const { client, store } = fakeClient();
+    store.set(`guild:${GUILD}:dashboard:plan`, { premiumUntil: new Date(NOW + 86_400_000).toISOString() });
     let calls = 0;
     const modules = {
       counting: {
@@ -277,39 +280,41 @@ test('a Discord login token identifies the dashboard user through Discord itself
   assert.equal(none.statusCode, 401);
 });
 
-test('plan: free trial starts with the first save, then saving needs Premium', async () => {
+test('plan: no free trial; settings stay visible and saving needs Premium', async () => {
   let clock = NOW;
-  const { handle, state, store } = makeHandler({ now: () => clock, nonces: createNonceStore(() => clock) });
+  const { handle, state, store } = makeHandler({ premium: false, now: () => clock, nonces: createNonceStore(() => clock) });
   const headersAt = (method, path, body) => sign({ method, path: `${DASHBOARD_PREFIX}${path}`, body, ts: Math.floor(clock / 1000) });
   const at = async ({ method = 'GET', path, payload }) => call(handle, { method, path, payload, headers: headersAt(method, path, payload === undefined ? '' : JSON.stringify(payload)) });
 
   const fresh = await at({ path: `/guilds/${GUILD}/overview` });
   assert.equal(fresh.body.plan.status, 'new');
-  assert.equal(fresh.body.plan.canSave, true);
+  assert.equal(fresh.body.plan.canSave, false);
   assert.equal(fresh.body.plan.priceEur, 13);
+  assert.equal('trialDays' in fresh.body.plan, false);
 
   const read = await at({ path: `/guilds/${GUILD}/modules/counting` });
-  const saved = await at({ method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision: read.body.revision, changes: { enabled: true } } });
-  assert.equal(saved.statusCode, 200);
-  assert.equal(saved.body.plan.status, 'trial');
-  assert.equal(saved.body.plan.until, new Date(NOW + 7 * 86_400_000).toISOString());
-  assert.equal(store.get(`guild:${GUILD}:dashboard:plan`).trialStartedBy, ADMIN);
-
-  clock = NOW + 8 * 86_400_000;
-  const ended = await at({ path: `/guilds/${GUILD}/overview` });
-  assert.equal(ended.body.plan.status, 'expired');
-  assert.equal(ended.body.plan.canSave, false);
-  assert.equal((await at({ path: `/guilds/${GUILD}/modules/counting` })).statusCode, 200, 'settings stay visible');
-  const again = await at({ path: `/guilds/${GUILD}/modules/counting` });
-  const refused = await at({ method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision: again.body.revision, changes: { enabled: false } } });
+  assert.equal(read.statusCode, 200, 'settings stay visible without Premium');
+  const refused = await at({ method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision: read.body.revision, changes: { enabled: true } } });
   assert.equal(refused.statusCode, 402);
   assert.equal(refused.body.code, 'plan_required');
   assert.equal((await at({ method: 'POST', path: `/guilds/${GUILD}/modules/counting/actions/ping`, payload: {} })).statusCode, 402);
-  assert.equal(state.writes.length, 1, 'nothing changed after the trial');
+  assert.equal(state.writes.length, 0, 'the first save does not start a trial');
+  assert.equal(store.get(`guild:${GUILD}:dashboard:plan`), undefined, 'nothing about a trial is stored');
+
+  // A trial a server already had keeps working until it ends, then saving needs Premium.
+  store.set(`guild:${GUILD}:dashboard:plan`, { trialEndsAt: new Date(NOW + 2 * 86_400_000).toISOString() });
+  const legacy = await at({ path: `/guilds/${GUILD}/overview` });
+  assert.equal(legacy.body.plan.status, 'trial');
+  const again = await at({ path: `/guilds/${GUILD}/modules/counting` });
+  assert.equal((await at({ method: 'PATCH', path: `/guilds/${GUILD}/modules/counting`, payload: { revision: again.body.revision, changes: { enabled: true } } })).statusCode, 200);
+  clock = NOW + 3 * 86_400_000;
+  const ended = await at({ path: `/guilds/${GUILD}/overview` });
+  assert.equal(ended.body.plan.status, 'expired');
+  assert.equal(ended.body.plan.canSave, false);
 });
 
 test('plan: only Cloudy\'s owner can turn Premium on, and owners always save', async () => {
-  const { handle, store } = makeHandler({ env: { CLOUDY_DASHBOARD_API_SECRET: SECRET, OWNER_IDS: ` ${MEMBER} ` } });
+  const { handle, store } = makeHandler({ premium: false, env: { CLOUDY_DASHBOARD_API_SECRET: SECRET, OWNER_IDS: ` ${MEMBER} ` } });
   const grantPath = '/plans/grant';
   const denied = await call(handle, { method: 'POST', path: grantPath, payload: { guildId: GUILD, months: 1 } });
   assert.equal(denied.statusCode, 403, 'a server admin cannot grant Premium');
