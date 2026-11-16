@@ -130,8 +130,8 @@ export function serverStatusEmbed(session, now = Date.now()) {
   const info = session.info;
   const online = session.state === 'online';
   const dot = icon('dot');
-  return rceEmbed(`${icon(online ? 'online' : 'offline')}${plain(session.name, 60)}`, [
-    `**Status:** ${online ? 'Online' : session.state === 'connecting' ? 'Connecting' : 'Offline'}`,
+  return rceEmbed('Server status', [
+    `${icon(online ? 'online' : 'offline')}**${plain(session.name, 60)}** ${online ? 'Online' : session.state === 'connecting' ? 'Connecting' : 'Offline'}`,
     online ? `${dot}**Players:** ${info?.players ?? session.players.size}${info?.maxPlayers ? `/${info.maxPlayers}` : ''}` : null,
     online && info?.queued ? `${dot}**Queue:** ${info.queued}` : null,
     online && info?.joining ? `${dot}**Joining:** ${info.joining}` : null,

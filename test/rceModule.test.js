@@ -628,7 +628,8 @@ test('every /rce, /rceconfig and /rust subcommand answers without errors', async
     await run(rce, { group: 'game', sub: 'players', options: { server: 'main' } }, 'Online · Cloudy Rust');
     await run(rce, { group: 'game', sub: 'log', options: { server: 'main' } }, 'Console · Cloudy Rust');
     const status = await run(rce, { group: 'game', sub: 'status' }, null);
-    assert.match(status.replies.at(-1).embeds[0].title, /Cloudy Rust/);
+    assert.equal(status.replies.at(-1).embeds[0].title, 'Server status');
+    assert.match(status.replies.at(-1).embeds[0].description, /Cloudy Rust\*\* Online/);
     await run(rce, { group: 'game', sub: 'wipe', options: { server: 'main', confirm: true } });
     await run(rce, { group: 'server', sub: 'reconnect', options: { server: 'main' } });
     await settle(20);
@@ -691,4 +692,20 @@ test('every /rce, /rceconfig and /rust subcommand answers without errors', async
     await rceconfig.autocomplete(emotes);
     assert.equal(emotes.replies[0].choices.length, 25);
   } finally { await t.close(); }
+});
+
+test('Rust feed posts and answers skip the response-template layers, other embeds do not', async () => {
+  const { isGameFeedEmbed } = await import('../src/services/gameFeedTitles.js');
+  const embeds = await import('../src/services/rce/rceEmbeds.js');
+  const event = parser.parseConsoleLine('Dyn was killed by Dylano');
+  for (const embed of [
+    embeds.killEmbed('Cloudy Rust', event), embeds.joinEmbed('Cloudy Rust', 'Dyn'), embeds.joinEmbed('Cloudy Rust', 'Dyn', { joined: false }),
+    embeds.chatEmbed('Cloudy Rust', parser.parseConsoleLine('[CHAT TEAM] Dyn : d11_quick_chat_responses_slot_0')),
+    embeds.worldEventEmbed('Cloudy Rust', 'Cargo Ship'), embeds.adminEmbed('Cloudy Rust', 'Kit given', []),
+    embeds.zorpEmbed('Cloudy Rust', 'protected', { ownerName: 'Dyn', members: [] }),
+    embeds.rceEmbed('Stats · Dyn', []), embeds.rceEmbed('Console · Cloudy Rust', []), embeds.rceEmbed('Kills leaderboard', []),
+  ]) assert.equal(isGameFeedEmbed(embed), true, embed.title);
+  assert.equal(isGameFeedEmbed(embeds.rceEmbed('Success', ['Done'])), false, 'status replies keep the normal 10-second handling');
+  assert.equal(isGameFeedEmbed({ title: 'Reaction Role Removed', footer: { text: '© Cloudy Inc. • Quality. Innovation. Performance.' } }), false);
+  assert.equal(isGameFeedEmbed({ title: 'Kit given' }), false, 'only Cloudy-footer embeds');
 });
