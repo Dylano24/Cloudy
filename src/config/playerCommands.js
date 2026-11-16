@@ -39,6 +39,7 @@ const PLAYER_COMMAND_NAMES = [
   'weather',
   'report',
   'cloudy report',
+  'rust',
 ];
 
 export const PLAYER_COMMANDS = new Set(PLAYER_COMMAND_NAMES);
