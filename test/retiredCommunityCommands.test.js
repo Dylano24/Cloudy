@@ -17,7 +17,8 @@ test('only birthday and leveling slash commands are retired', () => {
 test('retired community commands are skipped in runtime and Discord registration', async () => {
   const client = {};
   await loadCommands(client);
-  assert.equal(client.commands.size, 96);
+  // 96 plus /rce, /rceconfig and /rust (Rust Console Edition module).
+  assert.equal(client.commands.size, 99);
   for (const name of RETIRED) assert.equal(client.commands.has(name), false, name);
   for (const name of ['creator-notify', 'leaderboard', 'vote', 'giveaway', 'ticket', 'auto']) {
     assert.equal(client.commands.has(name), true, name + ' should remain available');

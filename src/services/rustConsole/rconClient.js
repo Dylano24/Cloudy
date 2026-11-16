@@ -42,6 +42,7 @@ export function createRconClient({ host, port, password, tls = false, name = 'Cl
   const url = rconUrl({ host, port, password, tls });
   const pending = new Map();
   const listeners = new Set();
+  const closeListeners = new Set();
   let socket = null;
   let opening = null;
   let nextId = 1000 + Math.floor(Math.random() * 100_000);
@@ -59,11 +60,17 @@ export function createRconClient({ host, port, password, tls = false, name = 'Cl
       const timer = setTimeout(() => { reject(new RconError('RCON connection timed out.', 'timeout')); try { ws.close(); } catch { /* closed */ } }, timeoutMs);
       ws.onopen = () => { clearTimeout(timer); socket = ws; resolve(); };
       ws.onerror = () => { clearTimeout(timer); reject(new RconError('RCON connection failed.', 'connect_failed')); };
-      ws.onclose = () => {
+      ws.onclose = event => {
         clearTimeout(timer);
+        const wasOpen = socket === ws;
         if (socket === ws) socket = null;
         failAll(new RconError('RCON connection closed.', 'closed'));
         reject(new RconError('RCON connection closed.', 'closed'));
+        if (wasOpen) {
+          for (const listener of closeListeners) {
+            try { listener({ code: event?.code ?? null, reason: String(event?.reason || '') }); } catch { /* a listener never breaks the client */ }
+          }
+        }
       };
       ws.onmessage = event => {
         const frame = parseRconFrame(event?.data);
@@ -106,13 +113,22 @@ export function createRconClient({ host, port, password, tls = false, name = 'Cl
     return () => listeners.delete(listener);
   }
 
-  function close() {
-    failAll(new RconError('RCON connection closed.', 'closed'));
-    try { socket?.close(); } catch { /* already closed */ }
-    socket = null;
+  /** Called once when an open connection closes (not for a failed connect). */
+  function onClose(listener) {
+    closeListeners.add(listener);
+    return () => closeListeners.delete(listener);
   }
 
-  return { connect, send, onMessage, close };
+  function close() {
+    failAll(new RconError('RCON connection closed.', 'closed'));
+    const current = socket;
+    socket = null;
+    try { current?.close(); } catch { /* already closed */ }
+  }
+
+  const isOpen = () => Boolean(socket && socket.readyState === 1);
+
+  return { connect, send, onMessage, onClose, close, isOpen };
 }
 
 /**

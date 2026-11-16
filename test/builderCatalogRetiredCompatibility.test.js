@@ -69,10 +69,14 @@ const deployedNames = [
   "purge",
   "queue",
   "randomuser",
+  // /rce and /rceconfig (staff) and /rust (players): the Rust Console Edition module.
+  "rce",
+  "rceconfig",
   "reactroles",
   "report",
   "rob",
   "roulette",
+  "rust",
   // /rustcommunity was added with the optional Rust community tools (4e3ed48).
   "rustcommunity",
   "say",
@@ -107,7 +111,7 @@ const deployedNames = [
   "work"
 ];
 
-test('all 96 deployed routes (incl. /now, /wipe, /honeypot and /rustcommunity) survive removal of the 12 retired implementation files', async () => {
+test('all 99 deployed routes (incl. /now, /wipe, /honeypot, /rustcommunity and the Rust Console commands) survive removal of the 12 retired implementation files', async () => {
   const client = {};
   await loadCommands(client);
   assert.deepEqual([...client.commands.keys()].sort(), deployedNames);

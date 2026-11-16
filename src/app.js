@@ -17,6 +17,7 @@ import { loadCommands, registerCommands as registerSlashCommands } from './handl
 import { runSafeTask, handleTaskError, ErrorCodes } from './utils/errorHandler.js';
 import { initializeMusic } from './services/music/riffySetup.js';
 import { shutdownMusic } from './services/music/playerHandler.js';
+import { getRceRuntime } from './services/rce/rceRuntime.js';
 import { startRustPatchNotes } from './services/rustPatchNotesService.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
@@ -476,6 +477,13 @@ class CloudyBot extends Client {
       logger.info('Stopping music players...');
       await shutdownMusic(this);
       logger.info('✅ Music players stopped');
+
+      // Rust Console servers: close the connections and save player statistics.
+      try {
+        await getRceRuntime()?.stop?.();
+      } catch (error) {
+        logger.warn('Rust Console module did not stop cleanly:', error?.message || error);
+      }
 
       if (this.webServer) {
         logger.info('Closing web server...');
