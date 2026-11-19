@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { REST } from '@discordjs/rest';
+import { CLOUDY_LOGO_URL } from '../src/services/cloudyLogoService.js';
 import { normalizeCloudyMessage } from '../src/services/cloudyBrandingService.js';
 import { withCloudyFooter, installCloudyFooterOutput, CLOUDY_STANDARD_FOOTER, registerBuilderPreviewReplyToken, withManualBuilderSaveLogoChoice, withManualBuilderPostLogoChoice } from '../src/utils/cloudyFooter.js';
 import { registerBuilderPreviewMessage, unregisterBuilderPreviewMessage } from '../src/utils/builderSessionCleanup.js';
@@ -133,7 +134,7 @@ test('Discord REST message and interaction paths keep bare tags without automati
       method: 'POST',
       body: { embeds: [{ title: 'Old authored style', footer: { text: CLOUDY_STANDARD_FOOTER } }] },
     });
-    assert.equal(captured.at(-1).body.embeds[0].thumbnail, undefined, 'an existing styled no-logo embed is not forcibly given the C');
+    assert.equal(captured.at(-1).body.embeds[0].thumbnail?.url, CLOUDY_LOGO_URL, 'new ordinary embeds get the C even when the standard footer was supplied');
   } finally {
     Object.defineProperty(prototype, 'request', original);
   }
