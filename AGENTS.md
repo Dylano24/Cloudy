@@ -10,6 +10,7 @@ This file is the persistent working context for every session that edits this re
 - Preserve user changes and do not reset or overwrite a dirty worktree.
 - Run focused tests, deploy through GitHub `main`, and verify Railway reports `SUCCESS` and the Discord bot reaches `ONLINE`.
 - If a one-time migration is explicitly required, remove it immediately after it runs. It must never remain in startup.
+- Everything is Dylano's (owner's choice): commits are authored as `Dylano24` with the owner's own email from the existing history, never as an AI tool. Commit messages, PR titles and descriptions, comments, branch names, code, docs and Railway carry no AI attribution: no `Co-Authored-By` or session-link lines, no "Generated with/by ..." footers, no AI tool, assistant or review bot (such as CodeRabbit) named as author, helper or reviewer (the bot's own AI features keep their provider names). A work branch that was given such a name is renamed or deleted once its work is merged. The whole history of `Cloudy` and `Cloudy.` was rewritten for this on 2026-11-19; a backup of the old default branch is the branch `backup-main-2026-11-19` (`backup-master-2026-11-19` in `Cloudy.`).
 
 ## Embed preservation
 
@@ -196,9 +197,9 @@ Ticket logs are excluded from all rules in this section and must remain unchange
 
 ## Current verified state
 
-- Baseline before this handoff: `61fad81ced310c2860ffa6b68d3b702f446917a7`.
-- Permanent non-ticket log protection was introduced in `cfbce39701f317c44f5a3a18dbc6e91997c9be3e`.
-- Moderation identity/transient reply fixes were introduced in `f82455a75fd630c4c07e8d7874d7dab59b97e1d8`.
+- Baseline before this handoff: `823d6616e327f22bc926b8494b485a4c91f5adab`.
+- Permanent non-ticket log protection was introduced in `c8290d2e40009330fe03539a8e8702fede0d7ced`.
+- Moderation identity/transient reply fixes were introduced in `2eb37dd19ba8ca3e47710b15dfa8c34d1eaec1f7`.
 - Railway project: `cdfc01a5-81dc-412d-bd0e-27321529ea39`.
 - Railway production environment: `91a30755-f4b4-4fa0-ba92-f932168c1065`.
 - Railway service: `b853c72c-bee0-4ac9-9824-573ff6a84988`.
