@@ -18,7 +18,8 @@
     "migrate:keys:dry": "node scripts/migrate-keys.js --dry-run",
     "backup:db": "node scripts/backup.js",
     "backup:drill": "node scripts/restore-drill.js",
-    "restore:db": "node scripts/restore.js"
+    "restore:db": "node scripts/restore.js",
+    "worker:start": "node worker/index.js"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.1",
