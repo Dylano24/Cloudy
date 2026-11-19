@@ -176,6 +176,7 @@ export const tableStatements = [
 ];
 
 export const indexStatements = [
+    // Existing indexes (18)
     `CREATE INDEX IF NOT EXISTS idx_guild_users_guild_id ON ${t.guild_users}(guild_id)`,
     `CREATE INDEX IF NOT EXISTS idx_guild_users_user_id ON ${t.guild_users}(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_birthdays_guild_id ON ${t.birthdays}(guild_id)`,
@@ -194,6 +195,19 @@ export const indexStatements = [
     `CREATE INDEX IF NOT EXISTS idx_verification_audit_created_at ON ${t.verification_audit}(created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_temp_data_expires_at ON ${t.temp_data}(expires_at)`,
     `CREATE INDEX IF NOT EXISTS idx_cache_data_expires_at ON ${t.cache_data}(expires_at)`,
+
+    // NEW: 7 Missing indexes for high-frequency queries
+    `CREATE INDEX IF NOT EXISTS idx_tickets_guild_channel ON ${t.tickets}(guild_id, channel_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_levels_guild_user ON ${t.user_levels}(guild_id, user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_economy_guild_user ON ${t.economy}(guild_id, user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_birthdays_user_id ON ${t.birthdays}(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_afk_status_user_id ON ${t.afk_status}(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_giveaways_message_id ON ${t.giveaways}(message_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_invite_tracking_inviter_id ON ${t.invite_tracking}(inviter_id)`,
+
+    // OPTIMIZATIONS: Improve existing single-column indexes
+    `CREATE INDEX IF NOT EXISTS idx_user_levels_xp_guild ON ${t.user_levels}(xp, guild_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_verification_audit_created_guild ON ${t.verification_audit}(created_at, guild_id)`,
 ];
 
 export const UPDATE_TIMESTAMP_FUNCTION = `
@@ -225,3 +239,4 @@ export const triggerDefinitions = [
     { name: 'update_tickets_updated_at', table: t.tickets },
     { name: 'update_afk_status_updated_at', table: t.afk_status },
 ];
+
