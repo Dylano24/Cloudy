@@ -314,6 +314,13 @@ async function syncGuildCommands(applicationId, guildId, payloads) {
       return;
     }
 
+    // Cloudy is not (or no longer) in this server: nothing to sync there. The
+    // bot must still start for every other server it is in.
+    if (result.response.status === 403 && Number(result.body?.code) === 50001) {
+      console.warn(`[COMMAND_SYNC] SKIPPED: no access to guild ${guildId} (Cloudy is not in that server or lacks the applications.commands scope).`);
+      return;
+    }
+
     if (result.response.status === 429) {
       if (attempt >= MAX_RETRIES) {
         console.warn('[COMMAND_SYNC] DEFERRED: Discord is still rate-limiting the fallback sync; leaving the existing command set untouched.');
